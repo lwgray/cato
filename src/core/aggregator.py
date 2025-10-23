@@ -703,6 +703,95 @@ class Aggregator:
             )
             messages.append(msg)
 
+        # Detect and mark duplicates
+        messages = self._detect_duplicates(messages)
+
+        return messages
+
+    def _detect_duplicates(
+        self, messages: List[Message], time_threshold_seconds: float = 2.0
+    ) -> List[Message]:
+        """
+        Detect and mark duplicate messages.
+
+        Duplicates are identified as messages with:
+        - Same content
+        - Same timestamp (within threshold)
+        - Same from/to agents
+        - Same task_id
+        - Same message type
+
+        Parameters
+        ----------
+        messages : List[Message]
+            Messages to analyze
+        time_threshold_seconds : float
+            Time window for duplicate detection (default 2 seconds)
+
+        Returns
+        -------
+        List[Message]
+            Messages with duplicate flags set
+        """
+        # Group potential duplicates by a similarity key
+        groups = defaultdict(list)
+
+        for msg in messages:
+            # Create a key that groups similar messages
+            # (content hash + agent pair + task + type)
+            key = (
+                hash(msg.message),  # Content
+                msg.from_agent_id,
+                msg.to_agent_id,
+                msg.task_id or "",
+                msg.type,
+            )
+            groups[key].append(msg)
+
+        # Within each group, find duplicates by timestamp proximity
+        group_counter = 0
+
+        for key, group_messages in groups.items():
+            if len(group_messages) < 2:
+                continue  # No duplicates possible
+
+            # Sort by timestamp
+            sorted_messages = sorted(group_messages, key=lambda m: m.timestamp)
+
+            # Find duplicates within time threshold
+            i = 0
+            while i < len(sorted_messages):
+                current_msg = sorted_messages[i]
+                duplicate_set = [current_msg]
+
+                # Find all messages within time threshold
+                j = i + 1
+                while j < len(sorted_messages):
+                    next_msg = sorted_messages[j]
+                    time_diff = abs(
+                        (next_msg.timestamp - current_msg.timestamp).total_seconds()
+                    )
+
+                    if time_diff <= time_threshold_seconds:
+                        duplicate_set.append(next_msg)
+                        j += 1
+                    else:
+                        break
+
+                # If we found duplicates, mark them
+                if len(duplicate_set) > 1:
+                    group_counter += 1
+                    group_id = f"dup_group_{group_counter}"
+
+                    # First message is the original, rest are duplicates
+                    for idx, msg in enumerate(duplicate_set):
+                        msg.is_duplicate = idx > 0
+                        msg.duplicate_group_id = group_id
+                        msg.duplicate_count = len(duplicate_set)
+
+                i = j if j > i + 1 else i + 1
+
+        logger.info(f"Detected {group_counter} duplicate message groups")
         return messages
 
     def _build_events(

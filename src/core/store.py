@@ -309,6 +309,11 @@ class Message:
     parent_message_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    # Duplicate detection
+    is_duplicate: bool = False
+    duplicate_group_id: Optional[str] = None
+    duplicate_count: int = 0
+
     def __post_init__(self) -> None:
         """Validate timezone-aware timestamp."""
         if self.timestamp.tzinfo is None:
