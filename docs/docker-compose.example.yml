@@ -1,0 +1,223 @@
+# Marcus + Cato Docker Compose Configuration
+# ============================================
+#
+# This is an example docker-compose.yml showing how to integrate Cato
+# visualization with the Marcus multi-agent orchestrator.
+#
+# Place this file in your Marcus repository as docker-compose.yml
+#
+# Usage:
+#   docker-compose up                    # Start Marcus only
+#   docker-compose --profile viz up      # Start Marcus + Cato visualization
+#
+# Services:
+#   - postgres: Database for Planka
+#   - planka: Kanban board for task management
+#   - marcus: Multi-agent orchestrator
+#   - cato-backend: Visualization API (profile: viz)
+#   - cato-frontend: Visualization UI (profile: viz)
+
+version: "3.8"
+
+services:
+  # PostgreSQL database for Planka
+  postgres:
+    image: postgres:15-alpine
+    container_name: marcus-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=planka
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d planka"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - marcus-network
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "shared_buffers=256MB"
+
+  # Planka Kanban board
+  planka:
+    image: ghcr.io/plankanban/planka:latest
+    container_name: marcus-planka
+    restart: unless-stopped
+    ports:
+      - "3333:1337"
+    environment:
+      - BASE_URL=http://localhost:3333
+      - TRUST_PROXY=1
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/planka?sslmode=disable
+      - SECRET_KEY=secretkey
+      # Default admin credentials
+      - DEFAULT_ADMIN_EMAIL=demo@demo.demo
+      - DEFAULT_ADMIN_PASSWORD=demo
+      - DEFAULT_ADMIN_NAME=Demo User
+      - DEFAULT_ADMIN_USERNAME=demo
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - planka-files:/app/public/user-files
+      - planka-user-avatars:/app/public/user-avatars
+      - planka-project-background-images:/app/public/project-background-images
+      - planka-attachments:/app/private/attachments
+    networks:
+      - marcus-network
+
+  # Marcus AI Agent Orchestrator
+  marcus:
+    image: lwgray575/marcus:latest
+    container_name: marcus
+    restart: unless-stopped
+    ports:
+      - "4298:4298"
+    environment:
+      # Planka connection settings for kanban-mcp
+      - PLANKA_BASE_URL=http://planka:1337
+      - PLANKA_AGENT_EMAIL=demo@demo.demo
+      - PLANKA_AGENT_PASSWORD=demo
+      # Marcus config file selection (default: config_marcus.json)
+      # Override with: MARCUS_CONFIG=config_marcus.json.anthropic docker-compose up
+      - MARCUS_CONFIG=/app/config/${MARCUS_CONFIG:-config_marcus.json}
+    volumes:
+      # Mount config directory to allow choosing different config files
+      - ./:/app/config
+      # Optional: Mount logs directory to persist logs
+      - ./logs:/app/logs
+      # Share data directory with Cato for visualization
+      - marcus-data:/app/data
+    depends_on:
+      planka:
+        condition: service_started
+    networks:
+      - marcus-network
+
+  # Cato Visualization Backend (optional - use --profile viz to enable)
+  cato-backend:
+    build:
+      context: ../cato
+      dockerfile: Dockerfile.backend
+    container_name: cato-backend
+    restart: unless-stopped
+    profiles:
+      - viz
+    ports:
+      - "4301:4301"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Access Marcus data for visualization (read-only)
+      - marcus-data:/app/data:ro
+      # For development: mount local Marcus for live updates
+      # Uncomment the line below if you want to develop Marcus locally:
+      # - /path/to/marcus:/marcus
+    depends_on:
+      marcus:
+        condition: service_started
+    networks:
+      - marcus-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4301/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Cato Visualization Frontend (optional - use --profile viz to enable)
+  cato-frontend:
+    build:
+      context: ../cato
+      dockerfile: Dockerfile.frontend
+      args:
+        - VITE_API_URL=http://localhost:4301
+        - VITE_DATA_MODE=live
+    container_name: cato-frontend
+    restart: unless-stopped
+    profiles:
+      - viz
+    ports:
+      - "5173:5173"
+    depends_on:
+      cato-backend:
+        condition: service_healthy
+    networks:
+      - marcus-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5173/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  marcus-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    name: marcus-postgres-data
+  planka-files:
+  planka-user-avatars:
+  planka-project-background-images:
+  planka-attachments:
+  marcus-data:
+    name: marcus-data
+
+# Configuration Notes:
+# ====================
+#
+# Directory Structure:
+#   This file assumes the following directory structure:
+#
+#   /your/workspace/
+#   ├── marcus/                    # Marcus repository
+#   │   └── docker-compose.yml    # This file
+#   └── cato/                      # Cato repository
+#       ├── Dockerfile.backend
+#       └── Dockerfile.frontend
+#
+# Adjust the `context: ../cato` paths if your directory structure differs.
+#
+# Ports:
+#   - 3333: Planka (Kanban board UI)
+#   - 4298: Marcus (Orchestrator API)
+#   - 4301: Cato Backend (Visualization API)
+#   - 5173: Cato Frontend (Dashboard UI)
+#
+# Volumes:
+#   - postgres-data: PostgreSQL database files
+#   - planka-*: Planka file storage
+#   - marcus-data: Marcus execution data (shared with Cato read-only)
+#
+# Profiles:
+#   - default: postgres, planka, marcus
+#   - viz: All default services + cato-backend + cato-frontend
+#
+# Examples:
+#   # Start Marcus only
+#   docker-compose up
+#
+#   # Start Marcus + Cato visualization
+#   docker-compose --profile viz up
+#
+#   # Build images
+#   docker-compose --profile viz build
+#
+#   # View logs
+#   docker-compose logs -f cato-backend
+#
+#   # Stop all services
+#   docker-compose down
+#
+# For more information, see:
+#   - Marcus Documentation: https://github.com/yourusername/marcus
+#   - Cato Documentation: https://github.com/yourusername/cato/docs/DOCKER.md

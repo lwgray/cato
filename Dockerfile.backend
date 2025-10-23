@@ -1,0 +1,44 @@
+# Cato Backend Dockerfile
+# FastAPI backend for Marcus visualization dashboard
+
+FROM python:3.11-slim
+
+LABEL maintainer="Marcus Team <team@marcus.ai>"
+LABEL description="Cato Backend - Marcus Visualization Dashboard API"
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY backend/requirements.txt /app/backend/requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r backend/requirements.txt
+
+# Install Marcus from git (production) or volume (development)
+# In production: Install from git
+# In development: Marcus is mounted as a volume and installed in entrypoint
+ARG MARCUS_VERSION=main
+RUN pip install --no-cache-dir git+https://github.com/yourusername/marcus.git@${MARCUS_VERSION} || true
+
+# Copy backend code
+COPY backend/ /app/backend/
+COPY config.json /app/config.json
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+# Expose port
+EXPOSE 4301
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:4301/health')"
+
+# Run the FastAPI server
+CMD ["python", "backend/api.py"]

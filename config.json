@@ -1,0 +1,10 @@
+{
+  "backend": {
+    "host": "localhost",
+    "port": 4301
+  },
+  "frontend": {
+    "port": 5173
+  },
+  "marcus_data_path": "/Users/lwgray/dev/worktrees/viz/data"
+}

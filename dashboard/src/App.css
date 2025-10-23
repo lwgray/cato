@@ -1,0 +1,164 @@
+.app {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #0f172a;
+}
+
+.app-header {
+  padding: 1rem 2rem;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border-bottom: 2px solid #334155;
+}
+
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.header-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.project-selector {
+  padding: 0.5rem 1rem;
+  background: #1e293b;
+  border: 2px solid #334155;
+  border-radius: 0.5rem;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 200px;
+}
+
+.project-selector:hover:not(:disabled) {
+  background: #334155;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+.project-selector:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.data-mode-toggle,
+.refresh-button,
+.auto-refresh-toggle,
+.task-view-toggle {
+  padding: 0.5rem 1rem;
+  background: #1e293b;
+  border: 2px solid #334155;
+  border-radius: 0.5rem;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.auto-refresh-toggle.enabled {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border-color: #059669;
+  color: white;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.data-mode-toggle:hover:not(:disabled),
+.refresh-button:hover:not(:disabled),
+.auto-refresh-toggle:hover:not(:disabled),
+.task-view-toggle:hover:not(:disabled) {
+  background: #334155;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+.auto-refresh-toggle.enabled:hover:not(:disabled) {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+}
+
+.data-mode-toggle:disabled,
+.refresh-button:disabled,
+.auto-refresh-toggle:disabled,
+.task-view-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error-banner {
+  background: #ffcc00;
+  color: #000;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.app-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.layer-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.layer-tabs button {
+  padding: 0.75rem 1.5rem;
+  background-color: #1e293b;
+  border: 2px solid #334155;
+  border-radius: 0.5rem;
+  color: #94a3b8;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.layer-tabs button:hover {
+  background-color: #334155;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+.layer-tabs button.active {
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  border-color: #6366f1;
+  color: white;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.app-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.visualization-container {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem;
+  background-color: #0f172a;
+}
+
+/* Metrics panel will be styled in its own component */

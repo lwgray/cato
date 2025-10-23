@@ -1,0 +1,149 @@
+import { useEffect } from 'react';
+import { useVisualizationStore } from '../store/visualizationStore';
+import { timeToLogScale, logScaleToTime } from '../utils/timelineUtils';
+import './TimelineControls.css';
+
+const TimelineControls = () => {
+  const snapshot = useVisualizationStore((state) => state.snapshot);
+  const currentTime = useVisualizationStore((state) => state.currentTime);
+  const isPlaying = useVisualizationStore((state) => state.isPlaying);
+  const playbackSpeed = useVisualizationStore((state) => state.playbackSpeed);
+  const setCurrentTime = useVisualizationStore((state) => state.setCurrentTime);
+  const play = useVisualizationStore((state) => state.play);
+  const pause = useVisualizationStore((state) => state.pause);
+  const setPlaybackSpeed = useVisualizationStore((state) => state.setPlaybackSpeed);
+  const reset = useVisualizationStore((state) => state.reset);
+
+  // Calculate values that might be needed (even if we return early, we need consistent hooks)
+  const startTime = snapshot?.start_time ? new Date(snapshot.start_time).getTime() : 0;
+  const endTime = snapshot?.end_time ? new Date(snapshot.end_time).getTime() : 1;
+  const totalDuration = endTime - startTime;
+
+  const handlePlayPause = () => {
+    if (isPlaying) {
+      pause();
+    } else {
+      play();
+    }
+  };
+
+  // Keyboard shortcuts - MUST be before early return to maintain hook order
+  useEffect(() => {
+    if (!snapshot || !snapshot.start_time || !snapshot.end_time) return;
+
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handlePlayPause();
+      } else if (e.code === 'KeyR') {
+        e.preventDefault();
+        reset();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        setCurrentTime(Math.max(0, currentTime - 5000)); // -5s
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        setCurrentTime(Math.min(totalDuration, currentTime + 5000)); // +5s
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [snapshot, currentTime, isPlaying, totalDuration, setCurrentTime, reset, handlePlayPause]);
+
+  // Don't render timeline if no snapshot - but keep all hooks above this check
+  if (!snapshot || !snapshot.start_time || !snapshot.end_time) {
+    return null;
+  }
+
+  // Apply power scale to scrubber to match visual layout
+  const currentScaled = timeToLogScale(currentTime, totalDuration);
+  const currentPercent = (currentScaled / totalDuration) * 100;
+  const currentMinutes = Math.round(currentTime / 60000);
+  const totalMinutes = Math.round(totalDuration / 60000);
+
+  const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const percent = parseFloat(e.target.value);
+    const scaledTime = (percent / 100) * totalDuration;
+    const linearTime = logScaleToTime(scaledTime, totalDuration);
+    if (isPlaying) {
+      pause(); // Pause playback when scrubbing
+    }
+    setCurrentTime(linearTime);
+  };
+
+  const handleSpeedChange = (speed: number) => {
+    setPlaybackSpeed(speed);
+  };
+
+  return (
+    <div className="timeline-controls">
+      <div className="timeline-info">
+        <span className="current-time">{currentMinutes}m</span>
+        <span className="separator">/</span>
+        <span className="total-time">{totalMinutes}m</span>
+      </div>
+
+      <div className="timeline-bar">
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="0.1"
+          value={currentPercent}
+          onChange={handleScrub}
+          className="timeline-scrubber"
+        />
+      </div>
+
+      <div className="playback-controls">
+        <button
+          className="control-btn reset-btn"
+          onClick={reset}
+          title="Reset (R)"
+        >
+          ⏮
+        </button>
+
+        <button
+          className="control-btn skip-btn"
+          onClick={() => setCurrentTime(Math.max(0, currentTime - 10000))}
+          title="Skip Back 10s (←)"
+        >
+          ⏪
+        </button>
+
+        <button
+          className="control-btn play-pause-btn"
+          onClick={handlePlayPause}
+          title="Play/Pause (Space)"
+        >
+          {isPlaying ? '⏸' : '▶'}
+        </button>
+
+        <button
+          className="control-btn skip-btn"
+          onClick={() => setCurrentTime(Math.min(totalDuration, currentTime + 10000))}
+          title="Skip Forward 10s (→)"
+        >
+          ⏩
+        </button>
+      </div>
+
+      <div className="speed-controls">
+        <span className="speed-label">Speed:</span>
+        {[0.5, 1, 2, 5, 10].map(speed => (
+          <button
+            key={speed}
+            className={`speed-btn ${playbackSpeed === speed ? 'active' : ''}`}
+            onClick={() => handleSpeedChange(speed)}
+          >
+            {speed}x
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default TimelineControls;

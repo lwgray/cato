@@ -1,0 +1,27 @@
+# Cato Backend Dependencies
+# ========================
+
+# Web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Data validation
+pydantic==2.5.0
+
+# Async utilities
+aiofiles==23.2.1
+websockets==12.0
+
+# File monitoring
+watchdog==3.0.0
+
+# Marcus dependency
+# ================
+# For development: Install Marcus in editable mode first:
+#   pip install -e /path/to/marcus
+#
+# For production: Install from git (uncomment when Marcus is published):
+#   marcus @ git+https://github.com/yourusername/marcus.git
+#
+# Note: Marcus must be installed separately. See INSTALLATION.md
