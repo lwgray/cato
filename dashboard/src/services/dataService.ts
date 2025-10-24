@@ -141,6 +141,11 @@ export interface Message {
   // Metadata
   parent_message_id: string | null;
   metadata: Record<string, any>;
+
+  // Duplicate detection
+  is_duplicate?: boolean;
+  duplicate_group_id?: string | null;
+  duplicate_count?: number;
 }
 
 /**
