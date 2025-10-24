@@ -8,9 +8,15 @@ Supports CORS for local development and production deployment.
 import json
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional
+
+# Ensure we import from the local Cato src directory, not elsewhere
+cato_root = Path(__file__).parent.parent
+if str(cato_root) not in sys.path:
+    sys.path.insert(0, str(cato_root))
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware

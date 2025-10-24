@@ -890,7 +890,8 @@ class Aggregator:
         for task in tasks:
             if task.status == "in_progress" and task.assigned_agent_id is None:
                 # Use task's updated time as when the issue was detected
-                event_time = self._parse_timestamp(task.updated_at) or timeline_end
+                # updated_at is already a datetime object, no parsing needed
+                event_time = task.updated_at or timeline_end
 
                 diagnostic_events.append(
                     Event(
@@ -919,7 +920,7 @@ class Aggregator:
             if count >= 3:
                 task = tasks_by_id.get(task_id)
                 if task and task.status != "done":
-                    event_time = self._parse_timestamp(task.updated_at) or timeline_end
+                    event_time = task.updated_at or timeline_end
 
                     diagnostic_events.append(
                         Event(
@@ -981,7 +982,7 @@ class Aggregator:
             cycle_tasks = [tasks_by_id[tid] for tid in cycle if tid in tasks_by_id]
             if cycle_tasks:
                 latest_time = max(
-                    (self._parse_timestamp(t.updated_at) for t in cycle_tasks if t.updated_at),
+                    (t.updated_at for t in cycle_tasks if t.updated_at),
                     default=timeline_end
                 )
 
@@ -1031,7 +1032,7 @@ class Aggregator:
             redundant = set(task.dependency_ids) & reachable
 
             if redundant:
-                event_time = self._parse_timestamp(task.updated_at) or timeline_end
+                event_time = task.updated_at or timeline_end
                 for redundant_dep in redundant:
                     redundant_task = tasks_by_id.get(redundant_dep)
                     if redundant_task:

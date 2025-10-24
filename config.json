@@ -6,5 +6,5 @@
   "frontend": {
     "port": 5173
   },
-  "marcus_data_path": "/Users/lwgray/dev/worktrees/viz/data"
+  "marcus_data_path": "/Users/lwgray/dev/marcus/data"
 }
