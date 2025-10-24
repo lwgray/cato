@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { useVisualizationStore } from '../store/visualizationStore';
 import { Task } from '../services/dataService';
 import { getTaskStateAtTime } from '../utils/timelineUtils';
+import TaskLifecyclePanel from './TaskLifecyclePanel';
 import './NetworkGraphView.css';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
@@ -32,6 +33,9 @@ const NetworkGraphView = () => {
   const currentTime = useVisualizationStore((state) => state.currentTime);
   const selectTask = useVisualizationStore((state) => state.selectTask);
   const selectedTaskId = useVisualizationStore((state) => state.selectedTaskId);
+
+  // Local state for lifecycle panel
+  const [lifecycleTask, setLifecycleTask] = useState<Task | null>(null);
 
   // Build graph structure once when tasks change
   useEffect(() => {
@@ -310,6 +314,7 @@ const NetworkGraphView = () => {
       })
       .on('click', (_, d) => {
         selectTask(d.id);
+        setLifecycleTask(d.task); // Show lifecycle panel
       });
 
     // Node labels
@@ -466,6 +471,14 @@ const NetworkGraphView = () => {
           </div>
         </div>
       </div>
+
+      {/* Task Lifecycle Panel */}
+      {lifecycleTask && (
+        <TaskLifecyclePanel
+          task={lifecycleTask}
+          onClose={() => setLifecycleTask(null)}
+        />
+      )}
     </div>
   );
 };

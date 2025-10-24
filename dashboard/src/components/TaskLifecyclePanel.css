@@ -1,0 +1,390 @@
+.task-lifecycle-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 450px;
+  height: 100vh;
+  background-color: #1e293b;
+  border-left: 2px solid #334155;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.panel-header {
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
+  border-bottom: 2px solid #475569;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.panel-title-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin: 0 0 0.75rem 0;
+  word-wrap: break-word;
+}
+
+.task-badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.status-badge, .priority-badge, .diagnostic-badge {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.375rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.status-done {
+  background-color: #10b981;
+  color: white;
+}
+
+.status-in-progress {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.status-blocked {
+  background-color: #ef4444;
+  color: white;
+}
+
+.status-todo {
+  background-color: #64748b;
+  color: white;
+}
+
+.priority-urgent {
+  background-color: #dc2626;
+  color: white;
+}
+
+.priority-high {
+  background-color: #f59e0b;
+  color: #0f172a;
+}
+
+.priority-medium {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.priority-low {
+  background-color: #64748b;
+  color: white;
+}
+
+.zombie-badge {
+  background-color: #ef4444;
+  color: white;
+}
+
+.bottleneck-badge {
+  background-color: #f97316;
+  color: white;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.2s;
+  flex-shrink: 0;
+}
+
+.close-button:hover {
+  color: #e2e8f0;
+}
+
+.panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.panel-section {
+  margin-bottom: 2rem;
+}
+
+.panel-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #334155;
+}
+
+.info-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.info-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.info-value {
+  font-size: 0.875rem;
+  color: #e2e8f0;
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 24px;
+  background-color: #0f172a;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: white;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.task-description {
+  font-size: 0.875rem;
+  color: #cbd5e1;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.timeline-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.timeline-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.timeline-value {
+  font-size: 0.8rem;
+  color: #e2e8f0;
+}
+
+.dependency-group {
+  margin-bottom: 1rem;
+}
+
+.dependency-group:last-child {
+  margin-bottom: 0;
+}
+
+.dependency-title {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+}
+
+.dependency-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dependency-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background-color: #0f172a;
+  border-radius: 0.375rem;
+}
+
+.dep-status {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.dep-name {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.event-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background-color: #0f172a;
+  border-radius: 0.375rem;
+  border-left: 3px solid #3b82f6;
+}
+
+.event-time {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.event-type {
+  font-size: 0.8rem;
+  color: #e2e8f0;
+  flex: 1;
+}
+
+.event-agent {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.message-item {
+  padding: 0.75rem;
+  background-color: #0f172a;
+  border-radius: 0.375rem;
+  border-left: 3px solid #8b5cf6;
+}
+
+.message-header-small {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.message-time-small {
+  font-size: 0.7rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.message-type-small {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.message-sender-small {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-bottom: 0.5rem;
+}
+
+.message-content-small {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.labels-list {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.label-tag {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.75rem;
+  background-color: #334155;
+  color: #94a3b8;
+  border-radius: 0.375rem;
+  font-weight: 600;
+}
+
+/* Scrollbar styling */
+.panel-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.panel-content::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.panel-content::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+.panel-content::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
