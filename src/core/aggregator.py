@@ -321,13 +321,70 @@ class Aggregator:
                 else:
                     all_tasks = data
 
-                # TODO: Fix project filtering - tasks don't have project_id field
-                # For now, return all tasks regardless of project filter
+                # Filter by project using fuzzy matching (±20 range)
+                # Planka creates task IDs that are offset from board IDs
                 if project_id:
-                    logger.info(
-                        f"Project filtering requested for {project_id}, "
-                        f"but tasks lack project_id field. Returning all {len(all_tasks)} tasks."
+                    # Load projects to get Planka board/project ID mapping
+                    projects_data = self._load_projects()
+                    project_info = next(
+                        (p for p in projects_data if p.get("id") == project_id), None
                     )
+
+                    if project_info and "provider_config" in project_info:
+                        planka_project_id = project_info["provider_config"].get(
+                            "project_id", ""
+                        )
+                        planka_board_id = project_info["provider_config"].get("board_id", "")
+
+                        if planka_project_id or planka_board_id:
+                            filtered_tasks = []
+
+                            for task in all_tasks:
+                                parent_id = str(task.get("parent_task_id", ""))
+
+                                # Skip non-Planka IDs (e.g., "task-001")
+                                if not parent_id or not parent_id[0].isdigit():
+                                    continue
+
+                                if len(parent_id) < 8:
+                                    continue
+
+                                # Check distance to board_id and project_id
+                                best_match = False
+
+                                for id_to_check in [planka_board_id, planka_project_id]:
+                                    if id_to_check and len(id_to_check) >= 8:
+                                        try:
+                                            id_prefix = int(id_to_check[:8])
+                                            parent_prefix = int(parent_id[:8])
+                                            distance = abs(parent_prefix - id_prefix)
+
+                                            # Use ±20 range for fuzzy matching
+                                            if distance <= 20:
+                                                best_match = True
+                                                break
+                                        except (ValueError, IndexError):
+                                            # If conversion fails, try exact prefix match
+                                            if parent_id.startswith(id_to_check[:8]):
+                                                best_match = True
+                                                break
+
+                                if best_match:
+                                    filtered_tasks.append(task)
+
+                            logger.info(
+                                f"Filtered {len(filtered_tasks)}/{len(all_tasks)} tasks "
+                                f"for project {project_id} (Planka ID: {planka_project_id})"
+                            )
+                            return filtered_tasks
+                        else:
+                            logger.warning(
+                                f"Project {project_id} has no Planka IDs, returning all tasks"
+                            )
+                    else:
+                        logger.warning(
+                            f"Project {project_id} not found, returning all tasks"
+                        )
 
                 logger.info(f"Loaded {len(all_tasks)} tasks (all projects)")
                 return all_tasks
