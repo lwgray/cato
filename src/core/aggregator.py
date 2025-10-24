@@ -222,6 +222,13 @@ class Aggregator:
         # Step 8: Build denormalized events
         events = self._build_events(raw_events, task_ids_set, tasks_by_id, agents_by_id)
 
+        # Step 8a: Generate diagnostic events for timeline
+        diagnostic_events = self._build_diagnostic_events(
+            tasks, agents, timeline_start, timeline_end
+        )
+        # Merge diagnostic events with regular events
+        all_events = events + diagnostic_events
+
         # Step 9: Calculate pre-computed metrics
         metrics = self._calculate_metrics(tasks, agents, messages)
 
@@ -252,7 +259,7 @@ class Aggregator:
             tasks=tasks,
             agents=agents,
             messages=messages,
-            timeline_events=events,
+            timeline_events=all_events,
             metrics=metrics,
             start_time=timeline_start,
             end_time=timeline_end,
@@ -836,6 +843,219 @@ class Aggregator:
             events.append(event)
 
         return events
+
+    def _build_diagnostic_events(
+        self,
+        tasks: List[Task],
+        agents: List[Agent],
+        timeline_start: Optional[datetime],
+        timeline_end: Optional[datetime],
+    ) -> List[Event]:
+        """
+        Build diagnostic events for timeline visualization.
+
+        Detects issues like zombie tasks, circular dependencies, bottlenecks,
+        and generates timeline events so they can be visualized during playback.
+
+        Parameters
+        ----------
+        tasks : List[Task]
+            Denormalized tasks
+        agents : List[Agent]
+            Denormalized agents
+        timeline_start : Optional[datetime]
+            Timeline start time
+        timeline_end : Optional[datetime]
+            Timeline end time
+
+        Returns
+        -------
+        List[Event]
+            Diagnostic events with timestamps
+        """
+        diagnostic_events: List[Event] = []
+
+        if not timeline_start or not timeline_end:
+            return diagnostic_events
+
+        # Build task lookup for dependency checking
+        tasks_by_id = {t.id: t for t in tasks}
+        assigned_task_ids = {
+            t_id
+            for agent in agents
+            for t_id in agent.current_task_ids
+        }
+
+        # 1. Detect zombie tasks (IN_PROGRESS with no agent assigned)
+        for task in tasks:
+            if task.status == "in_progress" and task.assigned_agent_id is None:
+                # Use task's updated time as when the issue was detected
+                event_time = self._parse_timestamp(task.updated_at) or timeline_end
+
+                diagnostic_events.append(
+                    Event(
+                        id=f"diagnostic_zombie_{task.id}",
+                        timestamp=event_time,
+                        event_type="diagnostic:zombie_task",
+                        agent_id=None,
+                        agent_name=None,
+                        task_id=task.id,
+                        task_name=task.name,
+                        data={
+                            "severity": "high",
+                            "description": f"Task '{task.name}' is marked IN_PROGRESS but has no assigned agent",
+                            "recommendation": "Reset to TODO status or assign to an available agent",
+                        },
+                    )
+                )
+
+        # 2. Detect bottleneck tasks (blocking 3+ other tasks)
+        dependent_count = defaultdict(int)
+        for task in tasks:
+            for dep_id in task.dependency_ids:
+                dependent_count[dep_id] += 1
+
+        for task_id, count in dependent_count.items():
+            if count >= 3:
+                task = tasks_by_id.get(task_id)
+                if task and task.status != "done":
+                    event_time = self._parse_timestamp(task.updated_at) or timeline_end
+
+                    diagnostic_events.append(
+                        Event(
+                            id=f"diagnostic_bottleneck_{task.id}",
+                            timestamp=event_time,
+                            event_type="diagnostic:bottleneck",
+                            agent_id=task.assigned_agent_id,
+                            agent_name=task.assigned_agent_name,
+                            task_id=task.id,
+                            task_name=task.name,
+                            data={
+                                "severity": "medium",
+                                "description": f"Task '{task.name}' is blocking {count} other tasks",
+                                "recommendation": f"Prioritize completing this task to unblock {count} tasks",
+                                "blocks_count": count,
+                            },
+                        )
+                    )
+
+        # 3. Detect circular dependencies (basic check)
+        visited: Set[str] = set()
+        rec_stack: Set[str] = set()
+
+        def has_cycle(task_id: str, path: List[str]) -> Optional[List[str]]:
+            """DFS to detect cycles."""
+            if task_id in rec_stack:
+                # Found a cycle
+                cycle_start_idx = path.index(task_id)
+                return path[cycle_start_idx:] + [task_id]
+
+            if task_id in visited or task_id not in tasks_by_id:
+                return None
+
+            visited.add(task_id)
+            rec_stack.add(task_id)
+            path.append(task_id)
+
+            task = tasks_by_id[task_id]
+            for dep_id in task.dependency_ids:
+                cycle = has_cycle(dep_id, path[:])
+                if cycle:
+                    return cycle
+
+            rec_stack.remove(task_id)
+            return None
+
+        detected_cycles: List[List[str]] = []
+        for task in tasks:
+            if task.id not in visited:
+                cycle = has_cycle(task.id, [])
+                if cycle:
+                    # Avoid duplicate cycles
+                    cycle_set = frozenset(cycle)
+                    if not any(frozenset(c) == cycle_set for c in detected_cycles):
+                        detected_cycles.append(cycle)
+
+        for cycle in detected_cycles:
+            # Use the latest updated time from tasks in the cycle
+            cycle_tasks = [tasks_by_id[tid] for tid in cycle if tid in tasks_by_id]
+            if cycle_tasks:
+                latest_time = max(
+                    (self._parse_timestamp(t.updated_at) for t in cycle_tasks if t.updated_at),
+                    default=timeline_end
+                )
+
+                cycle_names = [tasks_by_id[tid].name for tid in cycle[:3] if tid in tasks_by_id]
+
+                diagnostic_events.append(
+                    Event(
+                        id=f"diagnostic_circular_{'_'.join(cycle[:2])}",
+                        timestamp=latest_time or timeline_end,
+                        event_type="diagnostic:circular_dependency",
+                        agent_id=None,
+                        agent_name=None,
+                        task_id=cycle[0] if cycle else None,
+                        task_name=None,
+                        data={
+                            "severity": "critical",
+                            "description": f"Circular dependency detected: {' → '.join(cycle_names)}...",
+                            "recommendation": "Break the cycle by removing one dependency link",
+                            "cycle": cycle,
+                            "cycle_length": len(cycle),
+                        },
+                    )
+                )
+
+        # 4. Detect redundant dependencies (transitive)
+        for task in tasks:
+            if len(task.dependency_ids) < 2:
+                continue
+
+            # Find what's reachable through dependencies
+            reachable: Set[str] = set()
+
+            def find_reachable(dep_id: str, visited_deps: Set[str]) -> None:
+                """Find all tasks reachable from dep_id."""
+                if dep_id in visited_deps or dep_id not in tasks_by_id:
+                    return
+                visited_deps.add(dep_id)
+                dep_task = tasks_by_id[dep_id]
+                for next_dep in dep_task.dependency_ids:
+                    reachable.add(next_dep)
+                    find_reachable(next_dep, visited_deps)
+
+            for dep_id in task.dependency_ids:
+                find_reachable(dep_id, set())
+
+            # Check if any direct dependency is also reachable transitively
+            redundant = set(task.dependency_ids) & reachable
+
+            if redundant:
+                event_time = self._parse_timestamp(task.updated_at) or timeline_end
+                for redundant_dep in redundant:
+                    redundant_task = tasks_by_id.get(redundant_dep)
+                    if redundant_task:
+                        diagnostic_events.append(
+                            Event(
+                                id=f"diagnostic_redundant_{task.id}_{redundant_dep}",
+                                timestamp=event_time,
+                                event_type="diagnostic:redundant_dependency",
+                                agent_id=None,
+                                agent_name=None,
+                                task_id=task.id,
+                                task_name=task.name,
+                                data={
+                                    "severity": "low",
+                                    "description": f"Task '{task.name}' has redundant dependency on '{redundant_task.name}'",
+                                    "recommendation": "Remove redundant dependency to simplify graph",
+                                    "redundant_dependency_id": redundant_dep,
+                                    "redundant_dependency_name": redundant_task.name,
+                                },
+                            )
+                        )
+
+        logger.info(f"Generated {len(diagnostic_events)} diagnostic timeline events")
+        return diagnostic_events
 
     def _calculate_metrics(
         self, tasks: List[Task], agents: List[Agent], messages: List[Message]
