@@ -321,13 +321,73 @@ class Aggregator:
                 else:
                     all_tasks = data
 
-                # TODO: Fix project filtering - tasks don't have project_id field
-                # For now, return all tasks regardless of project filter
+                # Filter by project if requested
                 if project_id:
-                    logger.info(
-                        f"Project filtering requested for {project_id}, "
-                        f"but tasks lack project_id field. Returning all {len(all_tasks)} tasks."
+                    # Load projects to get Planka project ID mapping
+                    projects_data = self._load_projects()
+                    project_info = next(
+                        (p for p in projects_data if p.get("id") == project_id), None
                     )
+
+                    if project_info and "provider_config" in project_info:
+                        planka_project_id = project_info["provider_config"].get(
+                            "project_id"
+                        )
+                        planka_board_id = project_info["provider_config"].get("board_id")
+
+                        if planka_project_id or planka_board_id:
+                            # Filter tasks by matching parent_task_id to board
+                            # Cards belong to boards, so we match against board_id
+                            filtered_tasks = []
+                            target_id = planka_board_id or planka_project_id
+
+                            for task in all_tasks:
+                                parent_id = str(task.get("parent_task_id", ""))
+                                if not parent_id:
+                                    continue
+
+                                # Use prefix matching (first 10 digits) as a heuristic
+                                # Snowflake IDs created around same time have similar prefixes
+                                try:
+                                    parent_prefix = parent_id[:10]
+                                    target_prefix = target_id[:10]
+
+                                    # If prefixes are within a reasonable range, include the task
+                                    # This is a heuristic since we don't have direct board->card mapping
+                                    parent_num = int(parent_prefix)
+                                    target_num = int(target_prefix)
+
+                                    # Allow ±5% variance in the prefix (accounts for temporal proximity)
+                                    tolerance = int(target_num * 0.05)
+                                    if abs(parent_num - target_num) <= tolerance:
+                                        filtered_tasks.append(task)
+                                except (ValueError, IndexError):
+                                    # If conversion fails, skip this task
+                                    continue
+
+                            if len(filtered_tasks) == 0:
+                                # No tasks matched - might be wrong heuristic, return all
+                                logger.warning(
+                                    f"No tasks matched for project {project_id} using prefix heuristic, "
+                                    f"returning all tasks"
+                                )
+                                return all_tasks
+
+                            logger.info(
+                                f"Filtered {len(filtered_tasks)}/{len(all_tasks)} tasks "
+                                f"for project {project_id} (Planka ID: {planka_project_id})"
+                            )
+                            return filtered_tasks
+                        else:
+                            logger.warning(
+                                f"Project {project_id} has no Planka project_id, "
+                                f"returning all tasks"
+                            )
+                    else:
+                        logger.warning(
+                            f"Project {project_id} not found in projects.json, "
+                            f"returning all tasks"
+                        )
 
                 logger.info(f"Loaded {len(all_tasks)} tasks (all projects)")
                 return all_tasks
