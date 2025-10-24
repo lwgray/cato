@@ -494,48 +494,52 @@ class Aggregator:
         messages: List[Dict[str, Any]],
     ) -> tuple[datetime, datetime, int]:
         """
-        Calculate timeline boundaries from tasks and messages.
+        Calculate timeline boundaries from filtered tasks only.
+
+        Collects all available timestamps from tasks (created_at, updated_at,
+        started_at, completed_at) and uses min/max to determine timeline.
+        Excludes messages to ensure timeline matches the filtered task data.
 
         Returns
         -------
         tuple
             (start_time, end_time, duration_minutes)
         """
+        # Collect all available timestamps from displayed tasks
         timestamps = []
 
-        # Collect all timestamps from tasks
+        logger.info(f"Calculating timeline from {len(tasks)} tasks")
+
         for task in tasks:
+            # Check all possible timestamp fields
             for field in ["created_at", "updated_at", "started_at", "completed_at"]:
-                if field in task and task[field]:
-                    ts_str = task[field]
+                if task.get(field):
                     try:
-                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                        if ts.tzinfo is None:
-                            ts = ts.replace(tzinfo=timezone.utc)
-                        timestamps.append(ts)
-                    except (ValueError, AttributeError):
+                        ts_str = task[field]
+                        # Handle both ISO format with and without 'Z'
+                        if isinstance(ts_str, str):
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                            if ts.tzinfo is None:
+                                ts = ts.replace(tzinfo=timezone.utc)
+                            timestamps.append(ts)
+                    except (ValueError, AttributeError, TypeError) as e:
+                        logger.warning(f"Failed to parse {field}: {task.get(field)}: {e}")
                         continue
 
-        # Collect timestamps from messages
-        for msg in messages:
-            if "timestamp" in msg and msg["timestamp"]:
-                ts_str = msg["timestamp"]
-                try:
-                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                    if ts.tzinfo is None:
-                        ts = ts.replace(tzinfo=timezone.utc)
-                    timestamps.append(ts)
-                except (ValueError, AttributeError):
-                    continue
+        logger.info(f"Collected {len(timestamps)} timestamps from tasks")
 
         if not timestamps:
             # No data, use current time
+            logger.warning("No valid timestamps found, using current time")
             now = datetime.now(timezone.utc)
             return now, now, 0
 
+        # Use earliest timestamp as start, latest as end
         start_time = min(timestamps)
         end_time = max(timestamps)
         duration_minutes = int((end_time - start_time).total_seconds() / 60)
+
+        logger.info(f"Timeline: {start_time} to {end_time}, duration={duration_minutes} minutes")
 
         return start_time, end_time, duration_minutes
 
