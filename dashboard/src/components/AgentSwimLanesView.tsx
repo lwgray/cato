@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
 import { Task as SnapshotTask } from '../services/dataService';
 import { getTaskStateAtTime, timeToLogScale } from '../utils/timelineUtils';
+import TaskLifecyclePanel from './TaskLifecyclePanel';
 import './AgentSwimLanesView.css';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
@@ -10,6 +12,9 @@ const AgentSwimLanesView = () => {
   const currentTime = useVisualizationStore((state) => state.currentTime);
   const selectAgent = useVisualizationStore((state) => state.selectAgent);
   const selectTask = useVisualizationStore((state) => state.selectTask);
+
+  // Local state for lifecycle panel
+  const [lifecycleTask, setLifecycleTask] = useState<SnapshotTask | null>(null);
 
   if (!snapshot || !snapshot.start_time || !snapshot.end_time) {
     return (
@@ -143,6 +148,7 @@ const AgentSwimLanesView = () => {
                       onClick={(e) => {
                         e.stopPropagation();
                         selectTask(task.id);
+                        setLifecycleTask(task); // Show lifecycle panel
                       }}
                       title={task.name}
                     >
@@ -205,6 +211,14 @@ const AgentSwimLanesView = () => {
           ))}
         </div>
       </div>
+
+      {/* Task Lifecycle Panel */}
+      {lifecycleTask && (
+        <TaskLifecyclePanel
+          task={lifecycleTask}
+          onClose={() => setLifecycleTask(null)}
+        />
+      )}
     </div>
   );
 };
