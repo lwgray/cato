@@ -3,6 +3,7 @@ import { useVisualizationStore } from './store/visualizationStore';
 import NetworkGraphView from './components/NetworkGraphView';
 import AgentSwimLanesView from './components/AgentSwimLanesView';
 import ConversationView from './components/ConversationView';
+import HealthCheckDashboard from './components/HealthCheckDashboard';
 import TimelineControls from './components/TimelineControls';
 import MetricsPanel from './components/MetricsPanel';
 import TaskDetailPanel from './components/TaskDetailPanel';
@@ -155,6 +156,12 @@ function App() {
           >
             💬 Conversations
           </button>
+          <button
+            className={currentLayer === 'health' ? 'active' : ''}
+            onClick={() => setCurrentLayer('health')}
+          >
+            🏥 Health Check
+          </button>
         </div>
       </header>
 
@@ -163,6 +170,7 @@ function App() {
           {currentLayer === 'network' && <NetworkGraphView />}
           {currentLayer === 'swimlanes' && <AgentSwimLanesView />}
           {currentLayer === 'conversations' && <ConversationView />}
+          {currentLayer === 'health' && <HealthCheckDashboard />}
         </div>
 
         {selectedTaskId && <TaskDetailPanel />}
