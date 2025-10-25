@@ -536,10 +536,10 @@ class Aggregator:
             # Try to calculate from actual vs estimated hours
             estimated = task_data.get("estimated_hours", 0.0)
             actual = task_data.get("actual_hours", 0.0)
-            if estimated > 0:
+            if estimated > 0 and actual > 0:
                 # Cap at 90% to leave room for review/completion
                 return min(int((actual / estimated) * 100), 90)
-            # Default to 50% if no hour estimates available
+            # Default to 50% if no hours tracked yet
             return 50
         elif status == "blocked":
             return 0
