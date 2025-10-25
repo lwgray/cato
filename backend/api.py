@@ -103,31 +103,44 @@ async def health() -> Dict[str, str]:
 @app.get("/api/projects")  # type: ignore[misc]
 async def get_projects() -> Dict[str, Any]:
     """
-    Get list of all projects with names.
+    Get list of projects that have tasks.
+
+    Only returns projects with at least one task to avoid showing empty projects.
 
     Returns
     -------
     dict
-        List of projects with metadata
+        List of projects with metadata, filtered to only include projects with tasks
     """
     try:
         logger.info("Loading projects list")
         projects_data = aggregator._load_projects()
 
-        # Transform to frontend format
-        projects = [
-            {
-                "id": p.get("id", ""),
-                "name": p.get("name", p.get("id", "")),
-                "created_at": p.get("created_at", ""),
-                "last_used": p.get("last_used"),
-                "description": p.get("description", ""),
-            }
-            for p in projects_data
-            if "id" in p
-        ]
+        # Filter out projects with zero tasks
+        projects_with_tasks = []
+        for p in projects_data:
+            if "id" not in p:
+                continue
 
-        return {"projects": projects}
+            project_id = p.get("id", "")
+            # Load tasks for this project to check if it has any
+            project_tasks = aggregator._load_tasks(project_id=project_id)
+            task_count = len(project_tasks)
+
+            # Only include projects that have at least 1 task
+            if task_count > 0:
+                projects_with_tasks.append({
+                    "id": project_id,
+                    "name": p.get("name", project_id),
+                    "created_at": p.get("created_at", ""),
+                    "last_used": p.get("last_used"),
+                    "description": p.get("description", ""),
+                    "task_count": task_count,  # Include count for debugging
+                })
+
+        logger.info(f"Filtered to {len(projects_with_tasks)}/{len(projects_data)} projects with tasks")
+
+        return {"projects": projects_with_tasks}
     except Exception as e:
         logger.error(f"Error loading projects: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error loading projects: {str(e)}")
