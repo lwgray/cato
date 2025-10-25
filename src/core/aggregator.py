@@ -341,6 +341,9 @@ class Aggregator:
                 else:
                     all_tasks = data
 
+                # Enrich tasks with actual timing data from marcus.db before filtering
+                all_tasks = self.enrich_tasks_with_timing(all_tasks)
+
                 # Filter by project using fuzzy matching (±20 range)
                 # Planka creates task IDs that are offset from board IDs
                 if project_id:
@@ -545,6 +548,243 @@ class Aggregator:
             return 0
         else:  # todo or any other status
             return 0
+
+    def load_task_outcomes_from_db(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Load task outcomes from marcus.db (Memory system).
+
+        Returns actual task durations and completion data from completed tasks.
+
+        Returns
+        -------
+        Dict[str, Dict[str, Any]]
+            Dictionary mapping task_id to outcome data with actual_hours,
+            started_at, completed_at, etc.
+        """
+        import sqlite3
+
+        db_path = self.marcus_root / "data" / "marcus.db"
+        if not db_path.exists():
+            logger.warning(f"marcus.db not found at {db_path}")
+            return {}
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            # Query task_outcomes from persistence table
+            cursor.execute(
+                """
+                SELECT key, data FROM persistence
+                WHERE collection = 'task_outcomes'
+            """
+            )
+
+            outcomes = {}
+            for row in cursor.fetchall():
+                task_id, data_json = row
+                data = json.loads(data_json)
+
+                # Extract key fields
+                outcomes[task_id] = {
+                    "task_id": task_id,
+                    "task_name": data.get("task_name"),
+                    "actual_hours": data.get("actual_hours", 0.0),
+                    "estimated_hours": data.get("estimated_hours", 0.0),
+                    "created_at": data.get("created_at"),
+                    "started_at": data.get("started_at"),
+                    "completed_at": data.get("completed_at"),
+                    "status": "done",  # Outcomes are for completed tasks
+                }
+
+            conn.close()
+            logger.info(f"Loaded {len(outcomes)} task outcomes from marcus.db")
+            return outcomes
+
+        except Exception as e:
+            logger.error(f"Error loading task outcomes from db: {e}")
+            return {}
+
+    def load_task_timing_from_agent_events(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Load task start/end times from events in marcus.db.
+
+        Extracts timing data from task_completed events which contain
+        both started_at and completed_at timestamps.
+
+        Returns
+        -------
+        Dict[str, Dict[str, Any]]
+            Dictionary mapping task_id to timing data with
+            start_time, end_time, duration
+        """
+        import sqlite3
+
+        timings: Dict[str, Any] = {}
+        db_path = self.marcus_root / "data" / "marcus.db"
+
+        if not db_path.exists():
+            logger.warning(f"marcus.db not found at {db_path}")
+            return timings
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            # Get task_completed events which contain started_at and completed_at
+            cursor.execute(
+                """
+                SELECT data FROM persistence
+                WHERE collection = 'events'
+                  AND json_extract(data, '$.event_type') = 'task_completed'
+            """
+            )
+
+            for row in cursor.fetchall():
+                try:
+                    event = json.loads(row[0])
+                    event_data = event.get("data", {})
+
+                    task_id = event_data.get("task_id")
+                    started_at = event_data.get("started_at")
+                    completed_at = event_data.get("completed_at")
+                    task_name = event_data.get("task_name")
+
+                    if task_id and started_at and completed_at:
+                        # Ensure timestamps have timezone info for JavaScript compatibility
+                        # Marcus events store timestamps without timezone, so add UTC
+                        start_with_tz = (
+                            started_at
+                            if started_at.endswith(("Z", "+00:00"))
+                            else started_at + "+00:00"
+                        )
+                        end_with_tz = (
+                            completed_at
+                            if completed_at.endswith(("Z", "+00:00"))
+                            else completed_at + "+00:00"
+                        )
+
+                        timings[task_id] = {
+                            "start_time": start_with_tz,
+                            "end_time": end_with_tz,
+                            "task_name": task_name,
+                        }
+
+                        # Calculate duration
+                        try:
+                            start = datetime.fromisoformat(
+                                start_with_tz.replace("Z", "+00:00")
+                            )
+                            end = datetime.fromisoformat(
+                                end_with_tz.replace("Z", "+00:00")
+                            )
+                            duration_seconds = (end - start).total_seconds()
+                            timings[task_id]["duration_seconds"] = duration_seconds
+                            timings[task_id]["duration_minutes"] = duration_seconds / 60
+                            timings[task_id]["duration_hours"] = duration_seconds / 3600
+                        except Exception as e:
+                            logger.warning(
+                                f"Error calculating duration for {task_id}: {e}"
+                            )
+
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Error parsing event JSON: {e}")
+                    continue
+
+            conn.close()
+            logger.info(
+                f"Loaded timing for {len(timings)} tasks from marcus.db events"
+            )
+            if timings:
+                # Log first timing for debugging
+                first_task_id = list(timings.keys())[0]
+                logger.info(
+                    f"Example timing: {first_task_id} -> {timings[first_task_id]}"
+                )
+            return timings
+
+        except Exception as e:
+            logger.error(f"Error loading task timing from marcus.db events: {e}")
+            return {}
+
+    def enrich_tasks_with_timing(
+        self, tasks: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Enrich task data with actual timing from marcus.db.
+
+        Loads timing data from task_outcomes and task_completed events,
+        then updates task dictionaries with actual start/end times and durations.
+        This enables smooth timeline animation.
+
+        Parameters
+        ----------
+        tasks : List[Dict[str, Any]]
+            Tasks from subtasks.json with potentially zero durations
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            Tasks enriched with actual start/end times and durations
+        """
+        # Load timing data from database
+        outcomes = self.load_task_outcomes_from_db()
+        timings = self.load_task_timing_from_agent_events()
+
+        logger.info(
+            f"Enriching {len(tasks)} tasks with {len(outcomes)} outcomes "
+            f"and {len(timings)} timings"
+        )
+
+        # Enrich each task
+        enriched_count = 0
+        for task in tasks:
+            task_id = task.get("id", "")
+
+            # Add outcome data if available (try exact match first, then prefix match)
+            if task_id in outcomes:
+                outcome = outcomes[task_id]
+                task["actual_hours"] = outcome["actual_hours"]
+                if outcome["started_at"]:
+                    task["created_at"] = outcome["started_at"]
+                if outcome["completed_at"]:
+                    task["updated_at"] = outcome["completed_at"]
+            else:
+                # Try prefix match (task IDs in marcus.db have agent suffix)
+                for outcome_id, outcome in outcomes.items():
+                    if outcome_id.startswith(task_id + "_"):
+                        task["actual_hours"] = outcome["actual_hours"]
+                        if outcome["started_at"]:
+                            task["created_at"] = outcome["started_at"]
+                        if outcome["completed_at"]:
+                            task["updated_at"] = outcome["completed_at"]
+                        break
+
+            # Add timing data if available (try exact match first, then prefix match)
+            if task_id in timings:
+                timing = timings[task_id]
+                if "start_time" in timing:
+                    task["created_at"] = timing["start_time"]  # Override with actual start
+                if "end_time" in timing:
+                    task["updated_at"] = timing["end_time"]  # Set actual end time
+                if "duration_hours" in timing:
+                    task["actual_hours"] = timing["duration_hours"]
+                enriched_count += 1
+            else:
+                # Try prefix match
+                for timing_id, timing in timings.items():
+                    if timing_id.startswith(task_id + "_"):
+                        if "start_time" in timing:
+                            task["created_at"] = timing["start_time"]
+                        if "end_time" in timing:
+                            task["updated_at"] = timing["end_time"]
+                        if "duration_hours" in timing:
+                            task["actual_hours"] = timing["duration_hours"]
+                        enriched_count += 1
+                        break
+
+        logger.info(f"Enriched {enriched_count}/{len(tasks)} tasks with timing data")
+        return tasks
 
     def _calculate_timeline(
         self,
