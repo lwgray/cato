@@ -61,6 +61,31 @@ const NetworkGraphView = () => {
     const startTime = new Date(snapshot.start_time).getTime();
     const currentAbsTime = startTime + currentTime;
 
+    // Debug: Log timeline and tasks showing 100% at t=0
+    if (currentTime === 0 && tasks.length > 0) {
+      console.log('\n=== TIMELINE DEBUG (after filtering) ===');
+      console.log('Total tasks:', tasks.length);
+      console.log('Timeline start:', new Date(startTime).toISOString());
+      console.log('Timeline end:', snapshot.end_time);
+      console.log('Current abs time:', new Date(currentAbsTime).toISOString());
+
+      // Find tasks that would show as done at t=0
+      const doneAtStart = tasks.filter(task => {
+        const taskEnd = new Date(task.updated_at).getTime();
+        return taskEnd <= currentAbsTime;
+      });
+
+      console.log(`\nTasks showing DONE at t=0: ${doneAtStart.length}`);
+      doneAtStart.slice(0, 5).forEach(task => {
+        console.log(`  - ${task.name.substring(0, 40)}`);
+        console.log(`    created: ${task.created_at}`);
+        console.log(`    updated: ${task.updated_at}`);
+        console.log(`    End <= Start? ${new Date(task.updated_at).getTime() <= currentAbsTime}`);
+      });
+
+      console.log('=== END DEBUG ===\n');
+    }
+
     // Detect zombies and bottlenecks
     const nodes: GraphNode[] = tasks.map(task => {
       const state = getTaskStateAtTime(task, currentAbsTime);
