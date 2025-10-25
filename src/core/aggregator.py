@@ -761,27 +761,24 @@ class Aggregator:
                         break
 
             # Add timing data if available (try exact match first, then prefix match)
+            matched_timing = None
             if task_id in timings:
-                timing = timings[task_id]
-                if "start_time" in timing:
-                    task["created_at"] = timing["start_time"]  # Override with actual start
-                if "end_time" in timing:
-                    task["updated_at"] = timing["end_time"]  # Set actual end time
-                if "duration_hours" in timing:
-                    task["actual_hours"] = timing["duration_hours"]
-                enriched_count += 1
+                matched_timing = timings[task_id]
             else:
                 # Try prefix match
                 for timing_id, timing in timings.items():
                     if timing_id.startswith(task_id + "_"):
-                        if "start_time" in timing:
-                            task["created_at"] = timing["start_time"]
-                        if "end_time" in timing:
-                            task["updated_at"] = timing["end_time"]
-                        if "duration_hours" in timing:
-                            task["actual_hours"] = timing["duration_hours"]
-                        enriched_count += 1
+                        matched_timing = timing
                         break
+
+            if matched_timing:
+                if "start_time" in matched_timing:
+                    task["created_at"] = matched_timing["start_time"]
+                if "end_time" in matched_timing:
+                    task["updated_at"] = matched_timing["end_time"]
+                if "duration_hours" in matched_timing:
+                    task["actual_hours"] = matched_timing["duration_hours"]
+                enriched_count += 1
 
         logger.info(f"Enriched {enriched_count}/{len(tasks)} tasks with timing data")
 
