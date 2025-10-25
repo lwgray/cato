@@ -58,14 +58,6 @@ export function getTaskStateAtTime(task: Task, currentAbsTime: number): {
   const taskEnd = new Date(task.updated_at).getTime();
   const taskDuration = taskEnd - taskStart;
 
-  // Debug first call
-  const isFirstTask = task.id && task.id.includes('_sub_1');
-  if (isFirstTask && Math.random() < 0.1) { // Log 10% of calls to avoid spam
-    console.log(`getTaskStateAtTime: ${task.name.substring(0, 20)}`);
-    console.log(`  currentAbsTime: ${currentAbsTime}, taskStart: ${taskStart}, taskEnd: ${taskEnd}`);
-    console.log(`  Before? ${currentAbsTime < taskStart}, After? ${currentAbsTime >= taskEnd}`);
-  }
-
   // Before task starts
   if (currentAbsTime < taskStart) {
     return {
@@ -87,10 +79,6 @@ export function getTaskStateAtTime(task: Task, currentAbsTime: number): {
   // During task execution - interpolate progress linearly from 0 to 100
   const elapsed = currentAbsTime - taskStart;
   const progressPercent = Math.min(100, (elapsed / taskDuration) * 100);
-
-  if (isFirstTask && Math.random() < 0.1) {
-    console.log(`  IN PROGRESS: elapsed=${elapsed}, duration=${taskDuration}, progress=${progressPercent}%`);
-  }
 
   return {
     status: 'in_progress' as TaskStatus,

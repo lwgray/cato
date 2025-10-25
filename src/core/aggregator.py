@@ -784,7 +784,33 @@ class Aggregator:
                         break
 
         logger.info(f"Enriched {enriched_count}/{len(tasks)} tasks with timing data")
-        return tasks
+
+        # Filter out tasks without valid timing (matching viz worktree behavior)
+        # Tasks need non-zero duration for timeline animation to work
+        filtered_tasks = []
+        for task in tasks:
+            created = task.get("created_at")
+            updated = task.get("updated_at")
+
+            if created and updated:
+                try:
+                    created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    updated_dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                    duration = (updated_dt - created_dt).total_seconds()
+
+                    # Keep tasks with actual duration OR that have actual_hours tracked
+                    if duration > 0 or task.get("actual_hours", 0.0) > 0:
+                        filtered_tasks.append(task)
+                except Exception as e:
+                    logger.debug(f"Skipping task {task.get('id')} due to timestamp error: {e}")
+                    continue
+
+        removed_count = len(tasks) - len(filtered_tasks)
+        logger.info(
+            f"Filtered to {len(filtered_tasks)} tasks with valid timing "
+            f"(removed {removed_count} zero-duration tasks)"
+        )
+        return filtered_tasks
 
     def _calculate_timeline(
         self,

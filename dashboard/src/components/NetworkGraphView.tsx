@@ -61,26 +61,6 @@ const NetworkGraphView = () => {
     const startTime = new Date(snapshot.start_time).getTime();
     const currentAbsTime = startTime + currentTime;
 
-    // Debug timeline at initialization (log once per snapshot change)
-    if (tasks.length > 0 && currentTime === 0) {
-      console.log('=== TIMELINE DEBUG (t=0) ===');
-      console.log('Timeline start:', new Date(startTime).toISOString());
-      console.log('Timeline end:', new Date(snapshot.end_time).toISOString());
-      console.log('Current time offset:', currentTime, 'ms');
-      console.log('Current absolute time:', new Date(currentAbsTime).toISOString());
-
-      // Log first 3 tasks
-      tasks.slice(0, 3).forEach((task, i) => {
-        const state = getTaskStateAtTime(task, currentAbsTime);
-        console.log(`\nTask ${i + 1}:`, task.name.substring(0, 40));
-        console.log('  Task created:', task.created_at);
-        console.log('  Task updated:', task.updated_at);
-        console.log('  State at t=0:', state.status, `${state.progress}%`);
-        console.log('  isActive:', state.isActive);
-      });
-      console.log('=== END DEBUG ===\n');
-    }
-
     // Detect zombies and bottlenecks
     const nodes: GraphNode[] = tasks.map(task => {
       const state = getTaskStateAtTime(task, currentAbsTime);
