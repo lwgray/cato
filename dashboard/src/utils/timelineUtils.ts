@@ -77,9 +77,13 @@ export function getTaskStateAtTime(task: Task, currentAbsTime: number): {
 
   // After task completes
   if (currentAbsTime >= taskEnd) {
+    // If task is done, show 100% (data may incorrectly show 0%)
+    // If blocked or other status, use actual progress_percent
+    const finalProgress = task.status === 'done' ? 100 : task.progress_percent;
+
     return {
       status: task.status as TaskStatus, // Final status (done or blocked)
-      progress: task.progress_percent,
+      progress: finalProgress,
       isActive: false,
     };
   }
