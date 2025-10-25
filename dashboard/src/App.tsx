@@ -81,10 +81,9 @@ function App() {
           <div className="header-controls">
             {dataMode === 'live' && projects.length > 0 && (
               <select
-                className="project-selector"
+                className={`project-selector ${isLoading ? 'loading' : ''}`}
                 value={selectedProjectId || ''}
                 onChange={handleProjectChange}
-                disabled={isLoading}
                 title="Select project to visualize"
               >
                 <option value="">All Projects</option>
@@ -97,9 +96,8 @@ function App() {
             )}
             {dataMode === 'live' && (
               <button
-                className="task-view-toggle"
+                className={`task-view-toggle ${isLoading ? 'loading' : ''}`}
                 onClick={handleToggleTaskView}
-                disabled={isLoading}
                 title={taskView === 'subtasks' ? 'Switch to parent tasks view' : 'Switch to subtasks view'}
               >
                 {taskView === 'subtasks' ? '📝 Subtasks' : '📦 Parent Tasks'}
@@ -130,6 +128,7 @@ function App() {
             >
               🔄 Refresh Now
             </button>
+            {isLoading && <div className="loading-indicator">⏳</div>}
           </div>
         </div>
         {loadError && (
