@@ -145,6 +145,11 @@ class Aggregator:
         self.project_matcher = ProjectMatcher(tolerance=20)
         self.snapshot_version_counter = 0
 
+        # Cache for projects data to avoid repeated file I/O
+        self._projects_cache: Optional[List[Dict[str, Any]]] = None
+        self._projects_cache_time: Optional[datetime] = None
+        self._projects_cache_ttl = 60  # Cache for 60 seconds
+
         logger.info(f"Initialized Aggregator with root: {self.marcus_root}")
 
     def create_snapshot(
@@ -280,7 +285,17 @@ class Aggregator:
         return snapshot
 
     def _load_projects(self) -> List[Dict[str, Any]]:
-        """Load projects from projects.json."""
+        """Load projects from projects.json with caching."""
+        # Check cache first
+        now = datetime.now(timezone.utc)
+        if (
+            self._projects_cache is not None
+            and self._projects_cache_time is not None
+            and (now - self._projects_cache_time).total_seconds() < self._projects_cache_ttl
+        ):
+            return self._projects_cache
+
+        # Cache miss - load from file
         projects_file = self.persistence_dir / "projects.json"
         if not projects_file.exists():
             logger.warning(f"Projects file not found: {projects_file}")
@@ -295,6 +310,11 @@ class Aggregator:
                     if key != "active_project" and isinstance(value, dict):
                         if "id" in value:
                             projects.append(value)
+
+                # Update cache
+                self._projects_cache = projects
+                self._projects_cache_time = now
+
                 logger.info(f"Loaded {len(projects)} projects")
                 return projects
         except Exception as e:
@@ -324,7 +344,7 @@ class Aggregator:
                 # Filter by project using fuzzy matching (±20 range)
                 # Planka creates task IDs that are offset from board IDs
                 if project_id:
-                    # Load projects to get Planka board/project ID mapping
+                    # Load projects to get Planka board/project ID mapping (uses cache)
                     projects_data = self._load_projects()
                     project_info = next(
                         (p for p in projects_data if p.get("id") == project_id), None
@@ -337,40 +357,44 @@ class Aggregator:
                         planka_board_id = project_info["provider_config"].get("board_id", "")
 
                         if planka_project_id or planka_board_id:
-                            filtered_tasks = []
+                            # Pre-compute target prefixes for efficient comparison
+                            target_prefixes = []
+                            for id_to_check in [planka_board_id, planka_project_id]:
+                                if id_to_check and len(id_to_check) >= 8:
+                                    try:
+                                        target_prefixes.append(int(id_to_check[:8]))
+                                    except ValueError:
+                                        pass
 
+                            if not target_prefixes:
+                                logger.warning(
+                                    f"No valid Planka ID prefixes for project {project_id}"
+                                )
+                                return all_tasks
+
+                            # Optimized filtering with early exits
+                            filtered_tasks = []
                             for task in all_tasks:
                                 parent_id = str(task.get("parent_task_id", ""))
 
-                                # Skip non-Planka IDs (e.g., "task-001")
-                                if not parent_id or not parent_id[0].isdigit():
+                                # Early exit: Skip non-Planka IDs
+                                if not parent_id or len(parent_id) < 8 or not parent_id[0].isdigit():
                                     continue
 
-                                if len(parent_id) < 8:
-                                    continue
+                                try:
+                                    parent_prefix = int(parent_id[:8])
 
-                                # Check distance to board_id and project_id
-                                best_match = False
-
-                                for id_to_check in [planka_board_id, planka_project_id]:
-                                    if id_to_check and len(id_to_check) >= 8:
-                                        try:
-                                            id_prefix = int(id_to_check[:8])
-                                            parent_prefix = int(parent_id[:8])
-                                            distance = abs(parent_prefix - id_prefix)
-
-                                            # Use ±20 range for fuzzy matching
-                                            if distance <= 20:
-                                                best_match = True
-                                                break
-                                        except (ValueError, IndexError):
-                                            # If conversion fails, try exact prefix match
-                                            if parent_id.startswith(id_to_check[:8]):
-                                                best_match = True
-                                                break
-
-                                if best_match:
-                                    filtered_tasks.append(task)
+                                    # Check distance to any target prefix
+                                    for target_prefix in target_prefixes:
+                                        if abs(parent_prefix - target_prefix) <= 20:
+                                            filtered_tasks.append(task)
+                                            break  # Found match, no need to check other prefixes
+                                except ValueError:
+                                    # Fallback: try string prefix match
+                                    for id_to_check in [planka_board_id, planka_project_id]:
+                                        if id_to_check and parent_id.startswith(id_to_check[:8]):
+                                            filtered_tasks.append(task)
+                                            break
 
                             logger.info(
                                 f"Filtered {len(filtered_tasks)}/{len(all_tasks)} tasks "

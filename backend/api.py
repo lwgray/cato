@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 
@@ -60,9 +60,135 @@ app.add_middleware(
 # Initialize aggregator for snapshot API
 aggregator = Aggregator(marcus_root=marcus_root)
 
-# Simple in-memory cache for snapshots (30s TTL)
+# Simple in-memory cache for snapshots (60s TTL for better performance)
 snapshot_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}
-CACHE_TTL_SECONDS = 30
+CACHE_TTL_SECONDS = 60  # Increased from 30s to reduce cold loads
+
+
+def prewarm_recent_projects() -> None:
+    """
+    Pre-warm cache for projects created in the last 7 days.
+
+    This runs in the background on startup to make recent projects load instantly.
+    """
+    try:
+        logger.info("Starting cache pre-warming for recent projects...")
+        projects_data = aggregator._load_projects()
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=7)
+
+        recent_projects = []
+        for p in projects_data:
+            if "id" not in p or "created_at" not in p:
+                continue
+
+            try:
+                created_at = datetime.fromisoformat(p["created_at"].replace("Z", "+00:00"))
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+
+                if created_at >= cutoff:
+                    recent_projects.append(p)
+            except (ValueError, AttributeError):
+                continue
+
+        logger.info(f"Found {len(recent_projects)} projects created in last 7 days")
+
+        # Pre-warm cache for each recent project
+        for p in recent_projects:
+            project_id = p.get("id", "")
+            try:
+                # Create snapshot and cache it
+                snapshot = aggregator.create_snapshot(
+                    project_id=project_id,
+                    view_mode="subtasks",
+                    timeline_scale_exponent=0.4,
+                )
+                snapshot_dict = snapshot.to_dict()
+
+                # Cache with default view settings
+                cache_key = f"{project_id}_subtasks_0.4"
+                snapshot_cache[cache_key] = (snapshot_dict, now)
+
+                logger.info(f"Pre-warmed cache for project: {p.get('name', project_id)[:40]}")
+            except Exception as e:
+                logger.warning(f"Failed to pre-warm project {project_id}: {e}")
+
+        logger.info(f"Cache pre-warming complete: {len(recent_projects)} projects cached")
+    except Exception as e:
+        logger.error(f"Error pre-warming cache: {e}", exc_info=True)
+
+
+def background_cache_refresh() -> None:
+    """
+    Background task to refresh cache for active projects.
+
+    Runs every 45 seconds to keep cache warm before 60s TTL expires.
+    """
+    import time
+
+    # Wait 10 seconds for initial pre-warming to complete
+    time.sleep(10)
+
+    while True:
+        try:
+            # Refresh cache for projects that are in cache and accessed recently
+            now = datetime.now(timezone.utc)
+            cache_keys_to_refresh = []
+
+            for cache_key, (snapshot_dict, cache_time) in list(snapshot_cache.items()):
+                age = (now - cache_time).total_seconds()
+                # Refresh if cache is 45+ seconds old (before 60s expiry)
+                if 45 <= age < CACHE_TTL_SECONDS:
+                    cache_keys_to_refresh.append(cache_key)
+
+            if cache_keys_to_refresh:
+                logger.info(f"Background refresh: refreshing {len(cache_keys_to_refresh)} cached snapshots")
+
+                for cache_key in cache_keys_to_refresh:
+                    try:
+                        # Parse cache key: "{project_id}_subtasks_0.4"
+                        parts = cache_key.rsplit("_", 2)
+                        if len(parts) == 3:
+                            project_id = parts[0]
+                            view_mode = parts[1]
+                            timeline_exp = float(parts[2])
+
+                            # Refresh snapshot
+                            snapshot = aggregator.create_snapshot(
+                                project_id=project_id if project_id else None,
+                                view_mode=view_mode,  # type: ignore[arg-type]
+                                timeline_scale_exponent=timeline_exp,
+                            )
+                            snapshot_dict = snapshot.to_dict()
+                            snapshot_cache[cache_key] = (snapshot_dict, now)
+
+                            logger.debug(f"Refreshed cache for: {cache_key}")
+                    except Exception as e:
+                        logger.warning(f"Failed to refresh cache for {cache_key}: {e}")
+
+            # Sleep for 15 seconds before next check
+            time.sleep(15)
+
+        except Exception as e:
+            logger.error(f"Error in background cache refresh: {e}", exc_info=True)
+            time.sleep(15)
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Run background tasks on startup."""
+    import threading
+
+    # Pre-warm cache in background thread to not block startup
+    prewarm_thread = threading.Thread(target=prewarm_recent_projects, daemon=True)
+    prewarm_thread.start()
+    logger.info("Started background cache pre-warming")
+
+    # Start background cache refresh
+    refresh_thread = threading.Thread(target=background_cache_refresh, daemon=True)
+    refresh_thread.start()
+    logger.info("Started background cache refresh")
 
 
 @app.get("/")  # type: ignore[misc]
