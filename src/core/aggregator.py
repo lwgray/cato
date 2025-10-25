@@ -512,6 +512,40 @@ class Aggregator:
         logger.info(f"Inferred {len(agents)} agents")
         return agents
 
+    def _calculate_progress(self, task_data: Dict[str, Any]) -> int:
+        """
+        Calculate task progress percentage based on status and hours.
+
+        Matches viz worktree implementation for accurate progress display.
+
+        Parameters
+        ----------
+        task_data : Dict[str, Any]
+            Raw task data from persistence
+
+        Returns
+        -------
+        int
+            Progress percentage (0-100)
+        """
+        status = task_data.get("status", "todo")
+
+        if status == "done":
+            return 100
+        elif status == "in_progress":
+            # Try to calculate from actual vs estimated hours
+            estimated = task_data.get("estimated_hours", 0.0)
+            actual = task_data.get("actual_hours", 0.0)
+            if estimated > 0:
+                # Cap at 90% to leave room for review/completion
+                return min(int((actual / estimated) * 100), 90)
+            # Default to 50% if no hour estimates available
+            return 50
+        elif status == "blocked":
+            return 0
+        else:  # todo or any other status
+            return 0
+
     def _calculate_timeline(
         self,
         tasks: List[Dict[str, Any]],
@@ -656,7 +690,7 @@ class Aggregator:
                 description=task_data.get("description", ""),
                 status=task_data.get("status", "todo"),
                 priority=task_data.get("priority", "medium"),
-                progress_percent=task_data.get("progress", 0),
+                progress_percent=self._calculate_progress(task_data),
                 created_at=created_at or datetime.now(timezone.utc),
                 started_at=started_at,
                 completed_at=completed_at,
