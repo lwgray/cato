@@ -1130,8 +1130,28 @@ class Aggregator:
             if not timestamp:
                 continue
 
-            from_agent_id = msg_data.get("from_agent_id", "system")
-            to_agent_id = msg_data.get("to_agent_id", "system")
+            # Map conversation logger fields to expected format
+            # Conversation logger uses: source/target, worker_id, conversation_type
+            # We need: from_agent_id, to_agent_id
+            from_agent_id = msg_data.get("from_agent_id")
+            to_agent_id = msg_data.get("to_agent_id")
+
+            # Fallback: try conversation logger format
+            if not from_agent_id:
+                from_agent_id = msg_data.get("source", "system")
+            if not to_agent_id:
+                to_agent_id = msg_data.get("target", "system")
+
+            # Handle worker messages (worker_id + conversation_type)
+            worker_id = msg_data.get("worker_id")
+            conv_type = msg_data.get("conversation_type")
+            if worker_id and conv_type:
+                if conv_type == "worker_to_pm":
+                    from_agent_id = worker_id
+                    to_agent_id = "system"
+                elif conv_type == "pm_to_worker":
+                    from_agent_id = "system"
+                    to_agent_id = worker_id
 
             from_agent_name = agents_by_id.get(from_agent_id, {}).get(
                 "name", from_agent_id
