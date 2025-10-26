@@ -87,7 +87,6 @@ function App() {
                 disabled={isLoading}
                 title="Select project to visualize"
               >
-                <option value="">All Projects</option>
                 {projects.map((project) => (
                   <option key={project.id} value={project.id}>
                     {project.name}

@@ -339,6 +339,14 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
         const projects = await fetchProjects();
         set({ projects });
         console.log(`Loaded ${projects.length} projects`);
+
+        // Auto-select the first (most recent) project if none is selected
+        const currentState = get();
+        if (projects.length > 0 && !currentState.selectedProjectId) {
+          const firstProject = projects[0];
+          console.log(`Auto-selecting most recent project: ${firstProject.name}`);
+          await get().setSelectedProject(firstProject.id);
+        }
       } catch (error) {
         console.error('Error loading projects:', error);
         set({ projects: [] });
