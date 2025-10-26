@@ -6,14 +6,12 @@ import ConversationView from './components/ConversationView';
 import HealthCheckDashboard from './components/HealthCheckDashboard';
 import TimelineControls from './components/TimelineControls';
 import MetricsPanel from './components/MetricsPanel';
-import TaskDetailPanel from './components/TaskDetailPanel';
 import HeaderControls from './components/HeaderControls';
 import './App.css';
 
 function App() {
   const currentLayer = useVisualizationStore((state) => state.currentLayer);
   const setCurrentLayer = useVisualizationStore((state) => state.setCurrentLayer);
-  const selectedTaskId = useVisualizationStore((state) => state.selectedTaskId);
 
   // Actions for initialization
   const loadData = useVisualizationStore((state) => state.loadData);
@@ -73,8 +71,6 @@ function App() {
           {currentLayer === 'conversations' && <ConversationView />}
           {currentLayer === 'health' && <HealthCheckDashboard />}
         </div>
-
-        {selectedTaskId && <TaskDetailPanel />}
 
         <MetricsPanel />
       </div>
