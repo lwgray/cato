@@ -15,16 +15,7 @@ function App() {
   const setCurrentLayer = useVisualizationStore((state) => state.setCurrentLayer);
   const selectedTaskId = useVisualizationStore((state) => state.selectedTaskId);
 
-  // Header control state (extracted for memoization)
-  const dataMode = useVisualizationStore((state) => state.dataMode);
-  const isLoading = useVisualizationStore((state) => state.isLoading);
-  const loadError = useVisualizationStore((state) => state.loadError);
-  const projects = useVisualizationStore((state) => state.projects);
-  const selectedProjectId = useVisualizationStore((state) => state.selectedProjectId);
-  const autoRefreshEnabled = useVisualizationStore((state) => state.autoRefreshEnabled);
-  const taskView = useVisualizationStore((state) => state.taskView);
-
-  // Actions
+  // Actions for initialization
   const loadData = useVisualizationStore((state) => state.loadData);
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
 
@@ -46,15 +37,7 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <HeaderControls
-          dataMode={dataMode}
-          isLoading={isLoading}
-          projects={projects}
-          selectedProjectId={selectedProjectId}
-          autoRefreshEnabled={autoRefreshEnabled}
-          taskView={taskView}
-          loadError={loadError}
-        />
+        <HeaderControls />
         <div className="layer-tabs">
           <button
             className={currentLayer === 'network' ? 'active' : ''}

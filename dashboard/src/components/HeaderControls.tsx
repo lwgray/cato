@@ -1,30 +1,20 @@
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useCallback } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
-import type { Project } from '../services/dataService';
-
-interface HeaderControlsProps {
-  dataMode: 'live' | 'mock';
-  isLoading: boolean;
-  projects: Project[];
-  selectedProjectId: string | null;
-  autoRefreshEnabled: boolean;
-  taskView: 'subtasks' | 'parents' | 'all';
-  loadError: string | null;
-}
 
 /**
  * Memoized header controls to prevent flickering during data refreshes.
- * Only re-renders when control-specific props change, not when snapshot data updates.
+ * Subscribes directly to store values to avoid prop reference changes.
  */
-const HeaderControls = ({
-  dataMode,
-  isLoading,
-  projects,
-  selectedProjectId,
-  autoRefreshEnabled,
-  taskView,
-  loadError,
-}: HeaderControlsProps) => {
+const HeaderControls = () => {
+  // Subscribe to store values directly (Zustand handles stability)
+  const dataMode = useVisualizationStore((state) => state.dataMode);
+  const isLoading = useVisualizationStore((state) => state.isLoading);
+  const loadError = useVisualizationStore((state) => state.loadError);
+  const projects = useVisualizationStore((state) => state.projects);
+  const selectedProjectId = useVisualizationStore((state) => state.selectedProjectId);
+  const autoRefreshEnabled = useVisualizationStore((state) => state.autoRefreshEnabled);
+  const taskView = useVisualizationStore((state) => state.taskView);
+
   // Get action functions from store (these are stable references)
   const loadData = useVisualizationStore((state) => state.loadData);
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
@@ -129,35 +119,4 @@ const HeaderControls = ({
   );
 };
 
-// Custom comparison function to prevent re-renders when array contents are the same
-function arePropsEqual(
-  prevProps: HeaderControlsProps,
-  nextProps: HeaderControlsProps
-): boolean {
-  // Check primitive props
-  if (
-    prevProps.dataMode !== nextProps.dataMode ||
-    prevProps.isLoading !== nextProps.isLoading ||
-    prevProps.selectedProjectId !== nextProps.selectedProjectId ||
-    prevProps.autoRefreshEnabled !== nextProps.autoRefreshEnabled ||
-    prevProps.taskView !== nextProps.taskView ||
-    prevProps.loadError !== nextProps.loadError
-  ) {
-    return false;
-  }
-
-  // Deep check projects array - compare IDs and length
-  if (prevProps.projects.length !== nextProps.projects.length) {
-    return false;
-  }
-
-  for (let i = 0; i < prevProps.projects.length; i++) {
-    if (prevProps.projects[i].id !== nextProps.projects[i].id) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-export default memo(HeaderControls, arePropsEqual);
+export default HeaderControls;
