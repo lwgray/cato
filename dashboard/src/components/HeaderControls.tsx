@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useEffect } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
 import type { Project } from '../services/dataService';
 
@@ -16,7 +16,7 @@ interface HeaderControlsProps {
  * Memoized header controls to prevent flickering during data refreshes.
  * Only re-renders when control-specific props change, not when snapshot data updates.
  */
-const HeaderControls = memo(({
+const HeaderControls = ({
   dataMode,
   isLoading,
   projects,
@@ -127,8 +127,37 @@ const HeaderControls = memo(({
       )}
     </>
   );
-});
+};
 
-HeaderControls.displayName = 'HeaderControls';
+// Custom comparison function to prevent re-renders when array contents are the same
+function arePropsEqual(
+  prevProps: HeaderControlsProps,
+  nextProps: HeaderControlsProps
+): boolean {
+  // Check primitive props
+  if (
+    prevProps.dataMode !== nextProps.dataMode ||
+    prevProps.isLoading !== nextProps.isLoading ||
+    prevProps.selectedProjectId !== nextProps.selectedProjectId ||
+    prevProps.autoRefreshEnabled !== nextProps.autoRefreshEnabled ||
+    prevProps.taskView !== nextProps.taskView ||
+    prevProps.loadError !== nextProps.loadError
+  ) {
+    return false;
+  }
 
-export default HeaderControls;
+  // Deep check projects array - compare IDs and length
+  if (prevProps.projects.length !== nextProps.projects.length) {
+    return false;
+  }
+
+  for (let i = 0; i < prevProps.projects.length; i++) {
+    if (prevProps.projects[i].id !== nextProps.projects[i].id) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export default memo(HeaderControls, arePropsEqual);
