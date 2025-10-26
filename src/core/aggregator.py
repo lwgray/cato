@@ -194,17 +194,67 @@ class Aggregator:
         # Step 2: Filter tasks by view mode
         filtered_tasks = self._filter_tasks_by_view(raw_tasks, view_mode)
 
-        # Step 3: Build lookup tables for denormalization
+        # Step 3: Pre-filter messages by project tasks (two-pass approach)
+        # Create task_ids set early for message filtering
+        task_ids_set = {t["id"] for t in filtered_tasks}
+
+        # PASS 1: Filter messages directly related to project tasks
+        task_related_messages = []
+        for msg in raw_messages:
+            task_id = msg.get("task_id") or msg.get("metadata", {}).get("task_id")
+            if task_id and task_id in task_ids_set:
+                task_related_messages.append(msg)
+
+        # Infer project agents from tasks and task-related messages only
+        project_agent_ids = set()
+
+        # From tasks
+        for task in filtered_tasks:
+            agent_id = (
+                task.get("assigned_agent_id")
+                or task.get("agent_id")
+                or task.get("assigned_to")
+            )
+            if agent_id:
+                project_agent_ids.add(agent_id)
+
+        # From task-related messages
+        for msg in task_related_messages:
+            from_agent = msg.get("from_agent_id")
+            to_agent = msg.get("to_agent_id")
+            if from_agent:
+                project_agent_ids.add(from_agent)
+            if to_agent:
+                project_agent_ids.add(to_agent)
+
+        logger.info(f"Identified {len(project_agent_ids)} project agents from tasks and messages")
+
+        # PASS 2: Include all messages involving project agents
+        filtered_messages = []
+        for msg in raw_messages:
+            task_id = msg.get("task_id") or msg.get("metadata", {}).get("task_id")
+            from_agent = msg.get("from_agent_id")
+            to_agent = msg.get("to_agent_id")
+
+            # Include if: (1) related to project task, OR (2) involves project agents
+            if (task_id and task_id in task_ids_set) or \
+               (from_agent in project_agent_ids) or \
+               (to_agent in project_agent_ids):
+                filtered_messages.append(msg)
+
+        logger.info(f"Pre-filtered messages: {len(filtered_messages)}/{len(raw_messages)} related to project")
+
+        # Step 4: Build lookup tables for denormalization
         projects_by_id = {p["id"]: p for p in projects_data if "id" in p}
         tasks_by_id = {t["id"]: t for t in filtered_tasks}
-        agents_by_id = self._infer_agents(filtered_tasks, raw_messages)
+        agents_by_id = self._infer_agents(filtered_tasks, filtered_messages)
 
-        # Step 4: Calculate timeline boundaries
+        # Step 5: Calculate timeline boundaries
         timeline_start, timeline_end, duration_minutes = self._calculate_timeline(
-            filtered_tasks, raw_messages
+            filtered_tasks, filtered_messages
         )
 
-        # Step 5: Build denormalized tasks with timeline positions
+        # Step 6: Build denormalized tasks with timeline positions
         tasks = self._build_tasks(
             filtered_tasks,
             projects_by_id,
@@ -215,17 +265,17 @@ class Aggregator:
             timeline_scale_exponent,
         )
 
-        # Step 6: Build denormalized agents with metrics
-        agents = self._build_agents(agents_by_id, tasks, raw_messages)
+        # Step 7: Build denormalized agents with metrics
+        agents = self._build_agents(agents_by_id, tasks, filtered_messages)
 
-        # Step 7: Build denormalized messages
-        task_ids_set = {t.id for t in tasks}
+        # Step 8: Build denormalized messages (already filtered above)
+        final_task_ids_set = {t.id for t in tasks}
         messages = self._build_messages(
-            raw_messages, task_ids_set, tasks_by_id, agents_by_id
+            filtered_messages, final_task_ids_set, tasks_by_id, agents_by_id
         )
 
-        # Step 8: Build denormalized events
-        events = self._build_events(raw_events, task_ids_set, tasks_by_id, agents_by_id)
+        # Step 9: Build denormalized events
+        events = self._build_events(raw_events, final_task_ids_set, tasks_by_id, agents_by_id)
 
         # Step 8a: Generate diagnostic events for timeline
         diagnostic_events = self._build_diagnostic_events(
@@ -1440,6 +1490,85 @@ class Aggregator:
         logger.info(f"Generated {len(diagnostic_events)} diagnostic timeline events")
         return diagnostic_events
 
+    def _calculate_parallelization_metrics(
+        self, tasks: List[Task]
+    ) -> tuple[int, float, float]:
+        """
+        Calculate parallelization metrics by analyzing task timeline overlap.
+
+        Parameters
+        ----------
+        tasks : List[Task]
+            Tasks to analyze
+
+        Returns
+        -------
+        tuple[int, float, float]
+            (peak_parallel_tasks, average_parallel_tasks, parallelization_efficiency)
+        """
+        if not tasks:
+            return 0, 0.0, 0.0
+
+        # Collect all time events (task starts and ends)
+        events = []
+        for task in tasks:
+            if task.created_at and task.updated_at:
+                start_time = task.created_at.timestamp()
+                end_time = task.updated_at.timestamp()
+                if end_time > start_time:  # Only valid duration tasks
+                    events.append((start_time, 1))  # Task starts (+1)
+                    events.append((end_time, -1))  # Task ends (-1)
+
+        if not events:
+            return 0, 0.0, 0.0
+
+        # Sort events by time
+        events.sort()
+
+        # Calculate concurrent tasks at each event
+        concurrent_counts = []
+        current_count = 0
+        last_time = events[0][0]
+        total_task_time = 0.0
+
+        for time, delta in events:
+            if time > last_time and current_count > 0:
+                duration = time - last_time
+                total_task_time += duration * current_count
+                concurrent_counts.append((duration, current_count))
+
+            current_count += delta
+            last_time = time
+
+        if not concurrent_counts:
+            return 0, 0.0, 0.0
+
+        # Calculate metrics
+        peak_parallel = max(count for _, count in concurrent_counts)
+
+        # Average parallel = total task-time / total duration
+        total_duration = events[-1][0] - events[0][0]
+        average_parallel = total_task_time / total_duration if total_duration > 0 else 0.0
+
+        # Efficiency = (actual parallel work) / (ideal serial time)
+        # Ideal serial time = sum of all task durations
+        total_task_duration = sum(
+            (task.updated_at.timestamp() - task.created_at.timestamp())
+            for task in tasks
+            if task.created_at and task.updated_at
+            and task.updated_at.timestamp() > task.created_at.timestamp()
+        )
+
+        # Efficiency = how much we compressed the work through parallelization
+        # If we did all tasks in parallel perfectly, efficiency = 1.0
+        # If we did all tasks serially, efficiency = 1/n where n is task count
+        if total_duration > 0 and total_task_duration > 0:
+            parallelization_efficiency = total_duration / total_task_duration
+        else:
+            parallelization_efficiency = 0.0
+
+        return peak_parallel, average_parallel, min(parallelization_efficiency, 1.0)
+
     def _calculate_metrics(
         self, tasks: List[Task], agents: List[Agent], messages: List[Message]
     ) -> Metrics:
@@ -1452,10 +1581,25 @@ class Aggregator:
 
         # Time metrics
         completed_task_durations = []
+        total_duration_seconds = 0.0
+
+        # Find actual timeline boundaries from tasks
+        task_times = []
         for task in tasks:
+            if task.created_at:
+                task_times.append(task.created_at.timestamp())
+            if task.updated_at:
+                task_times.append(task.updated_at.timestamp())
+
+            # Calculate individual task durations
             if task.completed_at and task.started_at:
                 duration = (task.completed_at - task.started_at).total_seconds() / 3600
                 completed_task_durations.append(duration)
+
+        # Calculate total project duration
+        if task_times:
+            total_duration_seconds = max(task_times) - min(task_times)
+        total_duration_minutes = total_duration_seconds / 60.0
 
         avg_duration = (
             sum(completed_task_durations) / len(completed_task_durations)
@@ -1463,10 +1607,9 @@ class Aggregator:
             else 0.0
         )
 
-        # Parallelization metrics
-        # TODO: Calculate peak parallelization by analyzing task overlap
-        peak_parallel = max(
-            len([t for t in tasks if t.status == "in_progress"]), in_progress_tasks
+        # Parallelization metrics - analyze timeline overlap
+        peak_parallel, average_parallel, parallelization_efficiency = (
+            self._calculate_parallelization_metrics(tasks)
         )
 
         # Agent metrics
@@ -1484,11 +1627,11 @@ class Aggregator:
             in_progress_tasks=in_progress_tasks,
             blocked_tasks=blocked_tasks,
             completion_rate=completion_rate,
-            total_duration_minutes=0,  # TODO: Calculate from timeline
+            total_duration_minutes=total_duration_minutes,
             average_task_duration_hours=avg_duration,
             peak_parallel_tasks=peak_parallel,
-            average_parallel_tasks=float(in_progress_tasks),
-            parallelization_efficiency=0.0,  # TODO: Calculate
+            average_parallel_tasks=average_parallel,
+            parallelization_efficiency=parallelization_efficiency,
             total_agents=total_agents,
             active_agents=active_agents,
             tasks_per_agent=tasks_per_agent,
