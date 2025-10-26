@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
 import { Message } from '../services/dataService';
 import './ConversationView.css';
@@ -8,6 +8,14 @@ const ConversationView = () => {
   const snapshot = useVisualizationStore((state) => state.snapshot);
   const selectMessage = useVisualizationStore((state) => state.selectMessage);
   const selectedMessageId = useVisualizationStore((state) => state.selectedMessageId);
+
+  // Filter state
+  const [filterTaskId, setFilterTaskId] = useState<string>('');
+  const [filterAgentId, setFilterAgentId] = useState<string>('');
+  const [filterEventType, setFilterEventType] = useState<string>('');
+  const [searchPattern, setSearchPattern] = useState<string>('');
+  const [showDuplicates, setShowDuplicates] = useState<boolean>(true);
+  const [filtersExpanded, setFiltersExpanded] = useState<boolean>(false);
 
   if (!snapshot) {
     return (
@@ -19,13 +27,52 @@ const ConversationView = () => {
     );
   }
 
+  // Apply filters to messages
+  const filteredMessages = useMemo(() => {
+    let filtered = messages;
+
+    // Filter by task_id
+    if (filterTaskId) {
+      filtered = filtered.filter(msg => msg.task_id === filterTaskId);
+    }
+
+    // Filter by agent_id (from or to)
+    if (filterAgentId) {
+      filtered = filtered.filter(
+        msg => msg.from_agent_id === filterAgentId || msg.to_agent_id === filterAgentId
+      );
+    }
+
+    // Filter by event type
+    if (filterEventType) {
+      filtered = filtered.filter(msg => msg.type === filterEventType);
+    }
+
+    // Filter by search pattern
+    if (searchPattern) {
+      const pattern = searchPattern.toLowerCase();
+      filtered = filtered.filter(msg =>
+        msg.message.toLowerCase().includes(pattern) ||
+        msg.from_agent_name.toLowerCase().includes(pattern) ||
+        msg.to_agent_name.toLowerCase().includes(pattern)
+      );
+    }
+
+    // Filter duplicates
+    if (!showDuplicates) {
+      filtered = filtered.filter(msg => !msg.is_duplicate);
+    }
+
+    return filtered;
+  }, [messages, filterTaskId, filterAgentId, filterEventType, searchPattern, showDuplicates]);
+
   // Group messages by task or general conversation
   const groupedMessages = useMemo(() => {
     const groups: { [key: string]: Message[] } = {
       general: [],
     };
 
-    messages.forEach(msg => {
+    filteredMessages.forEach(msg => {
       if (msg.task_id) {
         if (!groups[msg.task_id]) {
           groups[msg.task_id] = [];
@@ -37,6 +84,28 @@ const ConversationView = () => {
     });
 
     return groups;
+  }, [filteredMessages]);
+
+  // Get unique task IDs for filter dropdown
+  const uniqueTaskIds = useMemo(() => {
+    const taskIds = new Set(messages.filter(m => m.task_id).map(m => m.task_id!));
+    return Array.from(taskIds).sort();
+  }, [messages]);
+
+  // Get unique agent IDs for filter dropdown
+  const uniqueAgentIds = useMemo(() => {
+    const agentIds = new Set<string>();
+    messages.forEach(m => {
+      agentIds.add(m.from_agent_id);
+      agentIds.add(m.to_agent_id);
+    });
+    return Array.from(agentIds).sort();
+  }, [messages]);
+
+  // Get unique event types for filter dropdown
+  const uniqueEventTypes = useMemo(() => {
+    const types = new Set(messages.map(m => m.type));
+    return Array.from(types).sort();
   }, [messages]);
 
   const getMessageIcon = (type: string) => {
@@ -84,8 +153,110 @@ const ConversationView = () => {
     return `${diffMinutes}m`;
   };
 
+  const clearFilters = () => {
+    setFilterTaskId('');
+    setFilterAgentId('');
+    setFilterEventType('');
+    setSearchPattern('');
+    setShowDuplicates(true);
+  };
+
+  const activeFilterCount = [filterTaskId, filterAgentId, filterEventType, searchPattern].filter(Boolean).length + (showDuplicates ? 0 : 1);
+
+  // Count duplicates
+  const duplicateCount = messages.filter(m => m.is_duplicate).length;
+
   return (
     <div className="conversation-view">
+      {/* Filter Panel */}
+      <div className="conversation-filters">
+        <div className="filters-header">
+          <button
+            className="filters-toggle"
+            onClick={() => setFiltersExpanded(!filtersExpanded)}
+          >
+            🔍 Filters {activeFilterCount > 0 && `(${activeFilterCount} active)`}
+            <span className={`arrow ${filtersExpanded ? 'expanded' : ''}`}>▼</span>
+          </button>
+          {activeFilterCount > 0 && (
+            <button className="clear-filters" onClick={clearFilters}>Clear All</button>
+          )}
+          <div className="filter-stats">
+            {filteredMessages.length} / {messages.length} messages
+            {duplicateCount > 0 && ` • ${duplicateCount} duplicates`}
+          </div>
+        </div>
+
+        {filtersExpanded && (
+          <div className="filters-content">
+            <div className="filter-row">
+              <div className="filter-group">
+                <label>Task:</label>
+                <select
+                  value={filterTaskId}
+                  onChange={(e) => setFilterTaskId(e.target.value)}
+                >
+                  <option value="">All Tasks</option>
+                  {uniqueTaskIds.map(id => (
+                    <option key={id} value={id}>{getTaskName(id)}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="filter-group">
+                <label>Agent:</label>
+                <select
+                  value={filterAgentId}
+                  onChange={(e) => setFilterAgentId(e.target.value)}
+                >
+                  <option value="">All Agents</option>
+                  {uniqueAgentIds.map(id => (
+                    <option key={id} value={id}>{getAgentName(id)}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="filter-group">
+                <label>Type:</label>
+                <select
+                  value={filterEventType}
+                  onChange={(e) => setFilterEventType(e.target.value)}
+                >
+                  <option value="">All Types</option>
+                  {uniqueEventTypes.map(type => (
+                    <option key={type} value={type}>{getMessageTypeLabel(type)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="filter-row">
+              <div className="filter-group search-group">
+                <label>Search:</label>
+                <input
+                  type="text"
+                  placeholder="Search messages, agents..."
+                  value={searchPattern}
+                  onChange={(e) => setSearchPattern(e.target.value)}
+                />
+              </div>
+
+              <div className="filter-group checkbox-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={showDuplicates}
+                    onChange={(e) => setShowDuplicates(e.target.checked)}
+                  />
+                  Show duplicates
+                </label>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Messages Container */}
       <div className="conversations-container">
         {Object.entries(groupedMessages).map(([taskId, msgs]) => {
           if (msgs.length === 0) return null;
@@ -110,7 +281,9 @@ const ConversationView = () => {
                       key={msg.id}
                       className={`message ${isFromMarcus ? 'from-marcus' : 'from-agent'} ${
                         msg.id === selectedMessageId ? 'selected' : ''
-                      } ${isThreaded ? 'threaded' : ''}`}
+                      } ${isThreaded ? 'threaded' : ''} ${
+                        msg.is_duplicate ? 'duplicate' : ''
+                      }`}
                       onClick={() => selectMessage(msg.id)}
                     >
                       <div className="message-header">
@@ -127,6 +300,11 @@ const ConversationView = () => {
                           <span className="message-type-badge">
                             {getMessageIcon(msg.type)} {getMessageTypeLabel(msg.type)}
                           </span>
+                          {msg.is_duplicate && (
+                            <span className="duplicate-badge" title={`Duplicate group: ${msg.duplicate_group_id} (${msg.duplicate_count} total)`}>
+                              🔄 Duplicate
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -162,6 +340,13 @@ const ConversationView = () => {
             </div>
           );
         })}
+
+        {filteredMessages.length === 0 && (
+          <div className="no-data">
+            No messages match the current filters.
+            <button className="clear-filters-link" onClick={clearFilters}>Clear filters</button>
+          </div>
+        )}
       </div>
     </div>
   );

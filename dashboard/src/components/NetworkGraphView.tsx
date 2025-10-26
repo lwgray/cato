@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { useVisualizationStore } from '../store/visualizationStore';
 import { Task } from '../services/dataService';
 import { getTaskStateAtTime } from '../utils/timelineUtils';
+import TaskLifecyclePanel from './TaskLifecyclePanel';
 import './NetworkGraphView.css';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
@@ -13,11 +14,14 @@ interface GraphNode extends d3.SimulationNodeDatum {
   status: TaskStatus;
   progress: number;
   isActive: boolean;
+  isZombie: boolean;
+  isBottleneck: boolean;
 }
 
 interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
   source: string | GraphNode;
   target: string | GraphNode;
+  isRedundant?: boolean;
 }
 
 const NetworkGraphView = () => {
@@ -29,6 +33,9 @@ const NetworkGraphView = () => {
   const currentTime = useVisualizationStore((state) => state.currentTime);
   const selectTask = useVisualizationStore((state) => state.selectTask);
   const selectedTaskId = useVisualizationStore((state) => state.selectedTaskId);
+
+  // Local state for lifecycle panel
+  const [lifecycleTask, setLifecycleTask] = useState<Task | null>(null);
 
   // Build graph structure once when tasks change
   useEffect(() => {
@@ -54,14 +61,24 @@ const NetworkGraphView = () => {
     const startTime = new Date(snapshot.start_time).getTime();
     const currentAbsTime = startTime + currentTime;
 
+    // Detect zombies and bottlenecks
     const nodes: GraphNode[] = tasks.map(task => {
       const state = getTaskStateAtTime(task, currentAbsTime);
+
+      // Zombie: IN_PROGRESS but no agent assigned
+      const isZombie = state.status === 'in_progress' && !task.assigned_agent_id;
+
+      // Bottleneck: Many tasks depend on this (threshold: 3+)
+      const isBottleneck = (task.dependent_task_ids?.length || 0) >= 3;
+
       return {
         id: task.id,
         task,
         status: state.status,
         progress: state.progress,
         isActive: state.isActive,
+        isZombie,
+        isBottleneck,
       };
     });
 
@@ -119,19 +136,39 @@ const NetworkGraphView = () => {
       reducedDeps.set(task.id, reduced);
     });
 
-    // Create links using reduced dependencies
+    // Create links using reduced dependencies + redundant dependencies (for visualization)
     const links: GraphLink[] = [];
+    const redundantLinks: GraphLink[] = [];
+
     tasks.forEach(task => {
-      const deps = reducedDeps.get(task.id) || new Set();
-      deps.forEach(depId => {
+      const directDeps = depMap.get(task.id) || new Set();
+      const reducedDepsForTask = reducedDeps.get(task.id) || new Set();
+
+      directDeps.forEach(depId => {
         if (nodes.find(n => n.id === depId)) {
-          links.push({
-            source: depId,
-            target: task.id,
-          });
+          const isRedundant = !reducedDepsForTask.has(depId);
+
+          if (isRedundant) {
+            // Add as redundant link (will be shown as dashed red)
+            redundantLinks.push({
+              source: depId,
+              target: task.id,
+              isRedundant: true,
+            });
+          } else {
+            // Add as normal link
+            links.push({
+              source: depId,
+              target: task.id,
+              isRedundant: false,
+            });
+          }
         }
       });
     });
+
+    // Combine links: normal + redundant
+    const allLinks = [...links, ...redundantLinks];
 
     // Color scale
     const statusColor = (status: TaskStatus, isActive: boolean) => {
@@ -200,7 +237,7 @@ const NetworkGraphView = () => {
     nodes.forEach(n => nodeMap.set(n.id, n));
 
     // Resolve link references from IDs to actual node objects
-    links.forEach(link => {
+    allLinks.forEach(link => {
       if (typeof link.source === 'string') {
         link.source = nodeMap.get(link.source)!;
       }
@@ -216,15 +253,18 @@ const NetworkGraphView = () => {
     // Draw links
     const link = g.append('g')
       .selectAll('line')
-      .data(links)
+      .data(allLinks)
       .enter().append('line')
-      .attr('stroke', '#475569')
-      .attr('stroke-width', 2)
-      .attr('stroke-opacity', 0.6)
-      .attr('marker-end', 'url(#arrow)');
+      .attr('stroke', d => d.isRedundant ? '#ef4444' : '#475569')
+      .attr('stroke-width', d => d.isRedundant ? 1.5 : 2)
+      .attr('stroke-opacity', d => d.isRedundant ? 0.5 : 0.6)
+      .attr('stroke-dasharray', d => d.isRedundant ? '5,5' : 'none')
+      .attr('marker-end', d => d.isRedundant ? 'url(#arrow-redundant)' : 'url(#arrow)');
 
-    // Add arrow marker
-    svg.append('defs').append('marker')
+    // Add arrow markers
+    const defs = svg.append('defs');
+
+    defs.append('marker')
       .attr('id', 'arrow')
       .attr('viewBox', '0 -5 10 10')
       .attr('refX', 25)
@@ -235,6 +275,18 @@ const NetworkGraphView = () => {
       .append('path')
       .attr('d', 'M0,-5L10,0L0,5')
       .attr('fill', '#475569');
+
+    defs.append('marker')
+      .attr('id', 'arrow-redundant')
+      .attr('viewBox', '0 -5 10 10')
+      .attr('refX', 25)
+      .attr('refY', 0)
+      .attr('markerWidth', 6)
+      .attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d', 'M0,-5L10,0L0,5')
+      .attr('fill', '#ef4444');
 
     // Draw nodes
     const node = g.append('g')
@@ -249,10 +301,20 @@ const NetworkGraphView = () => {
       .attr('class', 'node-circle')
       .attr('r', 20)
       .attr('fill', d => statusColor(d.status, d.isActive))
-      .attr('stroke', d => d.id === selectedTaskId ? '#f59e0b' : '#1e293b')
-      .attr('stroke-width', d => d.id === selectedTaskId ? 4 : 2)
+      .attr('stroke', d => {
+        if (d.id === selectedTaskId) return '#f59e0b';
+        if (d.isZombie) return '#ef4444'; // Red for zombie
+        if (d.isBottleneck) return '#f97316'; // Orange for bottleneck
+        return '#1e293b';
+      })
+      .attr('stroke-width', d => {
+        if (d.id === selectedTaskId) return 4;
+        if (d.isZombie || d.isBottleneck) return 3;
+        return 2;
+      })
       .on('click', (_, d) => {
         selectTask(d.id);
+        setLifecycleTask(d.task); // Show lifecycle panel
       });
 
     // Node labels
@@ -325,6 +387,10 @@ const NetworkGraphView = () => {
       node.progress = state.progress;
       node.isActive = state.isActive;
 
+      // Update diagnostic flags
+      node.isZombie = state.status === 'in_progress' && !node.task.assigned_agent_id;
+      node.isBottleneck = (node.task.dependent_task_ids?.length || 0) >= 3;
+
       // Debug: log first node
       if (node.id === nodesRef.current[0].id) {
         console.log(`Time: ${(currentTime/60000).toFixed(1)}m, Node: ${node.task.name.substring(0, 20)}, Progress: ${node.progress}%, Status: ${node.status}, Active: ${node.isActive}`);
@@ -342,12 +408,21 @@ const NetworkGraphView = () => {
       }
     };
 
-    // Update circle colors
+    // Update circle colors and diagnostic borders
     svg.selectAll('.node-circle')
       .data(nodesRef.current)
       .attr('fill', d => statusColor(d.status, d.isActive))
-      .attr('stroke', d => d.id === selectedTaskId ? '#f59e0b' : '#1e293b')
-      .attr('stroke-width', d => d.id === selectedTaskId ? 4 : 2)
+      .attr('stroke', d => {
+        if (d.id === selectedTaskId) return '#f59e0b';
+        if (d.isZombie) return '#ef4444'; // Red for zombie
+        if (d.isBottleneck) return '#f97316'; // Orange for bottleneck
+        return '#1e293b';
+      })
+      .attr('stroke-width', d => {
+        if (d.id === selectedTaskId) return 4;
+        if (d.isZombie || d.isBottleneck) return 3;
+        return 2;
+      })
       .attr('class', d => `node-circle ${d.isActive ? 'pulsing-node' : ''}`);
 
     // Update progress text
@@ -361,23 +436,49 @@ const NetworkGraphView = () => {
     <div className="network-graph-view">
       <svg ref={svgRef} className="network-svg" />
       <div className="legend">
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#64748b' }}></div>
-          <span>Backlog</span>
+        <div className="legend-section">
+          <div className="legend-title">Status</div>
+          <div className="legend-item">
+            <div className="legend-color" style={{ backgroundColor: '#64748b' }}></div>
+            <span>Backlog</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-color" style={{ backgroundColor: '#3b82f6' }}></div>
+            <span>In Progress</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-color" style={{ backgroundColor: '#10b981' }}></div>
+            <span>Done</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-color" style={{ backgroundColor: '#ef4444' }}></div>
+            <span>Blocked</span>
+          </div>
         </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#3b82f6' }}></div>
-          <span>In Progress</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#10b981' }}></div>
-          <span>Done</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#ef4444' }}></div>
-          <span>Blocked</span>
+        <div className="legend-section">
+          <div className="legend-title">Diagnostics</div>
+          <div className="legend-item">
+            <div className="legend-border" style={{ borderColor: '#ef4444', borderStyle: 'solid' }}></div>
+            <span>Zombie (no agent)</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-border" style={{ borderColor: '#f97316', borderStyle: 'solid' }}></div>
+            <span>Bottleneck (3+ deps)</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-line" style={{ borderTop: '2px dashed #ef4444' }}></div>
+            <span>Redundant dep</span>
+          </div>
         </div>
       </div>
+
+      {/* Task Lifecycle Panel */}
+      {lifecycleTask && (
+        <TaskLifecyclePanel
+          task={lifecycleTask}
+          onClose={() => setLifecycleTask(null)}
+        />
+      )}
     </div>
   );
 };
