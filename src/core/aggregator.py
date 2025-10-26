@@ -246,6 +246,8 @@ class Aggregator:
 
         # Step 4: Build lookup tables for denormalization
         projects_by_id = {p["id"]: p for p in projects_data if "id" in p}
+        # Use ALL tasks for lookup (including parents) so subtasks can find parent names
+        all_tasks_by_id = {t["id"]: t for t in raw_tasks}
         tasks_by_id = {t["id"]: t for t in filtered_tasks}
         agents_by_id = self._infer_agents(filtered_tasks, filtered_messages)
 
@@ -258,7 +260,7 @@ class Aggregator:
         tasks = self._build_tasks(
             filtered_tasks,
             projects_by_id,
-            tasks_by_id,
+            all_tasks_by_id,  # Use ALL tasks for parent lookup
             agents_by_id,
             timeline_start,
             timeline_end,
@@ -271,11 +273,11 @@ class Aggregator:
         # Step 8: Build denormalized messages (already filtered above)
         final_task_ids_set = {t.id for t in tasks}
         messages = self._build_messages(
-            filtered_messages, final_task_ids_set, tasks_by_id, agents_by_id
+            filtered_messages, final_task_ids_set, all_tasks_by_id, agents_by_id
         )
 
         # Step 9: Build denormalized events
-        events = self._build_events(raw_events, final_task_ids_set, tasks_by_id, agents_by_id)
+        events = self._build_events(raw_events, final_task_ids_set, all_tasks_by_id, agents_by_id)
 
         # Step 8a: Generate diagnostic events for timeline
         diagnostic_events = self._build_diagnostic_events(
@@ -535,6 +537,12 @@ class Aggregator:
         """Infer agents from tasks and messages."""
         agents = {}
 
+        def get_agent_name(agent_id: str) -> str:
+            """Convert agent ID to display name. System/marcus becomes 'Marcus'."""
+            if agent_id.lower() in ["system", "marcus"]:
+                return "Marcus"
+            return agent_id
+
         # From tasks
         for task in tasks:
             agent_id = (
@@ -545,8 +553,8 @@ class Aggregator:
             if agent_id and agent_id not in agents:
                 agents[agent_id] = {
                     "id": agent_id,
-                    "name": agent_id,  # Will be improved if we find better name
-                    "role": "agent",
+                    "name": get_agent_name(agent_id),
+                    "role": "system" if agent_id.lower() in ["system", "marcus"] else "agent",
                     "skills": [],
                 }
 
@@ -557,8 +565,8 @@ class Aggregator:
                 if agent_id and agent_id not in agents:
                     agents[agent_id] = {
                         "id": agent_id,
-                        "name": agent_id,
-                        "role": "agent",
+                        "name": get_agent_name(agent_id),
+                        "role": "system" if agent_id.lower() in ["system", "marcus"] else "agent",
                         "skills": [],
                     }
 

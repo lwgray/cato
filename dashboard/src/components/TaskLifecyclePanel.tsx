@@ -43,11 +43,11 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
   if (!task || !snapshot) return null;
 
   const formatTime = (timestamp: string) => {
-    if (!snapshot.start_time) return '0h';
+    if (!snapshot.start_time) return '0m';
     const date = new Date(timestamp);
     const startTime = new Date(snapshot.start_time);
-    const diffHours = (date.getTime() - startTime.getTime()) / 3600000;
-    return `${diffHours.toFixed(1)}h`;
+    const diffMinutes = (date.getTime() - startTime.getTime()) / 60000;
+    return `${Math.round(diffMinutes)}m`;
   };
 
   const formatDate = (timestamp: string | null) => {
@@ -74,16 +74,6 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
       case 'low': return 'priority-low';
       default: return '';
     }
-  };
-
-  const formatAgentName = (agentName: string) => {
-    // Convert "system" or "marcus" to "Marcus" (capitalized)
-    if (!agentName) return 'Unknown';
-    const lowerName = agentName.toLowerCase();
-    if (lowerName === 'system' || lowerName === 'marcus') {
-      return 'Marcus';
-    }
-    return agentName;
   };
 
   // Calculate diagnostic flags
@@ -249,7 +239,7 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
                     <span className="message-type-small">{msg.type}</span>
                   </div>
                   <div className="message-sender-small">
-                    {formatAgentName(msg.from_agent_name)} → {formatAgentName(msg.to_agent_name)}
+                    {msg.from_agent_name} → {msg.to_agent_name}
                   </div>
                   <div className="message-content-small">{msg.message}</div>
                 </div>
