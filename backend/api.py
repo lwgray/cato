@@ -266,13 +266,9 @@ async def get_projects() -> Dict[str, Any]:
 
         logger.info(f"Filtered to {len(projects_with_tasks)}/{len(projects_data)} projects with tasks")
 
-        # Sort projects by most recent first (last_used, then created_at)
-        def get_sort_key(project: Dict[str, Any]) -> str:
-            # Use last_used if available, otherwise created_at
-            return project.get("last_used") or project.get("created_at", "")
-
-        projects_with_tasks.sort(key=get_sort_key, reverse=True)
-        logger.info("Sorted projects by most recent first")
+        # Sort projects by creation date (most recent first)
+        projects_with_tasks.sort(key=lambda p: p.get("created_at", ""), reverse=True)
+        logger.info("Sorted projects by creation date (most recent first)")
 
         return {"projects": projects_with_tasks}
     except Exception as e:
