@@ -543,6 +543,14 @@ class Aggregator:
                 return "Marcus"
             return agent_id
 
+        # Always include system agent
+        agents["system"] = {
+            "id": "system",
+            "name": "Marcus",
+            "role": "system",
+            "skills": [],
+        }
+
         # From tasks
         for task in tasks:
             agent_id = (
