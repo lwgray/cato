@@ -1591,17 +1591,20 @@ class Aggregator:
             if task.updated_at:
                 task_times.append(task.updated_at.timestamp())
 
-            # Calculate individual task durations
-            if task.completed_at and task.started_at:
-                duration = (task.completed_at - task.started_at).total_seconds() / 3600
-                completed_task_durations.append(duration)
+            # Calculate individual task durations (use created_at/updated_at, not started_at/completed_at)
+            if task.created_at and task.updated_at:
+                duration_seconds = (task.updated_at.timestamp() - task.created_at.timestamp())
+                if duration_seconds > 0:
+                    duration_minutes = duration_seconds / 60.0  # Convert to minutes
+                    completed_task_durations.append(duration_minutes)
 
         # Calculate total project duration
         if task_times:
             total_duration_seconds = max(task_times) - min(task_times)
-        total_duration_minutes = total_duration_seconds / 60.0
+        total_duration_minutes = round(total_duration_seconds / 60.0)  # Round to whole number
 
-        avg_duration = (
+        # Average task duration in minutes (note: field name says 'hours' but we use minutes for consistency)
+        avg_duration_minutes = (
             sum(completed_task_durations) / len(completed_task_durations)
             if completed_task_durations
             else 0.0
@@ -1628,7 +1631,7 @@ class Aggregator:
             blocked_tasks=blocked_tasks,
             completion_rate=completion_rate,
             total_duration_minutes=total_duration_minutes,
-            average_task_duration_hours=avg_duration,
+            average_task_duration_hours=avg_duration_minutes,  # Actually minutes, field name is misleading
             peak_parallel_tasks=peak_parallel,
             average_parallel_tasks=average_parallel,
             parallelization_efficiency=parallelization_efficiency,
