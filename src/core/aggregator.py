@@ -251,12 +251,15 @@ class Aggregator:
         tasks_by_id = {t["id"]: t for t in filtered_tasks}
         agents_by_id = self._infer_agents(filtered_tasks, filtered_messages)
 
-        # Step 5: Calculate timeline boundaries
+        # Step 5: Enrich tasks with started_at and completed_at from messages
+        self._enrich_tasks_with_message_timestamps(filtered_tasks, filtered_messages)
+
+        # Step 6: Calculate timeline boundaries
         timeline_start, timeline_end, duration_minutes = self._calculate_timeline(
             filtered_tasks, filtered_messages
         )
 
-        # Step 6: Build denormalized tasks with timeline positions
+        # Step 7: Build denormalized tasks with timeline positions
         tasks = self._build_tasks(
             filtered_tasks,
             projects_by_id,
@@ -267,10 +270,10 @@ class Aggregator:
             timeline_scale_exponent,
         )
 
-        # Step 7: Build denormalized agents with metrics
+        # Step 8: Build denormalized agents with metrics
         agents = self._build_agents(agents_by_id, tasks, filtered_messages)
 
-        # Step 8: Build denormalized messages (already filtered above)
+        # Step 9: Build denormalized messages (already filtered above)
         final_task_ids_set = {t.id for t in tasks}
         messages = self._build_messages(
             filtered_messages, final_task_ids_set, all_tasks_by_id, agents_by_id
@@ -898,8 +901,9 @@ class Aggregator:
         logger.info(f"Calculating timeline from {len(tasks)} tasks")
 
         for task in tasks:
-            # Check all possible timestamp fields
-            for field in ["created_at", "updated_at", "started_at", "completed_at"]:
+            # Only use created_at and updated_at for timeline calculation
+            # (started_at/completed_at from messages may have timezone issues)
+            for field in ["created_at", "updated_at"]:
                 if task.get(field):
                     try:
                         ts_str = task[field]
@@ -953,6 +957,61 @@ class Aggregator:
         if linear_pos >= 1.0:
             return 1.0
         return float(linear_pos**exponent)
+
+    def _enrich_tasks_with_message_timestamps(
+        self, tasks: List[Dict[str, Any]], messages: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Enrich tasks with started_at and completed_at timestamps from messages.
+
+        Parameters
+        ----------
+        tasks : List[Dict[str, Any]]
+            Task dictionaries to enrich (modified in place)
+        messages : List[Dict[str, Any]]
+            Messages to extract timestamps from
+        """
+        # Build message index by task_id for faster lookup
+        messages_by_task = {}
+        for msg in messages:
+            task_id = msg.get("task_id") or msg.get("metadata", {}).get("task_id")
+            if task_id:
+                if task_id not in messages_by_task:
+                    messages_by_task[task_id] = []
+                messages_by_task[task_id].append(msg)
+
+        # Enrich each task
+        for task in tasks:
+            task_id = task.get("id")
+            if not task_id or task_id not in messages_by_task:
+                continue
+
+            task_messages = messages_by_task[task_id]
+
+            # Find started_at from task_assignment message
+            assignment_msgs = [
+                m for m in task_messages
+                if m.get("type") == "task_assignment"
+            ]
+            if assignment_msgs:
+                # Use earliest assignment
+                earliest = min(assignment_msgs, key=lambda m: m.get("timestamp", ""))
+                task["started_at"] = earliest.get("timestamp")
+
+            # Find completed_at from worker progress messages
+            progress_msgs = [
+                m for m in task_messages
+                if m.get("conversation_type") == "worker_to_pm"
+            ]
+            for msg in progress_msgs:
+                content = msg.get("message", "")
+                metadata = msg.get("metadata", {})
+                # Check for 100% in message or status=completed in metadata
+                if ("100%" in content or "COMPLETED" in content.upper() or
+                    metadata.get("progress") == 100 or
+                    metadata.get("status") == "completed"):
+                    task["completed_at"] = msg.get("timestamp")
+                    break
 
     def _build_tasks(
         self,
@@ -1152,6 +1211,12 @@ class Aggregator:
                 elif conv_type == "pm_to_worker":
                     from_agent_id = "system"
                     to_agent_id = worker_id
+
+            # Normalize "marcus" to "system" for agent lookup
+            if from_agent_id and from_agent_id.lower() == "marcus":
+                from_agent_id = "system"
+            if to_agent_id and to_agent_id.lower() == "marcus":
+                to_agent_id = "system"
 
             from_agent_name = agents_by_id.get(from_agent_id, {}).get(
                 "name", from_agent_id

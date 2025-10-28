@@ -53,7 +53,15 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
   const formatDate = (timestamp: string | null) => {
     if (!timestamp) return 'N/A';
     const date = new Date(timestamp);
-    return date.toLocaleString();
+    // Format with timezone abbreviation (e.g., "Oct 23, 2025, 1:53 AM PDT")
+    return date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    });
   };
 
   const getStatusBadgeClass = (status: string) => {
@@ -167,11 +175,11 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
             </div>
             <div className="timeline-item">
               <span className="timeline-label">Estimated:</span>
-              <span className="timeline-value">{task.estimated_hours}h</span>
+              <span className="timeline-value">{Math.round(task.estimated_hours * 60)}m</span>
             </div>
             <div className="timeline-item">
               <span className="timeline-label">Actual:</span>
-              <span className="timeline-value">{task.actual_hours}h</span>
+              <span className="timeline-value">{Math.round(task.actual_hours * 60)}m</span>
             </div>
           </div>
         </section>
