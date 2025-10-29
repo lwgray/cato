@@ -21,7 +21,7 @@ import json
 import logging
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
 
@@ -1768,7 +1768,10 @@ class Aggregator:
         try:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             if ts.tzinfo is None:
+                # Naive timestamps from old data are in MDT (UTC-6)
+                # Convert to UTC by labeling as UTC then adding 6 hours
                 ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts + timedelta(hours=6)
             return ts
         except (ValueError, AttributeError):
             return None
