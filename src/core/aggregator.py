@@ -376,6 +376,28 @@ class Aggregator:
             logger.error(f"Error loading projects: {e}")
             return []
 
+    def get_active_project_id(self) -> Optional[str]:
+        """
+        Get the ID of the currently active project from projects.json.
+
+        Returns
+        -------
+        Optional[str]
+            Active project ID if set, None otherwise
+        """
+        projects_file = self.persistence_dir / "projects.json"
+        if not projects_file.exists():
+            return None
+
+        try:
+            with open(projects_file, "r") as f:
+                data = json.load(f)
+                active_project = data.get("active_project", {})
+                return active_project.get("project_id")
+        except Exception as e:
+            logger.error(f"Error loading active project: {e}")
+            return None
+
     def _load_tasks(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Load tasks from subtasks.json, optionally filtered by project."""
         subtasks_file = self.persistence_dir / "subtasks.json"
@@ -1768,10 +1790,8 @@ class Aggregator:
         try:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             if ts.tzinfo is None:
-                # Naive timestamps from old data are in MDT (UTC-6)
-                # Convert to UTC by labeling as UTC then adding 6 hours
+                # Naive timestamps are treated as UTC (Marcus stores all timestamps in UTC)
                 ts = ts.replace(tzinfo=timezone.utc)
-                ts = ts + timedelta(hours=6)
             return ts
         except (ValueError, AttributeError):
             return None
