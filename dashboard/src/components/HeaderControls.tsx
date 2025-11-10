@@ -37,6 +37,15 @@ const HeaderControls = () => {
     await setSelectedProject(projectId);
   }, [setSelectedProject]);
 
+  const handleDropdownFocus = useCallback(async () => {
+    // Refresh projects list when user opens the dropdown
+    // This ensures new projects are immediately visible
+    if (dataMode === 'live' && !isLoading) {
+      console.log('Refreshing projects list on dropdown focus...');
+      await loadProjects();
+    }
+  }, [dataMode, isLoading, loadProjects]);
+
   return (
     <>
       <div className="header-top">
@@ -47,8 +56,9 @@ const HeaderControls = () => {
               className="project-selector"
               value={selectedProjectId || ''}
               onChange={handleProjectChange}
+              onFocus={handleDropdownFocus}
               disabled={isLoading}
-              title="Select project to visualize"
+              title="Select project to visualize (auto-refreshes on open)"
             >
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
