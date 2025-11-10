@@ -114,11 +114,6 @@ interface VisualizationState {
   playbackSpeed: number; // 0.5, 1, 2, 5, 10
   animationIntervalId: number | null;
 
-  // Auto-refresh state
-  autoRefreshEnabled: boolean;
-  autoRefreshIntervalId: number | null;
-  autoRefreshInterval: number; // milliseconds (default 5000 = 5 seconds)
-
   // View state
   currentLayer: ViewLayer;
   selectedTaskId: string | null;
@@ -134,9 +129,6 @@ interface VisualizationState {
   loadData: (mode?: DataMode, projectId?: string) => Promise<void>;
   loadProjects: () => Promise<void>;
   setSelectedProject: (projectId: string | null) => void;
-  startAutoRefresh: () => void;
-  stopAutoRefresh: () => void;
-  setAutoRefreshInterval: (interval: number) => void;
   setCurrentTime: (time: number) => void;
   play: () => void;
   pause: () => void;
@@ -166,9 +158,6 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     loadError: null,
     projects: [],
     selectedProjectId: null,
-    autoRefreshEnabled: false,
-    autoRefreshIntervalId: null,
-    autoRefreshInterval: 5000, // 5 seconds default
     currentTime: 0,
     isPlaying: false,
     playbackSpeed: 1,
@@ -272,18 +261,11 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
         set({
           snapshot: newSnapshot,
           isLoading: false,
-          currentTime: currentState.isPlaying ? currentState.currentTime : 0,
+          // IMPORTANT: Preserve currentTime to avoid resetting playback position
+          currentTime: currentState.currentTime,
         });
 
         console.log(`Snapshot loaded successfully in ${dataMode} mode`);
-
-        // Start auto-refresh if in live mode and not already running
-        const state = get();
-        if (dataMode === 'live' && !state.autoRefreshEnabled) {
-          get().startAutoRefresh();
-        } else if (dataMode === 'mock' && state.autoRefreshEnabled) {
-          get().stopAutoRefresh();
-        }
       } catch (error) {
         console.error('Error loading snapshot:', error);
 
@@ -356,58 +338,6 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       const { dataMode } = get();
       if (dataMode === 'live') {
         await get().loadData(dataMode, projectId || undefined);
-      }
-    },
-
-    startAutoRefresh: () => {
-      const current = get();
-
-      // Only enable for live data mode
-      if (current.dataMode !== 'live') {
-        console.log('Auto-refresh only available in live data mode');
-        return;
-      }
-
-      // Clear any existing interval
-      if (current.autoRefreshIntervalId) {
-        window.clearInterval(current.autoRefreshIntervalId);
-      }
-
-      set({ autoRefreshEnabled: true });
-
-      // Start polling
-      const intervalId = window.setInterval(() => {
-        const state = get();
-        if (!state.autoRefreshEnabled || state.dataMode !== 'live') {
-          get().stopAutoRefresh();
-          return;
-        }
-
-        console.log('Auto-refreshing snapshot...');
-        get().refreshData();
-      }, current.autoRefreshInterval);
-
-      set({ autoRefreshIntervalId: intervalId });
-      console.log(`Auto-refresh started (polling every ${current.autoRefreshInterval}ms)`);
-    },
-
-    stopAutoRefresh: () => {
-      const current = get();
-      if (current.autoRefreshIntervalId) {
-        window.clearInterval(current.autoRefreshIntervalId);
-      }
-      set({ autoRefreshEnabled: false, autoRefreshIntervalId: null });
-      console.log('Auto-refresh stopped');
-    },
-
-    setAutoRefreshInterval: (interval: number) => {
-      set({ autoRefreshInterval: interval });
-
-      // Restart auto-refresh with new interval if it's running
-      const current = get();
-      if (current.autoRefreshEnabled) {
-        get().stopAutoRefresh();
-        get().startAutoRefresh();
       }
     },
 

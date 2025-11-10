@@ -49,8 +49,7 @@
 }
 
 .data-mode-toggle,
-.refresh-button,
-.auto-refresh-toggle {
+.refresh-button {
   padding: 0.5rem 1rem;
   background: #1e293b;
   border: 2px solid #334155;
@@ -62,39 +61,19 @@
   transition: all 0.2s;
 }
 
-.auto-refresh-toggle.enabled {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  border-color: #059669;
-  color: white;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
-}
-
 .data-mode-toggle:hover:not(:disabled),
-.refresh-button:hover:not(:disabled),
-.auto-refresh-toggle:hover:not(:disabled),
-.task-view-toggle:hover:not(:disabled) {
+.refresh-button:hover:not(:disabled) {
   background: #334155;
   border-color: #475569;
   color: #e2e8f0;
 }
 
-.auto-refresh-toggle.enabled:hover:not(:disabled) {
+.refresh-button:hover:not(:disabled) {
   background: linear-gradient(135deg, #059669 0%, #047857 100%);
 }
 
 .data-mode-toggle:disabled,
-.refresh-button:disabled,
-.auto-refresh-toggle:disabled,
-.task-view-toggle:disabled {
+.refresh-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

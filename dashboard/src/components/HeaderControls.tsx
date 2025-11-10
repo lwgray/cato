@@ -1,8 +1,8 @@
-import { memo, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
 
 /**
- * Memoized header controls to prevent flickering during data refreshes.
+ * Header controls component to prevent flickering during data refreshes.
  * Subscribes directly to store values to avoid prop reference changes.
  */
 const HeaderControls = () => {
@@ -12,15 +12,12 @@ const HeaderControls = () => {
   const loadError = useVisualizationStore((state) => state.loadError);
   const projects = useVisualizationStore((state) => state.projects);
   const selectedProjectId = useVisualizationStore((state) => state.selectedProjectId);
-  const autoRefreshEnabled = useVisualizationStore((state) => state.autoRefreshEnabled);
 
   // Get action functions from store (these are stable references)
   const loadData = useVisualizationStore((state) => state.loadData);
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
   const setSelectedProject = useVisualizationStore((state) => state.setSelectedProject);
   const refreshData = useVisualizationStore((state) => state.refreshData);
-  const startAutoRefresh = useVisualizationStore((state) => state.startAutoRefresh);
-  const stopAutoRefresh = useVisualizationStore((state) => state.stopAutoRefresh);
 
   const handleToggleDataMode = useCallback(async () => {
     const newMode = dataMode === 'live' ? 'mock' : 'live';
@@ -37,14 +34,6 @@ const HeaderControls = () => {
     const projectId = event.target.value || null;
     await setSelectedProject(projectId);
   }, [setSelectedProject]);
-
-  const handleToggleAutoRefresh = useCallback(() => {
-    if (autoRefreshEnabled) {
-      stopAutoRefresh();
-    } else {
-      startAutoRefresh();
-    }
-  }, [autoRefreshEnabled, startAutoRefresh, stopAutoRefresh]);
 
   return (
     <>
@@ -75,22 +64,14 @@ const HeaderControls = () => {
           </button>
           {dataMode === 'live' && (
             <button
-              className={`auto-refresh-toggle ${autoRefreshEnabled ? 'enabled' : ''}`}
-              onClick={handleToggleAutoRefresh}
+              className="refresh-button"
+              onClick={refreshData}
               disabled={isLoading}
-              title={autoRefreshEnabled ? 'Auto-refresh enabled (5s)' : 'Enable auto-refresh'}
+              title="Refresh live data now"
             >
-              {autoRefreshEnabled ? '🔄 Auto (5s)' : '⏸️ Manual'}
+              🔄 Refresh
             </button>
           )}
-          <button
-            className="refresh-button"
-            onClick={refreshData}
-            disabled={isLoading || dataMode === 'mock'}
-            title="Refresh live data now"
-          >
-            🔄 Refresh Now
-          </button>
         </div>
       </div>
       {loadError && (
