@@ -4,8 +4,8 @@ import { Message } from '../services/dataService';
 import './ConversationView.css';
 
 const ConversationView = () => {
-  const messages = useVisualizationStore((state) => state.getMessagesUpToCurrentTime());
   const snapshot = useVisualizationStore((state) => state.snapshot);
+  const messages = snapshot?.messages || [];
   const selectMessage = useVisualizationStore((state) => state.selectMessage);
   const selectedMessageId = useVisualizationStore((state) => state.selectedMessageId);
 
@@ -16,6 +16,9 @@ const ConversationView = () => {
   const [searchPattern, setSearchPattern] = useState<string>('');
   const [showDuplicates, setShowDuplicates] = useState<boolean>(true);
   const [filtersExpanded, setFiltersExpanded] = useState<boolean>(false);
+
+  // Expanded messages state
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
 
   if (!snapshot) {
     return (
@@ -161,6 +164,16 @@ const ConversationView = () => {
     setShowDuplicates(true);
   };
 
+  const toggleMessageExpanded = (messageId: string) => {
+    const newExpanded = new Set(expandedMessages);
+    if (newExpanded.has(messageId)) {
+      newExpanded.delete(messageId);
+    } else {
+      newExpanded.add(messageId);
+    }
+    setExpandedMessages(newExpanded);
+  };
+
   const activeFilterCount = [filterTaskId, filterAgentId, filterEventType, searchPattern].filter(Boolean).length + (showDuplicates ? 0 : 1);
 
   // Count duplicates
@@ -276,6 +289,10 @@ const ConversationView = () => {
                   const prevMsg = idx > 0 ? msgs[idx - 1] : null;
                   const isThreaded = msg.parent_message_id === prevMsg?.id;
 
+                  const isExpanded = expandedMessages.has(msg.id);
+                  const hasInstructions = msg.metadata?.instructions;
+                  const hasPredictions = msg.metadata?.estimated_hours !== undefined;
+
                   return (
                     <div
                       key={msg.id}
@@ -283,7 +300,7 @@ const ConversationView = () => {
                         msg.id === selectedMessageId ? 'selected' : ''
                       } ${isThreaded ? 'threaded' : ''} ${
                         msg.is_duplicate ? 'duplicate' : ''
-                      }`}
+                      } ${isExpanded ? 'expanded' : ''}`}
                       onClick={() => selectMessage(msg.id)}
                     >
                       <div className="message-header">
@@ -305,6 +322,18 @@ const ConversationView = () => {
                               🔄 Duplicate
                             </span>
                           )}
+                          {(hasInstructions || hasPredictions) && (
+                            <button
+                              className="expand-button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleMessageExpanded(msg.id);
+                              }}
+                              title={isExpanded ? 'Collapse details' : 'Expand details'}
+                            >
+                              {isExpanded ? '▼' : '▶'}
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -312,7 +341,78 @@ const ConversationView = () => {
                         {msg.message}
                       </div>
 
-                      {msg.metadata && Object.keys(msg.metadata).length > 0 && (
+                      {/* Expandable details section */}
+                      {isExpanded && (
+                        <div className="message-details">
+                          {/* Task Instructions */}
+                          {msg.metadata?.instructions && (
+                            <div className="detail-section">
+                              <div className="detail-header">📋 Task Instructions</div>
+                              <div className="detail-content instructions">
+                                <pre>{msg.metadata.instructions}</pre>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Predictions */}
+                          {hasPredictions && (
+                            <div className="detail-section">
+                              <div className="detail-header">⚡ Predictions</div>
+                              <div className="detail-content predictions">
+                                {msg.metadata.estimated_hours && (
+                                  <div className="prediction-item">
+                                    <strong>Estimated Hours:</strong> {msg.metadata.estimated_hours}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Project Info */}
+                          {msg.metadata?.project_name && (
+                            <div className="detail-section">
+                              <div className="detail-header">📁 Project</div>
+                              <div className="detail-content">
+                                <strong>{msg.metadata.project_name}</strong>
+                                {msg.metadata.board_name && (
+                                  <span> / {msg.metadata.board_name}</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Additional Metadata */}
+                          {msg.metadata && (
+                            <div className="detail-section">
+                              <div className="detail-header">🔍 Metadata</div>
+                              <div className="detail-content metadata">
+                                {msg.metadata.task_name && (
+                                  <div className="meta-item">
+                                    <strong>Task:</strong> {msg.metadata.task_name}
+                                  </div>
+                                )}
+                                {msg.metadata.priority && (
+                                  <div className="meta-item">
+                                    <strong>Priority:</strong> {msg.metadata.priority}
+                                  </div>
+                                )}
+                                {msg.metadata.blocking && (
+                                  <div className="meta-item warning">
+                                    <strong>⚠️ Blocking</strong>
+                                  </div>
+                                )}
+                                {msg.metadata.requires_response && (
+                                  <div className="meta-item warning">
+                                    <strong>💬 Requires Response</strong>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {msg.metadata && Object.keys(msg.metadata).length > 0 && !isExpanded && (
                         <div className="message-metadata">
                           {msg.metadata.blocking && (
                             <span className="meta-badge blocking">Blocking</span>
@@ -330,6 +430,9 @@ const ConversationView = () => {
                           )}
                           {msg.metadata.resolves_blocker && (
                             <span className="meta-badge resolves">Resolves Blocker</span>
+                          )}
+                          {hasInstructions && (
+                            <span className="meta-badge has-details">Has Instructions</span>
                           )}
                         </div>
                       )}
