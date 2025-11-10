@@ -34,7 +34,6 @@ interface VisualizationState {
   filteredAgentIds: string[];
 
   // Auto-refresh state
-  autoRefreshEnabled: boolean;
   autoRefreshIntervalId: number | null;
   autoRefreshInterval: number; // milliseconds
 
@@ -57,7 +56,6 @@ interface VisualizationState {
   refreshData: () => Promise<void>;
   startAutoRefresh: () => void;
   stopAutoRefresh: () => void;
-  toggleAutoRefresh: () => void;
 
   // Derived getters
   getVisibleTasks: () => Task[];
@@ -84,7 +82,6 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     showCompletedTasks: true,
     showBlockedTasks: true,
     filteredAgentIds: [],
-    autoRefreshEnabled: false,
     autoRefreshIntervalId: null,
     autoRefreshInterval: 60000, // 60 seconds
 
@@ -153,6 +150,9 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
           console.log(`Auto-selecting most recent project: ${firstProject.name}`);
           await get().setSelectedProject(firstProject.id);
         }
+
+        // Start auto-refresh after initial load
+        get().startAutoRefresh();
       } catch (error) {
         console.error('Error loading projects:', error);
         set({ projects: [] });
@@ -338,15 +338,11 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       console.log(`Starting auto-refresh with ${current.autoRefreshInterval / 1000}s interval`);
 
       const intervalId = window.setInterval(() => {
-        const state = get();
-        if (state.autoRefreshEnabled) {
-          console.log('Auto-refreshing data...');
-          get().refreshData();
-        }
+        console.log('Auto-refreshing data...');
+        get().refreshData();
       }, current.autoRefreshInterval);
 
       set({
-        autoRefreshEnabled: true,
         autoRefreshIntervalId: intervalId,
       });
     },
@@ -358,19 +354,8 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
         console.log('Stopping auto-refresh');
         window.clearInterval(current.autoRefreshIntervalId);
         set({
-          autoRefreshEnabled: false,
           autoRefreshIntervalId: null,
         });
-      }
-    },
-
-    toggleAutoRefresh: () => {
-      const current = get();
-
-      if (current.autoRefreshEnabled) {
-        get().stopAutoRefresh();
-      } else {
-        get().startAutoRefresh();
       }
     },
   };

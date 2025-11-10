@@ -11,13 +11,11 @@ const HeaderControls = () => {
   const loadError = useVisualizationStore((state) => state.loadError);
   const projects = useVisualizationStore((state) => state.projects);
   const selectedProjectId = useVisualizationStore((state) => state.selectedProjectId);
-  const autoRefreshEnabled = useVisualizationStore((state) => state.autoRefreshEnabled);
 
   // Get action functions from store (these are stable references)
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
   const setSelectedProject = useVisualizationStore((state) => state.setSelectedProject);
   const refreshData = useVisualizationStore((state) => state.refreshData);
-  const toggleAutoRefresh = useVisualizationStore((state) => state.toggleAutoRefresh);
 
   const handleProjectChange = useCallback(async (event: React.ChangeEvent<HTMLSelectElement>) => {
     const projectId = event.target.value || null;
@@ -54,14 +52,6 @@ const HeaderControls = () => {
               ))}
             </select>
           )}
-          <button
-            className={`auto-refresh-toggle ${autoRefreshEnabled ? 'enabled' : ''}`}
-            onClick={toggleAutoRefresh}
-            disabled={isLoading}
-            title={autoRefreshEnabled ? 'Auto-refresh enabled (60s)' : 'Auto-refresh disabled'}
-          >
-            {autoRefreshEnabled ? '🟢 Auto (60s)' : '⚪ Auto'}
-          </button>
           <button
             className="refresh-button"
             onClick={refreshData}
