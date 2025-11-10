@@ -40,7 +40,12 @@ const AgentSwimLanesView = () => {
     .filter(({ tasks }) => tasks.length > 0);
 
   const getTaskPosition = (task: SnapshotTask) => {
-    const taskStart = new Date(task.created_at).getTime();
+    // Use started_at if available (when task actually began execution),
+    // otherwise fall back to created_at (when task was created/planned)
+    // This matches the logic in getTaskStateAtTime to ensure alignment
+    const taskStart = task.started_at
+      ? new Date(task.started_at).getTime()
+      : new Date(task.created_at).getTime();
     const taskEnd = new Date(task.updated_at).getTime();
 
     // Convert to relative time from start
@@ -104,14 +109,14 @@ const AgentSwimLanesView = () => {
                 </div>
               );
             })}
-          </div>
 
-          {/* Current time indicator */}
-          <div
-            className="current-time-line"
-            style={{ left: `calc(200px + ${currentTimePercent}%)` }}
-          >
-            <div className="time-label">{Math.round(currentTime / 60000)}m</div>
+            {/* Current time indicator - positioned relative to time-axis */}
+            <div
+              className="current-time-line"
+              style={{ left: `${currentTimePercent}%` }}
+            >
+              <div className="time-label">{Math.round(currentTime / 60000)}m</div>
+            </div>
           </div>
 
           {/* Agent lanes */}
