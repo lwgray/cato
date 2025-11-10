@@ -7,7 +7,6 @@ import { useVisualizationStore } from '../store/visualizationStore';
  */
 const HeaderControls = () => {
   // Subscribe to store values directly (Zustand handles stability)
-  const dataMode = useVisualizationStore((state) => state.dataMode);
   const isLoading = useVisualizationStore((state) => state.isLoading);
   const loadError = useVisualizationStore((state) => state.loadError);
   const projects = useVisualizationStore((state) => state.projects);
@@ -15,22 +14,10 @@ const HeaderControls = () => {
   const autoRefreshEnabled = useVisualizationStore((state) => state.autoRefreshEnabled);
 
   // Get action functions from store (these are stable references)
-  const loadData = useVisualizationStore((state) => state.loadData);
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
   const setSelectedProject = useVisualizationStore((state) => state.setSelectedProject);
   const refreshData = useVisualizationStore((state) => state.refreshData);
   const toggleAutoRefresh = useVisualizationStore((state) => state.toggleAutoRefresh);
-
-  const handleToggleDataMode = useCallback(async () => {
-    const newMode = dataMode === 'live' ? 'mock' : 'live';
-
-    if (newMode === 'live') {
-      await loadProjects();
-    }
-
-    const selectedId = useVisualizationStore.getState().selectedProjectId;
-    await loadData(newMode, selectedId || undefined);
-  }, [dataMode, loadData, loadProjects]);
 
   const handleProjectChange = useCallback(async (event: React.ChangeEvent<HTMLSelectElement>) => {
     const projectId = event.target.value || null;
@@ -40,18 +27,18 @@ const HeaderControls = () => {
   const handleDropdownFocus = useCallback(async () => {
     // Refresh projects list when user opens the dropdown
     // This ensures new projects are immediately visible
-    if (dataMode === 'live' && !isLoading) {
+    if (!isLoading) {
       console.log('Refreshing projects list on dropdown focus...');
       await loadProjects();
     }
-  }, [dataMode, isLoading, loadProjects]);
+  }, [isLoading, loadProjects]);
 
   return (
     <>
       <div className="header-top">
         <h1>Cato - Marcus Parallelization Visualization</h1>
         <div className="header-controls">
-          {dataMode === 'live' && projects.length > 0 && (
+          {projects.length > 0 && (
             <select
               className="project-selector"
               value={selectedProjectId || ''}
@@ -68,37 +55,26 @@ const HeaderControls = () => {
             </select>
           )}
           <button
-            className="data-mode-toggle"
-            onClick={handleToggleDataMode}
+            className={`auto-refresh-toggle ${autoRefreshEnabled ? 'enabled' : ''}`}
+            onClick={toggleAutoRefresh}
             disabled={isLoading}
+            title={autoRefreshEnabled ? 'Auto-refresh enabled (60s)' : 'Auto-refresh disabled'}
           >
-            {isLoading ? '⏳ Loading...' : dataMode === 'live' ? '🟢 Live Data' : '🔵 Mock Data'}
+            {autoRefreshEnabled ? '🟢 Auto (60s)' : '⚪ Auto'}
           </button>
-          {dataMode === 'live' && (
-            <>
-              <button
-                className={`auto-refresh-toggle ${autoRefreshEnabled ? 'enabled' : ''}`}
-                onClick={toggleAutoRefresh}
-                disabled={isLoading}
-                title={autoRefreshEnabled ? 'Auto-refresh enabled (60s)' : 'Auto-refresh disabled'}
-              >
-                {autoRefreshEnabled ? '🟢 Auto (60s)' : '⚪ Auto'}
-              </button>
-              <button
-                className="refresh-button"
-                onClick={refreshData}
-                disabled={isLoading}
-                title="Refresh live data now"
-              >
-                🔄 Refresh
-              </button>
-            </>
-          )}
+          <button
+            className="refresh-button"
+            onClick={refreshData}
+            disabled={isLoading}
+            title="Refresh live data now"
+          >
+            🔄 Refresh
+          </button>
         </div>
       </div>
       {loadError && (
         <div className="error-banner">
-          ⚠️ Error loading data: {loadError}. Falling back to mock data.
+          ⚠️ Error loading data: {loadError}
         </div>
       )}
     </>

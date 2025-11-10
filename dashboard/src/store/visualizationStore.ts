@@ -1,104 +1,12 @@
 import { create } from 'zustand';
-import { Snapshot, Task, Agent, Message, Metrics, Project, fetchSnapshot, fetchProjects, checkApiHealth } from '../services/dataService';
-import { generateMockData } from '../data/mockDataGenerator';
-import type { Task as MockTask, Agent as MockAgent, Message as MockMessage } from '../data/mockDataGenerator';
+import { Snapshot, Task, Agent, Message, Metrics, Project, fetchSnapshot, fetchProjects } from '../services/dataService';
 
 export type ViewLayer = 'network' | 'swimlanes' | 'conversations';
-export type DataMode = 'live' | 'mock';
 export type TaskView = 'subtasks' | 'parents' | 'all';
-
-// Helper function to convert mock data to Snapshot format
-function convertMockDataToSnapshot(mockData: ReturnType<typeof generateMockData>): { tasks: Task[], agents: Agent[], messages: Message[], metrics: Metrics } {
-  const tasks: Task[] = mockData.tasks.map((mockTask: MockTask) => ({
-    id: mockTask.id,
-    name: mockTask.name,
-    description: mockTask.description,
-    status: mockTask.status as 'todo' | 'in_progress' | 'done' | 'blocked',
-    priority: mockTask.priority as 'low' | 'medium' | 'high' | 'urgent',
-    progress_percent: mockTask.progress,
-    created_at: mockTask.created_at,
-    started_at: null,
-    completed_at: null,
-    updated_at: mockTask.updated_at,
-    estimated_hours: mockTask.estimated_hours,
-    actual_hours: mockTask.actual_hours,
-    parent_task_id: mockTask.parent_task_id,
-    parent_task_name: null,
-    is_subtask: mockTask.is_subtask,
-    subtask_index: mockTask.subtask_index,
-    project_id: mockTask.project_id,
-    project_name: mockTask.project_name,
-    assigned_agent_id: mockTask.assigned_to,
-    assigned_agent_name: null,
-    assigned_agent_role: null,
-    dependency_ids: mockTask.dependencies || [],
-    dependent_task_ids: [],
-    timeline_linear_position: 0,
-    timeline_scaled_position: 0,
-    timeline_scale_exponent: 0.4,
-    labels: mockTask.labels,
-    metadata: {},
-  }));
-
-  const agents: Agent[] = mockData.agents.map((mockAgent: MockAgent) => ({
-    id: mockAgent.id,
-    name: mockAgent.name,
-    role: mockAgent.role,
-    skills: mockAgent.skills,
-    current_task_ids: mockAgent.current_tasks,
-    current_task_names: [],
-    completed_task_ids: [],
-    completed_tasks_count: mockAgent.completed_tasks_count,
-    total_hours_worked: 0,
-    average_task_duration_hours: 0,
-    performance_score: mockAgent.performance_score,
-    capacity_utilization: mockAgent.autonomy_score,
-    messages_sent: 0,
-    messages_received: 0,
-    blockers_reported: 0,
-  }));
-
-  const messages: Message[] = mockData.messages.map((mockMsg: MockMessage) => ({
-    id: mockMsg.id,
-    timestamp: mockMsg.timestamp,
-    message: mockMsg.message,
-    type: mockMsg.type as 'instruction' | 'question' | 'answer' | 'status_update' | 'blocker' | 'task_assignment',
-    from_agent_id: mockMsg.from,
-    from_agent_name: mockMsg.from,
-    to_agent_id: mockMsg.to,
-    to_agent_name: mockMsg.to,
-    task_id: mockMsg.task_id,
-    task_name: null,
-    parent_message_id: mockMsg.parent_message_id,
-    metadata: mockMsg.metadata,
-  }));
-
-  // Create metrics from mock data
-  const metrics: Metrics = {
-    total_tasks: tasks.length,
-    completed_tasks: tasks.filter(t => t.status === 'done').length,
-    in_progress_tasks: tasks.filter(t => t.status === 'in_progress').length,
-    blocked_tasks: tasks.filter(t => t.status === 'blocked').length,
-    completion_rate: tasks.length > 0 ? (tasks.filter(t => t.status === 'done').length / tasks.length) * 100 : 0,
-    total_duration_minutes: mockData.metadata.total_duration_minutes,
-    average_task_duration_hours: 2.5,
-    peak_parallel_tasks: mockData.metadata.parallelization_level,
-    average_parallel_tasks: mockData.metadata.parallelization_level,
-    parallelization_efficiency: 0.8,
-    total_agents: agents.length,
-    active_agents: agents.filter(a => a.current_task_ids.length > 0).length,
-    tasks_per_agent: agents.length > 0 ? tasks.length / agents.length : 0,
-    total_blockers: tasks.filter(t => t.status === 'blocked').length,
-    blocked_task_percentage: tasks.length > 0 ? (tasks.filter(t => t.status === 'blocked').length / tasks.length) * 100 : 0,
-  };
-
-  return { tasks, agents, messages, metrics };
-}
 
 interface VisualizationState {
   // Snapshot data (denormalized, pre-calculated)
   snapshot: Snapshot | null;
-  dataMode: DataMode;
   isLoading: boolean;
   loadError: string | null;
 
@@ -131,7 +39,7 @@ interface VisualizationState {
   autoRefreshInterval: number; // milliseconds
 
   // Actions
-  loadData: (mode?: DataMode, projectId?: string) => Promise<void>;
+  loadData: (projectId?: string) => Promise<void>;
   loadProjects: () => Promise<void>;
   setSelectedProject: (projectId: string | null) => void;
   setCurrentTime: (time: number) => void;
@@ -161,7 +69,6 @@ interface VisualizationState {
 export const useVisualizationStore = create<VisualizationState>((set, get) => {
   return {
     snapshot: null,
-    dataMode: 'mock',
     isLoading: false,
     loadError: null,
     projects: [],
@@ -181,137 +88,31 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     autoRefreshIntervalId: null,
     autoRefreshInterval: 60000, // 60 seconds
 
-    loadData: async (mode?: DataMode, projectId?: string) => {
-      const dataMode = mode || (import.meta.env.VITE_DATA_MODE as DataMode) || 'mock';
-
+    loadData: async (projectId?: string) => {
       set({ isLoading: true, loadError: null });
 
       try {
-        let newSnapshot: Snapshot;
+        // Fetch live snapshot from API
+        console.log('Fetching live snapshot from API...');
+        const newSnapshot = await fetchSnapshot(
+          projectId,
+          'subtasks', // Always use subtasks view
+          0.4, // Power scale exponent
+          true // Use cache
+        );
 
-        if (dataMode === 'live') {
-          // Check if API is available
-          const isApiHealthy = await checkApiHealth();
-
-          if (!isApiHealthy) {
-            console.warn('API not available, falling back to mock data');
-            // Convert mock data to snapshot format
-            const mockData = generateMockData();
-            const converted = convertMockDataToSnapshot(mockData);
-            newSnapshot = {
-              snapshot_id: 'mock-snapshot',
-              snapshot_version: 1,
-              timestamp: new Date().toISOString(),
-              project_id: null,
-              project_name: 'Mock Project',
-              project_filter_applied: false,
-              included_project_ids: [],
-              view_mode: 'subtasks',
-              tasks: converted.tasks,
-              agents: converted.agents,
-              messages: converted.messages,
-              timeline_events: [],
-              metrics: converted.metrics,
-              start_time: mockData.metadata.start_time,
-              end_time: mockData.metadata.end_time,
-              duration_minutes: Math.round(
-                (new Date(mockData.metadata.end_time).getTime() -
-                  new Date(mockData.metadata.start_time).getTime()) /
-                  60000
-              ),
-              task_dependency_graph: {},
-              agent_communication_graph: {},
-              timezone: 'UTC',
-            };
-            set({ dataMode: 'mock' });
-          } else {
-            // Fetch live snapshot from API
-            console.log('Fetching live snapshot from API...');
-            newSnapshot = await fetchSnapshot(
-              projectId,
-              'subtasks', // Always use subtasks view
-              0.4, // Power scale exponent
-              true // Use cache
-            );
-            set({ dataMode: 'live' });
-          }
-        } else {
-          // Use mock data
-          const mockData = generateMockData();
-          const converted = convertMockDataToSnapshot(mockData);
-          newSnapshot = {
-            snapshot_id: 'mock-snapshot',
-            snapshot_version: 1,
-            timestamp: new Date().toISOString(),
-            project_id: null,
-            project_name: 'Mock Project',
-            project_filter_applied: false,
-            included_project_ids: [],
-            view_mode: 'subtasks',
-            tasks: converted.tasks,
-            agents: converted.agents,
-            messages: converted.messages,
-            timeline_events: [],
-            metrics: converted.metrics,
-            start_time: mockData.metadata.start_time,
-            end_time: mockData.metadata.end_time,
-            duration_minutes: Math.round(
-              (new Date(mockData.metadata.end_time).getTime() -
-                new Date(mockData.metadata.start_time).getTime()) /
-                60000
-            ),
-            task_dependency_graph: {},
-            agent_communication_graph: {},
-            timezone: 'UTC',
-          };
-          set({ dataMode: 'mock' });
-        }
-
-        // Update store - preserve currentTime if animation is playing
+        // Update store - preserve currentTime to avoid resetting playback position
         const currentState = get();
         set({
           snapshot: newSnapshot,
           isLoading: false,
-          // IMPORTANT: Preserve currentTime to avoid resetting playback position
           currentTime: currentState.currentTime,
         });
 
-        console.log(`Snapshot loaded successfully in ${dataMode} mode`);
+        console.log('Snapshot loaded successfully');
       } catch (error) {
         console.error('Error loading snapshot:', error);
-
-        // Fallback to mock data on error
-        const mockData = generateMockData();
-        const converted = convertMockDataToSnapshot(mockData);
-        const mockSnapshot: Snapshot = {
-          snapshot_id: 'mock-snapshot-error',
-          snapshot_version: 1,
-          timestamp: new Date().toISOString(),
-          project_id: null,
-          project_name: 'Mock Project (Error Fallback)',
-          project_filter_applied: false,
-          included_project_ids: [],
-          view_mode: 'subtasks',
-          tasks: converted.tasks,
-          agents: converted.agents,
-          messages: converted.messages,
-          timeline_events: [],
-          metrics: converted.metrics,
-          start_time: mockData.metadata.start_time,
-          end_time: mockData.metadata.end_time,
-          duration_minutes: Math.round(
-            (new Date(mockData.metadata.end_time).getTime() -
-              new Date(mockData.metadata.start_time).getTime()) /
-              60000
-          ),
-          task_dependency_graph: {},
-          agent_communication_graph: {},
-          timezone: 'UTC',
-        };
-
         set({
-          snapshot: mockSnapshot,
-          dataMode: 'mock',
           isLoading: false,
           loadError: error instanceof Error ? error.message : 'Unknown error',
         });
@@ -319,14 +120,11 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     },
 
     refreshData: async () => {
-      const { dataMode, selectedProjectId } = get();
+      const { selectedProjectId } = get();
 
-      // Reload projects list in live mode to detect new projects
-      if (dataMode === 'live') {
-        await get().loadProjects();
-      }
-
-      await get().loadData(dataMode, selectedProjectId || undefined);
+      // Reload projects list to detect new projects
+      await get().loadProjects();
+      await get().loadData(selectedProjectId || undefined);
     },
 
     loadProjects: async () => {
@@ -365,10 +163,7 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       set({ selectedProjectId: projectId });
 
       // Reload data with the new project filter
-      const { dataMode } = get();
-      if (dataMode === 'live') {
-        await get().loadData(dataMode, projectId || undefined);
-      }
+      await get().loadData(projectId || undefined);
     },
 
     setCurrentTime: (time) => set({ currentTime: time }),
@@ -544,7 +339,7 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
 
       const intervalId = window.setInterval(() => {
         const state = get();
-        if (state.autoRefreshEnabled && state.dataMode === 'live') {
+        if (state.autoRefreshEnabled) {
           console.log('Auto-refreshing data...');
           get().refreshData();
         }
