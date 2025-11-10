@@ -109,14 +109,14 @@ const AgentSwimLanesView = () => {
                 </div>
               );
             })}
-          </div>
 
-          {/* Current time indicator */}
-          <div
-            className="current-time-line"
-            style={{ left: `calc(200px + ${currentTimePercent}%)` }}
-          >
-            <div className="time-label">{Math.round(currentTime / 60000)}m</div>
+            {/* Current time indicator - positioned relative to time-axis */}
+            <div
+              className="current-time-line"
+              style={{ left: `${currentTimePercent}%` }}
+            >
+              <div className="time-label">{Math.round(currentTime / 60000)}m</div>
+            </div>
           </div>
 
           {/* Agent lanes */}

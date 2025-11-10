@@ -11,7 +11,7 @@ type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
  * This expands early times and compresses later times
  * Using exponent < 1 (e.g., 0.5 = square root) expands early timeline
  */
-export function timeToPowerScale(linearTime: number, totalDuration: number, exponent: number = 0.4): number {
+export function timeToPowerScale(linearTime: number, totalDuration: number, exponent: number = 1.0): number {
   if (totalDuration <= 0 || linearTime <= 0) return 0;
   if (linearTime >= totalDuration) return totalDuration;
 
@@ -28,7 +28,7 @@ export function timeToPowerScale(linearTime: number, totalDuration: number, expo
 /**
  * Convert power scale back to linear time
  */
-export function powerScaleToTime(scaledTime: number, totalDuration: number, exponent: number = 0.4): number {
+export function powerScaleToTime(scaledTime: number, totalDuration: number, exponent: number = 1.0): number {
   if (totalDuration <= 0) return 0;
   if (scaledTime >= totalDuration) return totalDuration;
 
