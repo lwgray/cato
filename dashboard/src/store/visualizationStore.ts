@@ -309,6 +309,12 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
 
     refreshData: async () => {
       const { dataMode, selectedProjectId } = get();
+
+      // Reload projects list in live mode to detect new projects
+      if (dataMode === 'live') {
+        await get().loadProjects();
+      }
+
       await get().loadData(dataMode, selectedProjectId || undefined);
     },
 
@@ -318,10 +324,23 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
         set({ projects });
         console.log(`Loaded ${projects.length} projects`);
 
-        // Auto-select the first (most recent) project if none is selected
         const currentState = get();
-        if (projects.length > 0 && !currentState.selectedProjectId) {
+        const currentProjectId = currentState.selectedProjectId;
+
+        // Check if currently selected project still exists
+        const projectStillExists =
+          currentProjectId && projects.some((p) => p.id === currentProjectId);
+
+        // Auto-select first project if:
+        // 1. No project is selected, OR
+        // 2. Previously selected project no longer exists
+        if (projects.length > 0 && (!currentProjectId || !projectStillExists)) {
           const firstProject = projects[0];
+          if (!projectStillExists && currentProjectId) {
+            console.log(
+              `Previously selected project ${currentProjectId} no longer exists`
+            );
+          }
           console.log(`Auto-selecting most recent project: ${firstProject.name}`);
           await get().setSelectedProject(firstProject.id);
         }
