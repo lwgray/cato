@@ -125,6 +125,11 @@ interface VisualizationState {
   showBlockedTasks: boolean;
   filteredAgentIds: string[];
 
+  // Auto-refresh state
+  autoRefreshEnabled: boolean;
+  autoRefreshIntervalId: number | null;
+  autoRefreshInterval: number; // milliseconds
+
   // Actions
   loadData: (mode?: DataMode, projectId?: string) => Promise<void>;
   loadProjects: () => Promise<void>;
@@ -142,6 +147,9 @@ interface VisualizationState {
   setFilteredAgentIds: (agentIds: string[]) => void;
   reset: () => void;
   refreshData: () => Promise<void>;
+  startAutoRefresh: () => void;
+  stopAutoRefresh: () => void;
+  toggleAutoRefresh: () => void;
 
   // Derived getters
   getVisibleTasks: () => Task[];
@@ -169,6 +177,9 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     showCompletedTasks: true,
     showBlockedTasks: true,
     filteredAgentIds: [],
+    autoRefreshEnabled: false,
+    autoRefreshIntervalId: null,
+    autoRefreshInterval: 60000, // 60 seconds
 
     loadData: async (mode?: DataMode, projectId?: string) => {
       const dataMode = mode || (import.meta.env.VITE_DATA_MODE as DataMode) || 'mock';
@@ -518,6 +529,54 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     getMetrics: () => {
       const state = get();
       return state.snapshot?.metrics || null;
+    },
+
+    startAutoRefresh: () => {
+      const current = get();
+
+      // Don't start if already running
+      if (current.autoRefreshIntervalId) {
+        console.log('Auto-refresh already running');
+        return;
+      }
+
+      console.log(`Starting auto-refresh with ${current.autoRefreshInterval / 1000}s interval`);
+
+      const intervalId = window.setInterval(() => {
+        const state = get();
+        if (state.autoRefreshEnabled && state.dataMode === 'live') {
+          console.log('Auto-refreshing data...');
+          get().refreshData();
+        }
+      }, current.autoRefreshInterval);
+
+      set({
+        autoRefreshEnabled: true,
+        autoRefreshIntervalId: intervalId,
+      });
+    },
+
+    stopAutoRefresh: () => {
+      const current = get();
+
+      if (current.autoRefreshIntervalId) {
+        console.log('Stopping auto-refresh');
+        window.clearInterval(current.autoRefreshIntervalId);
+        set({
+          autoRefreshEnabled: false,
+          autoRefreshIntervalId: null,
+        });
+      }
+    },
+
+    toggleAutoRefresh: () => {
+      const current = get();
+
+      if (current.autoRefreshEnabled) {
+        get().stopAutoRefresh();
+      } else {
+        get().startAutoRefresh();
+      }
     },
   };
 });

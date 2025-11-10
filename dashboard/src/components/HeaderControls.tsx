@@ -12,12 +12,14 @@ const HeaderControls = () => {
   const loadError = useVisualizationStore((state) => state.loadError);
   const projects = useVisualizationStore((state) => state.projects);
   const selectedProjectId = useVisualizationStore((state) => state.selectedProjectId);
+  const autoRefreshEnabled = useVisualizationStore((state) => state.autoRefreshEnabled);
 
   // Get action functions from store (these are stable references)
   const loadData = useVisualizationStore((state) => state.loadData);
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
   const setSelectedProject = useVisualizationStore((state) => state.setSelectedProject);
   const refreshData = useVisualizationStore((state) => state.refreshData);
+  const toggleAutoRefresh = useVisualizationStore((state) => state.toggleAutoRefresh);
 
   const handleToggleDataMode = useCallback(async () => {
     const newMode = dataMode === 'live' ? 'mock' : 'live';
@@ -63,14 +65,24 @@ const HeaderControls = () => {
             {isLoading ? '⏳ Loading...' : dataMode === 'live' ? '🟢 Live Data' : '🔵 Mock Data'}
           </button>
           {dataMode === 'live' && (
-            <button
-              className="refresh-button"
-              onClick={refreshData}
-              disabled={isLoading}
-              title="Refresh live data now"
-            >
-              🔄 Refresh
-            </button>
+            <>
+              <button
+                className={`auto-refresh-toggle ${autoRefreshEnabled ? 'enabled' : ''}`}
+                onClick={toggleAutoRefresh}
+                disabled={isLoading}
+                title={autoRefreshEnabled ? 'Auto-refresh enabled (60s)' : 'Auto-refresh disabled'}
+              >
+                {autoRefreshEnabled ? '🟢 Auto (60s)' : '⚪ Auto'}
+              </button>
+              <button
+                className="refresh-button"
+                onClick={refreshData}
+                disabled={isLoading}
+                title="Refresh live data now"
+              >
+                🔄 Refresh
+              </button>
+            </>
           )}
         </div>
       </div>
