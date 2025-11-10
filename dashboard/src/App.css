@@ -50,8 +50,7 @@
 
 .data-mode-toggle,
 .refresh-button,
-.auto-refresh-toggle,
-.task-view-toggle {
+.auto-refresh-toggle {
   padding: 0.5rem 1rem;
   background: #1e293b;
   border: 2px solid #334155;

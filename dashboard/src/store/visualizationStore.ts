@@ -121,7 +121,6 @@ interface VisualizationState {
 
   // View state
   currentLayer: ViewLayer;
-  taskView: TaskView;
   selectedTaskId: string | null;
   selectedAgentId: string | null;
   selectedMessageId: string | null;
@@ -143,7 +142,6 @@ interface VisualizationState {
   pause: () => void;
   setPlaybackSpeed: (speed: number) => void;
   setCurrentLayer: (layer: ViewLayer) => void;
-  setTaskView: (view: TaskView) => void;
   selectTask: (taskId: string | null) => void;
   selectAgent: (agentId: string | null) => void;
   selectMessage: (messageId: string | null) => void;
@@ -176,7 +174,6 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     playbackSpeed: 1,
     animationIntervalId: null,
     currentLayer: 'network',
-    taskView: 'subtasks',
     selectedTaskId: null,
     selectedAgentId: null,
     selectedMessageId: null,
@@ -209,7 +206,7 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
               project_name: 'Mock Project',
               project_filter_applied: false,
               included_project_ids: [],
-              view_mode: get().taskView,
+              view_mode: 'subtasks',
               tasks: converted.tasks,
               agents: converted.agents,
               messages: converted.messages,
@@ -230,10 +227,9 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
           } else {
             // Fetch live snapshot from API
             console.log('Fetching live snapshot from API...');
-            const { taskView } = get();
             newSnapshot = await fetchSnapshot(
               projectId,
-              taskView,
+              'subtasks', // Always use subtasks view
               0.4, // Power scale exponent
               true // Use cache
             );
@@ -251,7 +247,7 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
             project_name: 'Mock Project',
             project_filter_applied: false,
             included_project_ids: [],
-            view_mode: get().taskView,
+            view_mode: 'subtasks',
             tasks: converted.tasks,
             agents: converted.agents,
             messages: converted.messages,
@@ -473,16 +469,6 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     setPlaybackSpeed: (speed) => set({ playbackSpeed: speed }),
 
     setCurrentLayer: (layer) => set({ currentLayer: layer }),
-
-    setTaskView: async (view) => {
-      set({ taskView: view });
-
-      // Reload data with the new task view
-      const { dataMode, selectedProjectId } = get();
-      if (dataMode === 'live') {
-        await get().loadData(dataMode, selectedProjectId || undefined);
-      }
-    },
 
     selectTask: (taskId) => set({ selectedTaskId: taskId }),
 

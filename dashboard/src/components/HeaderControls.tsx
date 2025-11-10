@@ -13,7 +13,6 @@ const HeaderControls = () => {
   const projects = useVisualizationStore((state) => state.projects);
   const selectedProjectId = useVisualizationStore((state) => state.selectedProjectId);
   const autoRefreshEnabled = useVisualizationStore((state) => state.autoRefreshEnabled);
-  const taskView = useVisualizationStore((state) => state.taskView);
 
   // Get action functions from store (these are stable references)
   const loadData = useVisualizationStore((state) => state.loadData);
@@ -22,7 +21,6 @@ const HeaderControls = () => {
   const refreshData = useVisualizationStore((state) => state.refreshData);
   const startAutoRefresh = useVisualizationStore((state) => state.startAutoRefresh);
   const stopAutoRefresh = useVisualizationStore((state) => state.stopAutoRefresh);
-  const setTaskView = useVisualizationStore((state) => state.setTaskView);
 
   const handleToggleDataMode = useCallback(async () => {
     const newMode = dataMode === 'live' ? 'mock' : 'live';
@@ -48,11 +46,6 @@ const HeaderControls = () => {
     }
   }, [autoRefreshEnabled, startAutoRefresh, stopAutoRefresh]);
 
-  const handleToggleTaskView = useCallback(async () => {
-    const newView = taskView === 'subtasks' ? 'parents' : 'subtasks';
-    await setTaskView(newView);
-  }, [taskView, setTaskView]);
-
   return (
     <>
       <div className="header-top">
@@ -72,16 +65,6 @@ const HeaderControls = () => {
                 </option>
               ))}
             </select>
-          )}
-          {dataMode === 'live' && (
-            <button
-              className="task-view-toggle"
-              onClick={handleToggleTaskView}
-              disabled={isLoading}
-              title={taskView === 'subtasks' ? 'Switch to parent tasks view' : 'Switch to subtasks view'}
-            >
-              {taskView === 'subtasks' ? '📝 Subtasks' : '📦 Parent Tasks'}
-            </button>
           )}
           <button
             className="data-mode-toggle"
