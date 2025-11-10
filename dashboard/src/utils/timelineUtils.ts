@@ -54,7 +54,10 @@ export function getTaskStateAtTime(task: Task, currentAbsTime: number): {
   progress: number;
   isActive: boolean;
 } {
-  const taskStart = new Date(task.created_at).getTime();
+  // Use started_at if available, otherwise fall back to created_at
+  const taskStart = task.started_at
+    ? new Date(task.started_at).getTime()
+    : new Date(task.created_at).getTime();
   const taskEnd = new Date(task.updated_at).getTime();
   const taskDuration = taskEnd - taskStart;
 
@@ -78,7 +81,10 @@ export function getTaskStateAtTime(task: Task, currentAbsTime: number): {
 
   // During task execution - interpolate progress linearly from 0 to 100
   const elapsed = currentAbsTime - taskStart;
-  const progressPercent = Math.min(100, (elapsed / taskDuration) * 100);
+  // Handle zero-duration tasks (planned tasks with created_at == updated_at)
+  const progressPercent = taskDuration > 0
+    ? Math.min(100, (elapsed / taskDuration) * 100)
+    : 0;
 
   return {
     status: 'in_progress' as TaskStatus,

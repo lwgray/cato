@@ -226,19 +226,31 @@ const TaskDetailPanel = () => {
           <h4>⏱️ Timeline</h4>
           <div className="timeline-info">
             <div className="timeline-row">
-              <span className="label">Started:</span>
+              <span className="label">Created:</span>
               <span className="value">{formatTime(task.created_at)}</span>
             </div>
-            <div className="timeline-row">
-              <span className="label">
-                {taskState.status === 'done' ? 'Completed:' : 'Last Update:'}
-              </span>
-              <span className="value">{formatTime(task.updated_at)}</span>
-            </div>
+            {task.started_at && (
+              <div className="timeline-row">
+                <span className="label">Started:</span>
+                <span className="value">{formatTime(task.started_at)}</span>
+              </div>
+            )}
+            {task.completed_at && (
+              <div className="timeline-row">
+                <span className="label">Completed:</span>
+                <span className="value">{formatTime(task.completed_at)}</span>
+              </div>
+            )}
+            {!task.completed_at && task.updated_at && (
+              <div className="timeline-row">
+                <span className="label">Last Update:</span>
+                <span className="value">{formatTime(task.updated_at)}</span>
+              </div>
+            )}
             <div className="timeline-row">
               <span className="label">Duration:</span>
               <span className="value">
-                {Math.round((new Date(task.updated_at).getTime() -
+                {Math.round(((task.completed_at ? new Date(task.completed_at).getTime() : new Date(task.updated_at).getTime()) -
                   new Date(task.created_at).getTime()) / 60000)}m
               </span>
             </div>
