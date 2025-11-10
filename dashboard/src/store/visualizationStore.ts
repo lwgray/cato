@@ -127,28 +127,36 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     loadProjects: async () => {
       try {
         const projects = await fetchProjects();
-        set({ projects });
-        console.log(`Loaded ${projects.length} projects`);
+
+        // Sort projects by most recent (last_used or created_at)
+        const sortedProjects = [...projects].sort((a, b) => {
+          const aTime = new Date(a.last_used || a.created_at).getTime();
+          const bTime = new Date(b.last_used || b.created_at).getTime();
+          return bTime - aTime; // Most recent first
+        });
+
+        set({ projects: sortedProjects });
+        console.log(`Loaded ${sortedProjects.length} projects (sorted by most recent)`);
 
         const currentState = get();
         const currentProjectId = currentState.selectedProjectId;
 
         // Check if currently selected project still exists
         const projectStillExists =
-          currentProjectId && projects.some((p) => p.id === currentProjectId);
+          currentProjectId && sortedProjects.some((p) => p.id === currentProjectId);
 
-        // Auto-select first project if:
+        // Auto-select most recent project if:
         // 1. No project is selected, OR
         // 2. Previously selected project no longer exists
-        if (projects.length > 0 && (!currentProjectId || !projectStillExists)) {
-          const firstProject = projects[0];
+        if (sortedProjects.length > 0 && (!currentProjectId || !projectStillExists)) {
+          const newestProject = sortedProjects[0]; // First item is most recent
           if (!projectStillExists && currentProjectId) {
             console.log(
               `Previously selected project ${currentProjectId} no longer exists`
             );
           }
-          console.log(`Auto-selecting most recent project: ${firstProject.name}`);
-          await get().setSelectedProject(firstProject.id);
+          console.log(`Auto-selecting newest project: ${newestProject.name}`);
+          await get().setSelectedProject(newestProject.id);
         }
 
         // Start auto-refresh after initial load
