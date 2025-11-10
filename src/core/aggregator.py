@@ -504,9 +504,35 @@ class Aggregator:
             task_name = task.get("name", "")
             task_id = str(task.get("id", ""))
             if task_name and task_id:
-                # Generate slug: lowercase, replace spaces with underscores
-                slug = task_name.lower().replace(" ", "_")
-                slug_to_id[slug] = task_id
+                # Generate multiple slug variations to match Marcus's formats
+
+                # Format 1: Simple slug (e.g., "design_productivity_tools")
+                simple_slug = task_name.lower().replace(" ", "_")
+                slug_to_id[simple_slug] = task_id
+
+                # Format 2: Marcus task slug format
+                # Regular tasks: task_{feature-name}_{task-type}
+                # NFR tasks: nfr_task_nfr-{requirement-name}
+                labels = task.get("labels", [])
+                task_type = labels[0].lower() if labels else None
+
+                # Try to extract feature name by removing task type prefix from name
+                if task_type and task_name.lower().startswith(task_type):
+                    # Remove task type prefix (e.g., "Implement Pomodoro Timer" → "Pomodoro Timer")
+                    feature_part = task_name[len(task_type):].strip()
+                    feature_slug = feature_part.lower().replace(" ", "-")
+
+                    # Generate slug: task_{feature}_{type}
+                    marcus_slug = f"task_{feature_slug}_{task_type}"
+                    slug_to_id[marcus_slug] = task_id
+                    logger.debug(f"Generated Marcus slug '{marcus_slug}' for task '{task_name}'")
+
+                    # Also generate NFR slug variant for tasks that look like NFRs
+                    # (e.g., "Implement Usability" → "nfr_task_nfr-usability")
+                    if feature_part and not any(keyword in feature_part.lower() for keyword in ['timer', 'pomodoro', 'session', 'control']):
+                        nfr_slug = f"nfr_task_nfr-{feature_slug}"
+                        slug_to_id[nfr_slug] = task_id
+                        logger.debug(f"Generated NFR slug '{nfr_slug}' for task '{task_name}'")
 
         logger.info(f"Built slug-to-ID mapping with {len(slug_to_id)} entries")
 
@@ -769,12 +795,22 @@ class Aggregator:
                                 parent_task_id = task.get("parent_task_id")
                                 is_parent_task = parent_task_id is None and not task.get("is_subtask", False)
 
-                                # Skip parent tasks in first pass - we'll handle them after
+                                # Check if this parent task has subtasks
+                                has_subtasks = False
                                 if is_parent_task:
+                                    task_id = str(task.get("id", ""))
+                                    has_subtasks = any(
+                                        str(t.get("parent_task_id")) == task_id
+                                        for t in all_tasks
+                                    )
+
+                                # Skip parent tasks WITH subtasks in first pass
+                                # (their subtasks will represent them)
+                                # But include parent tasks WITHOUT subtasks via ID matching
+                                if is_parent_task and has_subtasks:
                                     continue
 
-                                # Always check the task's own ID for initial matching
-                                # Parent tasks will be included later via parent_ids_to_include
+                                # Check the task's own ID for matching
                                 id_to_check = str(task.get("id", ""))
 
                                 # Early exit: Skip non-Planka IDs
@@ -786,8 +822,13 @@ class Aggregator:
 
                                     # Check distance to any target prefix
                                     for target_prefix in target_prefixes:
-                                        if abs(id_prefix - target_prefix) <= 20:
+                                        distance = abs(id_prefix - target_prefix)
+                                        if distance <= 20:
                                             filtered_tasks.append(task)
+                                            logger.debug(
+                                                f"Matched task {id_to_check} (distance={distance} "
+                                                f"from {target_prefix}): {task.get('name', 'Unknown')}"
+                                            )
                                             # Extract parent ID from subtask ID (format: {parent_id}_sub_{index})
                                             task_id_str = str(task.get("id", ""))
                                             if "_sub_" in task_id_str:
@@ -809,9 +850,18 @@ class Aggregator:
                             # Collect dependency IDs from matched tasks to find bundled design tasks
                             dependency_ids_to_include = set()
                             for task in filtered_tasks:
-                                deps = task.get("dependency_ids", [])
+                                # Check both 'dependencies' and 'dependency_ids' keys
+                                deps = task.get("dependencies", []) or task.get("dependency_ids", [])
                                 if deps:
                                     dependency_ids_to_include.update(str(d) for d in deps)
+                                    logger.info(
+                                        f"Task '{task.get('name')}' has dependencies: {deps}"
+                                    )
+
+                            logger.info(
+                                f"Collected {len(dependency_ids_to_include)} dependency IDs: "
+                                f"{list(dependency_ids_to_include)[:10]}"  # Show first 10
+                            )
 
                             # Get parent task IDs from conversation logs
                             # This is the authoritative source for project→parent task mapping
@@ -828,17 +878,46 @@ class Aggregator:
 
                             # Second pass: Include parent tasks whose IDs were referenced
                             # Priority: conversation logs (authoritative) > subtasks > dependencies
+                            # Build set of already included task IDs to avoid duplicates
+                            already_included_ids = {str(t.get("id", "")) for t in filtered_tasks}
+
+                            parent_tasks_added = []
                             for task in all_tasks:
                                 parent_task_id = task.get("parent_task_id")
                                 is_parent_task = parent_task_id is None and not task.get("is_subtask", False)
 
                                 if is_parent_task:
                                     task_id = str(task.get("id", ""))
+                                    task_name = task.get("name", "Unknown")
+
+                                    # Skip if already included in first pass
+                                    if task_id in already_included_ids:
+                                        continue
+
                                     # Include if referenced by conversation logs, subtasks, or dependencies
                                     if (task_id in conversation_parent_ids or
                                         task_id in parent_ids_to_include or
                                         task_id in dependency_ids_to_include):
                                         filtered_tasks.append(task)
+                                        source = []
+                                        if task_id in conversation_parent_ids:
+                                            source.append("conversations")
+                                        if task_id in parent_ids_to_include:
+                                            source.append("subtasks")
+                                        if task_id in dependency_ids_to_include:
+                                            source.append("dependencies")
+                                        parent_tasks_added.append((task_name, task_id, source))
+                                        logger.info(
+                                            f"✓ Including parent task '{task_name}' ({task_id}) "
+                                            f"via {', '.join(source)}"
+                                        )
+                                    else:
+                                        logger.debug(
+                                            f"✗ Skipping parent task '{task_name}' ({task_id}) "
+                                            f"- not in any inclusion set"
+                                        )
+
+                            logger.info(f"Added {len(parent_tasks_added)} parent tasks to filtered list")
 
                             logger.info(
                                 f"Filtered {len(filtered_tasks)}/{len(all_tasks)} tasks "

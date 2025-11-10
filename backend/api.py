@@ -23,6 +23,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.aggregator import Aggregator
 
+# Configure logging to show INFO level from all loggers
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s:%(name)s:%(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Load Marcus data path from config
