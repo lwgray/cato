@@ -46,14 +46,22 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
     if (!snapshot.start_time) return '0m';
     const date = new Date(timestamp);
     const startTime = new Date(snapshot.start_time);
-    const diffMinutes = Math.round((date.getTime() - startTime.getTime()) / 60000);
-    return `${diffMinutes}m`;
+    const diffMinutes = (date.getTime() - startTime.getTime()) / 60000;
+    return `${Math.round(diffMinutes)}m`;
   };
 
   const formatDate = (timestamp: string | null) => {
     if (!timestamp) return 'N/A';
     const date = new Date(timestamp);
-    return date.toLocaleString();
+    // Format with timezone abbreviation (e.g., "Oct 23, 2025, 1:53 AM PDT")
+    return date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    });
   };
 
   const getStatusBadgeClass = (status: string) => {
@@ -113,6 +121,10 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
           <h3 className="section-title">Overview</h3>
           <div className="info-grid">
             <div className="info-item">
+              <span className="info-label">Task ID:</span>
+              <span className="info-value">{task.id}</span>
+            </div>
+            <div className="info-item">
               <span className="info-label">Progress:</span>
               <div className="progress-bar-container">
                 <div className="progress-bar" style={{ width: `${task.progress_percent}%` }}>
@@ -163,11 +175,11 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
             </div>
             <div className="timeline-item">
               <span className="timeline-label">Estimated:</span>
-              <span className="timeline-value">{task.estimated_hours}h</span>
+              <span className="timeline-value">{Math.round(task.estimated_hours * 60)}m</span>
             </div>
             <div className="timeline-item">
               <span className="timeline-label">Actual:</span>
-              <span className="timeline-value">{task.actual_hours}h</span>
+              <span className="timeline-value">{Math.round(task.actual_hours * 60)}m</span>
             </div>
           </div>
         </section>

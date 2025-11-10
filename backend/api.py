@@ -23,6 +23,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.aggregator import Aggregator
 
+# Configure logging to show INFO level from all loggers
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s:%(name)s:%(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Load Marcus data path from config
@@ -231,19 +236,26 @@ async def get_projects() -> Dict[str, Any]:
     """
     Get list of projects that have tasks.
 
-    Only returns projects with at least one task to avoid showing empty projects.
+    Always includes the active project (even if it has no tasks yet) to ensure
+    users can see what Marcus is currently working on. Other projects are only
+    shown if they have at least one task to avoid showing empty projects.
 
     Returns
     -------
     dict
-        List of projects with metadata, filtered to only include projects with tasks
+        List of projects with metadata, with active project always included
     """
     try:
         logger.info("Loading projects list")
         projects_data = aggregator._load_projects()
+        active_project_id = aggregator.get_active_project_id()
 
-        # Filter out projects with zero tasks
+        logger.info(f"Active project ID: {active_project_id}")
+
+        # Build list of projects with tasks
         projects_with_tasks = []
+        active_project_included = False
+
         for p in projects_data:
             if "id" not in p:
                 continue
@@ -253,18 +265,31 @@ async def get_projects() -> Dict[str, Any]:
             project_tasks = aggregator._load_tasks(project_id=project_id)
             task_count = len(project_tasks)
 
-            # Only include projects that have at least 1 task
-            if task_count > 0:
+            is_active = (project_id == active_project_id)
+
+            # Include if: (1) it's the active project OR (2) it has tasks
+            if is_active or task_count > 0:
                 projects_with_tasks.append({
                     "id": project_id,
                     "name": p.get("name", project_id),
                     "created_at": p.get("created_at", ""),
                     "last_used": p.get("last_used"),
                     "description": p.get("description", ""),
-                    "task_count": task_count,  # Include count for debugging
+                    "task_count": task_count,
+                    "is_active": is_active,  # Flag for frontend to highlight
                 })
 
-        logger.info(f"Filtered to {len(projects_with_tasks)}/{len(projects_data)} projects with tasks")
+                if is_active:
+                    active_project_included = True
+
+        logger.info(f"Filtered to {len(projects_with_tasks)}/{len(projects_data)} projects (active={'included' if active_project_included else 'not found'})")
+
+        # Sort: active project first, then by creation date (most recent first)
+        projects_with_tasks.sort(
+            key=lambda p: (not p.get("is_active", False), p.get("created_at", "")),
+            reverse=True
+        )
+        logger.info("Sorted projects (active first, then by creation date)")
 
         return {"projects": projects_with_tasks}
     except Exception as e:

@@ -136,39 +136,26 @@ const NetworkGraphView = () => {
       reducedDeps.set(task.id, reduced);
     });
 
-    // Create links using reduced dependencies + redundant dependencies (for visualization)
+    // Create links using reduced dependencies only (hide redundant/transitive dependencies)
     const links: GraphLink[] = [];
-    const redundantLinks: GraphLink[] = [];
 
     tasks.forEach(task => {
-      const directDeps = depMap.get(task.id) || new Set();
       const reducedDepsForTask = reducedDeps.get(task.id) || new Set();
 
-      directDeps.forEach(depId => {
+      reducedDepsForTask.forEach(depId => {
         if (nodes.find(n => n.id === depId)) {
-          const isRedundant = !reducedDepsForTask.has(depId);
-
-          if (isRedundant) {
-            // Add as redundant link (will be shown as dashed red)
-            redundantLinks.push({
-              source: depId,
-              target: task.id,
-              isRedundant: true,
-            });
-          } else {
-            // Add as normal link
-            links.push({
-              source: depId,
-              target: task.id,
-              isRedundant: false,
-            });
-          }
+          // Only add non-redundant links
+          links.push({
+            source: depId,
+            target: task.id,
+            isRedundant: false,
+          });
         }
       });
     });
 
-    // Combine links: normal + redundant
-    const allLinks = [...links, ...redundantLinks];
+    // Use only the reduced links (no redundant links)
+    const allLinks = links;
 
     // Color scale
     const statusColor = (status: TaskStatus, isActive: boolean) => {

@@ -83,7 +83,7 @@ const MetricsPanel = () => {
           </div>
           <div className="metric-item">
             <span className="metric-label">Avg Task Duration</span>
-            <span className="metric-value">{metrics.average_task_duration_hours.toFixed(1)}h</span>
+            <span className="metric-value">{metrics.average_task_duration_hours.toFixed(1)}m</span>
           </div>
         </div>
 
