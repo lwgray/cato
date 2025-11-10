@@ -23,9 +23,9 @@ function App() {
 
     // Load projects first if in live mode
     if (mode === 'live') {
-      loadProjects().then(() => {
-        loadData(mode);
-      });
+      // loadProjects will auto-select first project and load its data
+      // via setSelectedProject, so no need to call loadData separately
+      loadProjects();
     } else {
       loadData(mode);
     }
