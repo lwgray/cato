@@ -94,7 +94,7 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
         const newSnapshot = await fetchSnapshot(
           projectId,
           'subtasks', // Always use subtasks view
-          0.4, // Power scale exponent
+          1.0, // Power scale exponent (linear timeline)
           true // Use cache
         );
 
