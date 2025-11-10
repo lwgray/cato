@@ -14,21 +14,14 @@ function App() {
   const setCurrentLayer = useVisualizationStore((state) => state.setCurrentLayer);
 
   // Actions for initialization
-  const loadData = useVisualizationStore((state) => state.loadData);
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
 
   // Load projects and data on mount
   useEffect(() => {
-    const mode = (import.meta.env.VITE_DATA_MODE || 'mock') as 'live' | 'mock';
-
-    // Load projects first if in live mode
-    if (mode === 'live') {
-      // loadProjects will auto-select first project and load its data
-      // via setSelectedProject, so no need to call loadData separately
-      loadProjects();
-    } else {
-      loadData(mode);
-    }
+    // Always use live mode - load projects first
+    // loadProjects will auto-select first project and load its data
+    // via setSelectedProject
+    loadProjects();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
