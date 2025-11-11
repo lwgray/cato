@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 
-# Ensure we import from the local Cato src directory, not elsewhere
+# Ensure we import from the local Cato cato_src directory, not elsewhere
 cato_root = Path(__file__).parent.parent
 if str(cato_root) not in sys.path:
     sys.path.insert(0, str(cato_root))
@@ -21,7 +21,7 @@ if str(cato_root) not in sys.path:
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.core.aggregator import Aggregator
+from cato_src.core.aggregator import Aggregator
 
 # Configure logging to show INFO level from all loggers
 logging.basicConfig(
@@ -30,21 +30,81 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load Marcus data path from config
+# Phase 3: Historical analysis imports
+# Marcus is installed as 'marcus-ai' package, allowing clean imports without namespace conflicts.
+
+HISTORICAL_MODE_AVAILABLE = False
+marcus_root = None
+ProjectHistoryAggregator = None
+ProjectHistoryQuery = None
+PostProjectAnalyzer = None
+
+try:
+    # Find Marcus root directory
+    possible_marcus_roots = [
+        Path(__file__).parent.parent.parent / "marcus",  # Sibling to cato
+        Path.home() / "dev" / "marcus",  # Common dev location
+        Path("/Users/lwgray/dev/marcus"),  # Absolute path
+    ]
+
+    for possible_root in possible_marcus_roots:
+        if (possible_root / "src" / "analysis").exists():
+            marcus_root = possible_root
+            break
+
+    if not marcus_root:
+        raise ImportError("Marcus root directory not found")
+
+    logger.info(f"Found Marcus at: {marcus_root}")
+
+    # Add Marcus root to sys.path so "from src." imports work
+    # No namespace conflict since Cato uses "cato_src" not "src"
+    import sys
+    if str(marcus_root) not in sys.path:
+        sys.path.insert(0, str(marcus_root))
+
+    logger.info("Importing Phase 1 & 2 analysis modules from Marcus...")
+
+    # Import directly from Marcus's src directory
+    from src.analysis.aggregator import ProjectHistoryAggregator
+    from src.analysis.query_api import ProjectHistoryQuery
+    from src.analysis.post_project_analyzer import PostProjectAnalyzer
+
+    HISTORICAL_MODE_AVAILABLE = True
+    logger.info("✅ Historical analysis mode ENABLED")
+
+except Exception as e:
+    logger.error(f"❌ Historical analysis mode disabled: {type(e).__name__}: {e}", exc_info=True)
+
+# Initialize historical analysis components if available
+history_aggregator = None
+history_query = None
+
+if HISTORICAL_MODE_AVAILABLE and ProjectHistoryAggregator and ProjectHistoryQuery:
+    try:
+        history_aggregator = ProjectHistoryAggregator()
+        history_query = ProjectHistoryQuery(history_aggregator)
+        logger.info("✅ Historical analysis components initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize historical analysis components: {e}")
+        HISTORICAL_MODE_AVAILABLE = False
+
+# Load Marcus data path from config (for live mode aggregator)
 config_path = Path(__file__).parent.parent / "config.json"
+marcus_data_path_root = None
 try:
     with open(config_path, "r") as f:
         config = json.load(f)
         marcus_data_path = config.get("marcus_data_path")
         if marcus_data_path:
-            marcus_root = Path(marcus_data_path).parent
-            logger.info(f"Using Marcus data path from config: {marcus_root}")
+            marcus_data_path_root = Path(marcus_data_path).parent
+            logger.info(f"Using Marcus data path from config: {marcus_data_path_root}")
         else:
-            marcus_root = None
+            marcus_data_path_root = None
             logger.info("No Marcus data path in config, using auto-detection")
 except Exception as e:
     logger.warning(f"Could not load config.json: {e}, using auto-detection")
-    marcus_root = None
+    marcus_data_path_root = None
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -391,6 +451,266 @@ async def get_snapshot(
             status_code=500, detail=f"Error creating snapshot: {str(e)}"
         )
 
+
+# ============================================================================
+# Phase 3: Historical Analysis API Endpoints
+# ============================================================================
+
+# Initialize historical analysis components (if available)
+if HISTORICAL_MODE_AVAILABLE:
+    history_aggregator = ProjectHistoryAggregator()
+    history_query = ProjectHistoryQuery(history_aggregator)
+
+
+@app.get("/api/historical/projects")
+async def list_historical_projects():
+    """
+    List all completed projects with summary metrics.
+
+    Returns
+    -------
+    {
+      "projects": [
+        {
+          "project_id": "marcus_proj_123",
+          "project_name": "Task Management API",
+          "total_tasks": 24,
+          "completed_tasks": 22,
+          "completion_rate": 91.7,
+          "blocked_tasks": 1,
+          "total_decisions": 15,
+          "project_duration_hours": 48.5
+        }
+      ]
+    }
+    """
+    if not HISTORICAL_MODE_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Historical analysis mode not available (missing dependencies)"
+        )
+
+    try:
+        # Find all project IDs from persistence layer
+        if marcus_root:
+            history_dir = marcus_root / "data" / "project_history"
+        else:
+            # Fallback: try to find Marcus root
+            history_dir = Path.home() / "dev" / "marcus" / "data" / "project_history"
+
+        projects = []
+        if history_dir.exists():
+            logger.info(f"Scanning for historical projects in {history_dir}")
+            for project_dir in history_dir.iterdir():
+                if project_dir.is_dir():
+                    project_id = project_dir.name
+                    try:
+                        summary = await history_query.get_project_summary(project_id)
+                        projects.append(summary)
+                        logger.info(f"Loaded project summary: {project_id}")
+                    except Exception as e:
+                        logger.warning(f"Error loading project {project_id}: {e}")
+        else:
+            logger.warning(f"Project history directory not found: {history_dir}")
+
+        logger.info(f"Found {len(projects)} historical projects")
+        return {"projects": projects}
+
+    except Exception as e:
+        logger.error(f"Error listing historical projects: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing historical projects: {str(e)}"
+        )
+
+
+@app.get("/api/historical/projects/{project_id}")
+async def get_project_history(project_id: str):
+    """
+    Get complete project history (raw data only, no LLM analysis).
+
+    Fast endpoint for browsing project data.
+    """
+    if not HISTORICAL_MODE_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Historical analysis mode not available"
+        )
+
+    try:
+        history = await history_query.get_project_history(project_id)
+
+        return {
+            "project_id": history.project_id,
+            "snapshot": history.snapshot.to_dict() if history.snapshot else None,
+            "tasks": [t.to_dict() for t in history.tasks],
+            "agents": [a.to_dict() for a in history.agents],
+            "decisions": [d.to_dict() for d in history.decisions],
+            "artifacts": [a.to_dict() for a in history.artifacts],
+            "timeline_count": len(history.timeline),
+        }
+
+    except Exception as e:
+        logger.error(f"Error loading project history: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error loading project history: {str(e)}"
+        )
+
+
+@app.get("/api/historical/projects/{project_id}/analysis")
+async def get_project_analysis(project_id: str):
+    """
+    Run complete LLM-powered post-project analysis.
+
+    This is the heavy endpoint - may take 10-30 seconds.
+    Includes all Phase 2 analyzers.
+    """
+    if not HISTORICAL_MODE_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Historical analysis mode not available"
+        )
+
+    try:
+        logger.info(f"Starting analysis for project {project_id}")
+
+        # Load project history (Phase 1)
+        history = await history_query.get_project_history(project_id)
+
+        # Run Phase 2 analysis
+        analyzer = PostProjectAnalyzer()
+        analysis = await analyzer.analyze_project(
+            project_id=project_id,
+            tasks=history.tasks,
+            decisions=history.decisions,
+        )
+
+        # Get summary stats from Phase 1
+        summary = await history_query.get_project_summary(project_id)
+
+        logger.info(f"Analysis complete for project {project_id}")
+
+        # Combine Phase 1 + Phase 2 data
+        return {
+            # Phase 1 summary stats
+            "project_id": analysis.project_id,
+            "project_name": summary["project_name"],
+            "total_tasks": summary["total_tasks"],
+            "completed_tasks": summary["completed_tasks"],
+            "completion_rate": summary["completion_rate"],
+            "blocked_tasks": summary["blocked_tasks"],
+            "total_decisions": summary["total_decisions"],
+            "project_duration_hours": summary["project_duration_hours"],
+
+            # Phase 2 analysis results
+            "analysis_timestamp": analysis.analysis_timestamp.isoformat(),
+            "summary": analysis.summary,
+            "requirement_divergences": [
+                {
+                    "task_id": rd.task_id,
+                    "fidelity_score": rd.fidelity_score,
+                    "divergences": [
+                        {
+                            "requirement": d.requirement,
+                            "implementation": d.implementation,
+                            "severity": d.severity,
+                            "impact": d.impact,
+                            "citation": d.citation,
+                        }
+                        for d in rd.divergences
+                    ],
+                    "recommendations": rd.recommendations,
+                }
+                for rd in analysis.requirement_divergences
+            ],
+            "decision_impacts": [
+                {
+                    "decision_id": di.decision_id,
+                    "impact_chains": [
+                        {
+                            "decision_summary": ic.decision_summary,
+                            "direct_impacts": ic.direct_impacts,
+                            "indirect_impacts": ic.indirect_impacts,
+                            "depth": ic.depth,
+                            "citation": ic.citation,
+                        }
+                        for ic in di.impact_chains
+                    ],
+                    "unexpected_impacts": [
+                        {
+                            "affected_task": ui.affected_task_name,
+                            "anticipated": ui.anticipated,
+                            "actual_impact": ui.actual_impact,
+                            "severity": ui.severity,
+                        }
+                        for ui in di.unexpected_impacts
+                    ],
+                    "recommendations": di.recommendations,
+                }
+                for di in analysis.decision_impacts
+            ],
+            "instruction_quality_issues": [
+                {
+                    "task_id": iq.task_id,
+                    "quality_scores": {
+                        "clarity": iq.quality_scores.clarity,
+                        "completeness": iq.quality_scores.completeness,
+                        "specificity": iq.quality_scores.specificity,
+                        "overall": iq.quality_scores.overall,
+                    },
+                    "ambiguity_issues": [
+                        {
+                            "aspect": ai.ambiguous_aspect,
+                            "evidence": ai.evidence,
+                            "consequence": ai.consequence,
+                            "severity": ai.severity,
+                        }
+                        for ai in iq.ambiguity_issues
+                    ],
+                    "recommendations": iq.recommendations,
+                }
+                for iq in analysis.instruction_quality_issues
+            ],
+            "failure_diagnoses": [
+                {
+                    "task_id": fd.task_id,
+                    "failure_causes": [
+                        {
+                            "category": fc.category,
+                            "root_cause": fc.root_cause,
+                            "contributing_factors": fc.contributing_factors,
+                            "evidence": fc.evidence,
+                        }
+                        for fc in fd.failure_causes
+                    ],
+                    "prevention_strategies": [
+                        {
+                            "strategy": ps.strategy,
+                            "rationale": ps.rationale,
+                            "effort": ps.effort,
+                            "priority": ps.priority,
+                        }
+                        for ps in fd.prevention_strategies
+                    ],
+                    "lessons_learned": fd.lessons_learned,
+                }
+                for fd in analysis.failure_diagnoses
+            ],
+            "metadata": analysis.metadata,
+        }
+
+    except Exception as e:
+        logger.error(f"Error analyzing project: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error analyzing project: {str(e)}"
+        )
+
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
 
 if __name__ == "__main__":
     import json
