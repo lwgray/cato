@@ -5,6 +5,7 @@ Provides unified snapshot API endpoint to serve Marcus data to the dashboard fro
 Supports CORS for local development and production deployment.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -20,6 +21,7 @@ if str(cato_root) not in sys.path:
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from cato_src.core.aggregator import Aggregator
 
@@ -167,12 +169,12 @@ def prewarm_recent_projects() -> None:
                 snapshot = aggregator.create_snapshot(
                     project_id=project_id,
                     view_mode="subtasks",
-                    timeline_scale_exponent=0.4,
+                    timeline_scale_exponent=1.0,
                 )
                 snapshot_dict = snapshot.to_dict()
 
                 # Cache with default view settings
-                cache_key = f"{project_id}_subtasks_0.4"
+                cache_key = f"{project_id}_subtasks_1.0"
                 snapshot_cache[cache_key] = (snapshot_dict, now)
 
                 logger.info(f"Pre-warmed cache for project: {p.get('name', project_id)[:40]}")
@@ -524,6 +526,115 @@ async def list_historical_projects():
         )
 
 
+@app.get("/api/historical/projects/stream")
+async def stream_historical_projects_list() -> StreamingResponse:
+    """
+    Stream historical projects list with progress updates.
+
+    Uses Server-Sent Events to show progress as each project is loaded.
+    Shows "Loading project 1 of 25...", etc.
+    """
+    if not HISTORICAL_MODE_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Historical analysis mode not available (missing dependencies)"
+        )
+
+    async def event_generator():
+        """Generate SSE events for project loading progress."""
+        try:
+            # Step 1: Scan for project directories
+            event_data = json.dumps(
+                {'type': 'log', 'message': '📁 Scanning for historical projects...'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            if marcus_root:
+                history_dir = marcus_root / "data" / "project_history"
+            else:
+                history_dir = Path.home() / "dev" / "marcus" / "data" / "project_history"
+
+            if not history_dir.exists():
+                event_data = json.dumps(
+                    {'type': 'error', 'message': f'Project history directory not found: {history_dir}'}
+                )
+                yield f"data: {event_data}\n\n"
+                return
+
+            # Count project directories
+            project_dirs = [d for d in history_dir.iterdir() if d.is_dir()]
+            total_projects = len(project_dirs)
+
+            event_data = json.dumps(
+                {'type': 'log', 'message': f'✓ Found {total_projects} project directories'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            # Step 2: Load each project with progress
+            projects = []
+            for idx, project_dir in enumerate(project_dirs, 1):
+                project_id = project_dir.name
+
+                # Show progress
+                event_data = json.dumps({
+                    'type': 'progress',
+                    'message': f'Loading project {idx} of {total_projects}...',
+                    'current': idx,
+                    'total': total_projects
+                })
+                yield f"data: {event_data}\n\n"
+                await asyncio.sleep(0.05)
+
+                try:
+                    summary = await history_query.get_project_summary(project_id)
+                    projects.append(summary)
+
+                    # Show success for this project
+                    project_name = summary.get("project_name", project_id[:8])
+                    event_data = json.dumps({
+                        'type': 'log',
+                        'message': f'  ✓ Loaded: {project_name}'
+                    })
+                    yield f"data: {event_data}\n\n"
+                    await asyncio.sleep(0.05)
+
+                except Exception as e:
+                    logger.warning(f"Error loading project {project_id}: {e}")
+                    event_data = json.dumps({
+                        'type': 'log',
+                        'message': f'  ⚠️  Skipped: {project_id[:8]} (error)'
+                    })
+                    yield f"data: {event_data}\n\n"
+                    await asyncio.sleep(0.05)
+
+            # Step 3: Send completion with data
+            event_data = json.dumps({
+                'type': 'complete',
+                'message': f'✓ Loaded {len(projects)} projects',
+                'data': {'projects': projects}
+            })
+            yield f"data: {event_data}\n\n"
+
+        except Exception as e:
+            logger.error(f"Error streaming historical projects: {e}", exc_info=True)
+            event_data = json.dumps({
+                'type': 'error',
+                'message': f'Error loading projects: {str(e)}'
+            })
+            yield f"data: {event_data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.get("/api/historical/projects/{project_id}")
 async def get_project_history(project_id: str):
     """
@@ -578,35 +689,49 @@ async def get_project_analysis(project_id: str):
         # Load project history (Phase 1)
         history = await history_query.get_project_history(project_id)
 
-        # Run Phase 2 analysis
-        analyzer = PostProjectAnalyzer()
-        analysis = await analyzer.analyze_project(
-            project_id=project_id,
-            tasks=history.tasks,
-            decisions=history.decisions,
-        )
-
-        # Get summary stats from Phase 1
+        # Get summary stats from Phase 1 (always available)
         summary = await history_query.get_project_summary(project_id)
 
-        logger.info(f"Analysis complete for project {project_id}")
+        # Try Phase 2 analysis - may fail if project has no data
+        phase2_success = False
+        analysis = None
+        phase2_error = None
 
-        # Combine Phase 1 + Phase 2 data
-        return {
-            # Phase 1 summary stats
-            "project_id": analysis.project_id,
+        try:
+            analyzer = PostProjectAnalyzer()
+            analysis = await analyzer.analyze_project(
+                project_id=project_id,
+                tasks=history.tasks,
+                decisions=history.decisions,
+            )
+            phase2_success = True
+            logger.info(f"Phase 2 analysis complete for project {project_id}")
+        except Exception as e:
+            logger.warning(f"Phase 2 analysis failed for {project_id}: {e}")
+            phase2_error = str(e)
+
+        # Return Phase 1 data always, Phase 2 data if available
+        result = {
+            # Phase 1 summary stats (always present)
+            "project_id": project_id,
             "project_name": summary["project_name"],
             "total_tasks": summary["total_tasks"],
             "completed_tasks": summary["completed_tasks"],
             "completion_rate": summary["completion_rate"],
             "blocked_tasks": summary["blocked_tasks"],
             "total_decisions": summary["total_decisions"],
+            "total_artifacts": summary.get("total_artifacts", 0),
+            "active_agents": summary.get("active_agents", 0),
             "project_duration_hours": summary["project_duration_hours"],
+        }
 
-            # Phase 2 analysis results
-            "analysis_timestamp": analysis.analysis_timestamp.isoformat(),
-            "summary": analysis.summary,
-            "requirement_divergences": [
+        # Add Phase 2 data if analysis succeeded
+        if phase2_success and analysis:
+            result.update({
+                # Phase 2 analysis results
+                "analysis_timestamp": analysis.analysis_timestamp.isoformat(),
+                "summary": analysis.summary,
+                "requirement_divergences": [
                 {
                     "task_id": rd.task_id,
                     "fidelity_score": rd.fidelity_score,
@@ -698,7 +823,21 @@ async def get_project_analysis(project_id: str):
                 for fd in analysis.failure_diagnoses
             ],
             "metadata": analysis.metadata,
-        }
+            })
+        else:
+            # Phase 2 analysis failed - add error info
+            result.update({
+                "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
+                "summary": None,
+                "phase2_error": phase2_error,
+                "requirement_divergences": [],
+                "decision_impacts": [],
+                "instruction_quality_issues": [],
+                "failure_diagnoses": [],
+                "metadata": {"phase2_available": False, "error": phase2_error},
+            })
+
+        return result
 
     except Exception as e:
         logger.error(f"Error analyzing project: {e}", exc_info=True)
@@ -706,6 +845,339 @@ async def get_project_analysis(project_id: str):
             status_code=500,
             detail=f"Error analyzing project: {str(e)}"
         )
+
+
+@app.get("/api/historical/projects/{project_id}/analysis/stream")
+async def stream_historical_analysis(project_id: str) -> StreamingResponse:
+    """
+    Stream analysis progress to frontend using Server-Sent Events.
+
+    Returns real-time progress updates as analysis is performed, showing
+    each step with counts and status messages.
+    """
+    if not HISTORICAL_MODE_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Historical analysis mode not available"
+        )
+
+    async def event_generator():
+        """Generate SSE events for analysis progress."""
+        try:
+            # Step 1: Load project data
+            event_data = json.dumps(
+                {'type': 'log', 'message': '📂 Loading project data...'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)  # Allow UI to update
+
+            summary = await history_query.get_project_summary(project_id)
+            project_name = summary["project_name"]
+
+            event_data = json.dumps(
+                {'type': 'log', 'message': f'✓ Loaded project: {project_name}'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            # Step 2: Load project history (tasks, decisions, artifacts)
+            event_data = json.dumps(
+                {'type': 'log', 'message': '📋 Loading project history...'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            history = await history_query.get_project_history(project_id)
+
+            # Step 3: Report counts
+            task_count = len(history.tasks)
+            decision_count = len(history.decisions)
+            artifact_count = len(history.artifacts)
+
+            event_data = json.dumps(
+                {'type': 'log', 'message': f'✓ Found {task_count} tasks'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            event_data = json.dumps(
+                {'type': 'log', 'message': f'✓ Found {decision_count} decisions'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            event_data = json.dumps(
+                {'type': 'log', 'message': f'✓ Found {artifact_count} artifacts'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            # Step 4: Phase 1 summary
+            event_data = json.dumps(
+                {'type': 'log', 'message': '📊 Calculating Phase 1 metrics...'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            completion_rate = summary["completion_rate"]
+            event_data = json.dumps(
+                {'type': 'log', 'message': f'✓ Completion rate: {completion_rate:.1f}%'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            # Step 5: Run Phase 2 analysis with real-time progress
+            event_data = json.dumps(
+                {'type': 'log', 'message': '🔍 Starting Phase 2 AI analysis...'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            phase2_success = False
+            analysis = None
+            phase2_error = None
+
+            try:
+                # Create a queue for passing progress events from callback to generator
+                progress_queue: asyncio.Queue = asyncio.Queue()
+
+                async def run_analysis_with_progress():
+                    """Run analysis and put progress events in queue."""
+                    nonlocal analysis, phase2_success
+
+                    async def progress_callback(event):
+                        """Progress callback that puts events in queue."""
+                        if event.total and event.current > 0:
+                            pct = (event.current / event.total) * 100
+                            msg = f"  ⟳ {event.message} ({event.current}/{event.total} - {pct:.0f}%)"
+                        else:
+                            msg = f"  ⟳ {event.message}"
+
+                        # Put formatted message in queue
+                        await progress_queue.put(msg)
+
+                    analyzer = PostProjectAnalyzer()
+                    analysis = await analyzer.analyze_project(
+                        project_id=project_id,
+                        tasks=history.tasks,
+                        decisions=history.decisions,
+                        progress_callback=progress_callback,
+                    )
+                    phase2_success = True
+                    # Signal completion
+                    await progress_queue.put(None)
+
+                # Start analysis task
+                analysis_task = asyncio.create_task(run_analysis_with_progress())
+
+                # Yield progress events as they arrive in the queue
+                # Track time since last message to send keep-alive updates
+                import time
+                last_message_time = time.time()
+                keepalive_interval = 3.0  # Send keep-alive every 3 seconds
+
+                while True:
+                    try:
+                        # Wait for progress event with timeout
+                        msg = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
+                        if msg is None:  # Completion signal
+                            break
+                        # Yield progress event
+                        progress_data = json.dumps({'type': 'log', 'message': msg})
+                        yield f"data: {progress_data}\n\n"
+                        last_message_time = time.time()
+                        await asyncio.sleep(0.05)
+                    except asyncio.TimeoutError:
+                        # No progress event yet - check if we need a keep-alive
+                        current_time = time.time()
+                        time_since_last = current_time - last_message_time
+
+                        if time_since_last >= keepalive_interval:
+                            # Send keep-alive message
+                            keepalive_data = json.dumps({
+                                'type': 'log',
+                                'message': '  ⟳ Processing...'
+                            })
+                            yield f"data: {keepalive_data}\n\n"
+                            last_message_time = current_time
+                            await asyncio.sleep(0.05)
+
+                        # Check if task is done
+                        if analysis_task.done():
+                            # Task completed, check for any remaining events
+                            while not progress_queue.empty():
+                                msg = await progress_queue.get()
+                                if msg is not None:
+                                    progress_data = json.dumps({'type': 'log', 'message': msg})
+                                    yield f"data: {progress_data}\n\n"
+                                    await asyncio.sleep(0.05)
+                            break
+                        continue
+
+                # Wait for analysis to complete (should already be done)
+                await analysis_task
+
+                event_data = json.dumps(
+                    {'type': 'log', 'message': '✓ Phase 2 analysis complete'}
+                )
+                yield f"data: {event_data}\n\n"
+                await asyncio.sleep(0.1)
+
+            except Exception as e:
+                logger.warning(f"Phase 2 analysis failed: {e}")
+                phase2_error = str(e)
+                event_data = json.dumps(
+                    {'type': 'log', 'message': f'⚠️  Phase 2 analysis failed: {phase2_error}'}
+                )
+                yield f"data: {event_data}\n\n"
+                await asyncio.sleep(0.1)
+
+            # Step 6: Build result
+            event_data = json.dumps(
+                {'type': 'log', 'message': '📦 Assembling results...'}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            result = {
+                "project_id": project_id,
+                "project_name": summary["project_name"],
+                "total_tasks": summary["total_tasks"],
+                "completed_tasks": summary["completed_tasks"],
+                "completion_rate": summary["completion_rate"],
+                "blocked_tasks": summary["blocked_tasks"],
+                "total_decisions": summary["total_decisions"],
+                "total_artifacts": summary.get("total_artifacts", 0),
+                "active_agents": summary.get("active_agents", 0),
+                "project_duration_hours": summary["project_duration_hours"],
+            }
+
+            if phase2_success and analysis:
+                result.update({
+                    "analysis_timestamp": analysis.analysis_timestamp.isoformat(),
+                    "summary": analysis.summary,
+                    "requirement_divergences": [
+                        {
+                            "task_id": rd.task_id,
+                            "fidelity_score": rd.fidelity_score,
+                            "divergences": [
+                                {
+                                    "requirement": d.requirement,
+                                    "implementation": d.implementation,
+                                    "severity": d.severity,
+                                    "impact": d.impact,
+                                    "citation": d.citation,
+                                }
+                                for d in rd.divergences
+                            ],
+                            "recommendations": rd.recommendations,
+                        }
+                        for rd in analysis.requirement_divergences
+                    ],
+                    "decision_impacts": [
+                        {
+                            "decision_id": di.decision_id,
+                            "impact_chains": [
+                                {
+                                    "decision_summary": ic.decision_summary,
+                                    "direct_impacts": ic.direct_impacts,
+                                    "indirect_impacts": ic.indirect_impacts,
+                                    "depth": ic.depth,
+                                    "citation": ic.citation,
+                                }
+                                for ic in di.impact_chains
+                            ],
+                            "unexpected_impacts": [
+                                {
+                                    "affected_task": ui.affected_task_name,
+                                    "anticipated": ui.anticipated,
+                                    "actual_impact": ui.actual_impact,
+                                    "severity": ui.severity,
+                                }
+                                for ui in di.unexpected_impacts
+                            ],
+                            "recommendations": di.recommendations,
+                        }
+                        for di in analysis.decision_impacts
+                    ],
+                    "instruction_quality_issues": [
+                        {
+                            "task_id": iq.task_id,
+                            "quality_scores": {
+                                "clarity": iq.quality_scores.clarity,
+                                "completeness": iq.quality_scores.completeness,
+                                "specificity": iq.quality_scores.specificity,
+                                "overall": iq.quality_scores.overall,
+                            },
+                            "ambiguity_issues": [
+                                {
+                                    "task_id": issue.task_id,
+                                    "task_name": issue.task_name,
+                                    "ambiguous_aspect": issue.ambiguous_aspect,
+                                    "evidence": issue.evidence,
+                                    "consequence": issue.consequence,
+                                    "severity": issue.severity,
+                                    "citation": issue.citation,
+                                }
+                                for issue in iq.ambiguity_issues
+                            ],
+                            "recommendations": iq.recommendations,
+                        }
+                        for iq in analysis.instruction_quality_issues
+                    ],
+                    "failure_diagnoses": [
+                        {
+                            "task_id": fd.task_id,
+                            "root_causes": [
+                                {
+                                    "category": rc.category,
+                                    "description": rc.description,
+                                    "evidence": rc.evidence,
+                                    "likelihood": rc.likelihood,
+                                }
+                                for rc in fd.root_causes
+                            ],
+                            "recommendations": fd.recommendations,
+                        }
+                        for fd in analysis.failure_diagnoses
+                    ],
+                    "metadata": {
+                        "phase2_available": True,
+                    },
+                })
+            else:
+                result.update({
+                    "summary": None,
+                    "phase2_error": phase2_error,
+                    "requirement_divergences": [],
+                    "decision_impacts": [],
+                    "instruction_quality_issues": [],
+                    "failure_diagnoses": [],
+                    "metadata": {
+                        "phase2_available": False,
+                        "error": phase2_error
+                    },
+                })
+
+            # Step 7: Complete
+            event_data = json.dumps({'type': 'complete', 'data': result})
+            yield f"data: {event_data}\n\n"
+
+        except Exception as e:
+            logger.error(f"Error during streaming analysis: {e}", exc_info=True)
+            error_msg = str(e)
+            event_data = json.dumps({'type': 'error', 'message': f'Error: {error_msg}'})
+            yield f"data: {event_data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
 
 
 # ============================================================================

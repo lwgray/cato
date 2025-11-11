@@ -10,7 +10,6 @@ interface TaskLifecyclePanelProps {
 
 const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
   const snapshot = useVisualizationStore((state) => state.snapshot);
-  const currentTime = useVisualizationStore((state) => state.currentTime);
 
   // Get messages related to this task
   const taskMessages = useMemo(() => {
