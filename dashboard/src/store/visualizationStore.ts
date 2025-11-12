@@ -9,7 +9,8 @@ export type ViewLayer =
   | 'retrospective'
   | 'fidelity'
   | 'decisions'
-  | 'failures';
+  | 'failures'
+  | 'redundancy';
 export type TaskView = 'subtasks' | 'parents' | 'all';
 export type ViewMode = 'live' | 'historical';
 
@@ -34,7 +35,8 @@ interface VisualizationState {
   // Caching state
   historicalProjectsCache: { data: any[]; timestamp: number } | null;
   historicalAnalysisCache: Map<string, { data: any; timestamp: number }>;
-  cacheExpiryMs: number; // 30 days default
+  cacheExpiryMs: number; // 5 minutes for project list cache
+  analysisCacheExpiryMs: number; // 30 days for completed analyses
 
   // Project filtering (now handled by snapshot)
   selectedProjectId: string | null;
@@ -104,7 +106,8 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     historicalAnalysis: null,
     historicalProjectsCache: null,
     historicalAnalysisCache: new Map(),
-    cacheExpiryMs: 30 * 24 * 60 * 60 * 1000, // 30 days
+    cacheExpiryMs: 30 * 24 * 60 * 60 * 1000, // 30 days for project list cache
+    analysisCacheExpiryMs: 30 * 24 * 60 * 60 * 1000, // 30 days for completed analyses
     selectedProjectId: null,
     currentTime: 0,
     isPlaying: false,
@@ -218,11 +221,12 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
             loadingStatus: null
           });
 
-          // Auto-select if needed
+          // Auto-select if needed (but don't trigger analysis)
           if (state.historicalProjectsCache.data.length > 0 && !state.selectedHistoricalProjectId) {
             const firstProject = state.historicalProjectsCache.data[0];
-            console.log('[loadHistoricalProjects] Auto-selecting from cache:', firstProject.project_name);
-            await get().setSelectedHistoricalProject(firstProject.project_id);
+            console.log('[loadHistoricalProjects] Auto-selecting from cache (no analysis):', firstProject.project_name);
+            // Only set the selectedHistoricalProjectId, don't trigger analysis
+            set({ selectedHistoricalProjectId: firstProject.project_id });
           }
           return;
         }
@@ -230,8 +234,43 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       }
 
       try {
-        console.log('[loadHistoricalProjects] Using SSE streaming endpoint...');
+        console.log('[loadHistoricalProjects] Fetching active projects only...');
+        set({ loadingStatus: 'Loading active projects...' });
 
+        // Fetch active projects only (fast, filtered by ProjectRegistry)
+        const response = await fetch('http://localhost:4301/api/historical/projects');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch projects: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const historicalProjects = data.projects || [];
+
+        console.log(`[loadHistoricalProjects] Loaded ${historicalProjects.length} active projects`);
+
+        // Update cache and state
+        set({
+          historicalProjects,
+          historicalProjectsCache: {
+            data: historicalProjects,
+            timestamp: Date.now()
+          },
+          loadingStatus: null
+        });
+
+        // Auto-select first project if none selected
+        // BUT don't trigger analysis yet - wait for user interaction
+        if (historicalProjects.length > 0 && !state.selectedHistoricalProjectId) {
+          const firstProject = historicalProjects[0];
+          console.log('[loadHistoricalProjects] Auto-selecting (no analysis):', firstProject.project_name);
+          // Only set the selectedHistoricalProjectId, don't call setSelectedHistoricalProject
+          // which would trigger analysis
+          set({ selectedHistoricalProjectId: firstProject.project_id });
+        }
+
+        return;
+
+        /* OLD SSE STREAMING CODE - keeping for reference but commented out
         // Use SSE streaming endpoint for progress updates
         const eventSource = new EventSource('http://localhost:4301/api/historical/projects/stream');
 
@@ -287,9 +326,14 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
             reject(new Error('Connection lost. Please refresh and try again.'));
           };
         });
+        */ // END OLD SSE CODE
       } catch (error) {
         console.error('[loadHistoricalProjects] Error:', error);
-        set({ historicalProjects: [], loadingStatus: null });
+        set({
+          historicalProjects: [],
+          loadingStatus: null,
+          loadError: error instanceof Error ? error.message : 'Failed to load projects'
+        });
       }
     },
 
@@ -301,13 +345,19 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     },
 
     setSelectedHistoricalProject: async (projectId: string | null) => {
-      set({ selectedHistoricalProjectId: projectId });
+      // Don't update selectedHistoricalProjectId yet - let loadHistoricalAnalysis
+      // handle it after checking cache. This prevents FloatingProgressIndicator
+      // from mounting AnalysisProgress prematurely which would create an SSE
+      // connection before we check the cache.
 
       // Load historical analysis for the selected project
       if (projectId) {
         await get().loadHistoricalAnalysis(projectId);
       } else {
-        set({ historicalAnalysis: null });
+        set({
+          selectedHistoricalProjectId: null,
+          historicalAnalysis: null
+        });
       }
     },
 
@@ -338,8 +388,19 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
         if (currentState.historicalProjects.length === 0) {
           console.log('[setViewMode] No cached historical projects, loading...');
           await get().loadHistoricalProjects();
+          // After loading projects, trigger analysis for the auto-selected project
+          const newState = get();
+          if (newState.selectedHistoricalProjectId && !newState.historicalAnalysis) {
+            console.log('[setViewMode] Triggering analysis for auto-selected project:', newState.selectedHistoricalProjectId);
+            await get().loadHistoricalAnalysis(newState.selectedHistoricalProjectId);
+          }
         } else {
           console.log(`[setViewMode] Using cached historical projects (${currentState.historicalProjects.length} projects)`);
+          // If there's a selected project but no analysis data, trigger analysis
+          if (currentState.selectedHistoricalProjectId && !currentState.historicalAnalysis) {
+            console.log('[setViewMode] Triggering analysis for selected project:', currentState.selectedHistoricalProjectId);
+            await get().loadHistoricalAnalysis(currentState.selectedHistoricalProjectId);
+          }
         }
       }
 
@@ -359,7 +420,7 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       const cached = state.historicalAnalysisCache.get(projectId);
       if (cached) {
         const age = Date.now() - cached.timestamp;
-        if (age < state.cacheExpiryMs) {
+        if (age < state.analysisCacheExpiryMs) {
           console.log(`[loadHistoricalAnalysis] Using cached analysis for ${projectId} (age: ${Math.round(age / 1000)}s)`);
           set({
             historicalAnalysis: cached.data,

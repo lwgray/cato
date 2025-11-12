@@ -1,11 +1,15 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
+import ArchiveBrowser from './ArchiveBrowser';
 
 /**
  * Header controls component to prevent flickering during data refreshes.
  * Subscribes directly to store values to avoid prop reference changes.
  */
 const HeaderControls = () => {
+  // Local state for archive browser modal
+  const [isArchiveBrowserOpen, setIsArchiveBrowserOpen] = useState(false);
+
   // Subscribe to store values directly (Zustand handles stability)
   const isLoading = useVisualizationStore((state) => state.isLoading);
   const loadError = useVisualizationStore((state) => state.loadError);
@@ -13,7 +17,9 @@ const HeaderControls = () => {
   const projects = useVisualizationStore((state) => state.projects);
   const historicalProjects = useVisualizationStore((state) => state.historicalProjects);
   const selectedProjectId = useVisualizationStore((state) => state.selectedProjectId);
-  const selectedHistoricalProjectId = useVisualizationStore((state) => state.selectedHistoricalProjectId);
+  const selectedHistoricalProjectId = useVisualizationStore(
+    (state) => state.selectedHistoricalProjectId
+  );
 
   // NEW: Mode state
   const viewMode = useVisualizationStore((state) => state.viewMode);
@@ -102,12 +108,28 @@ const HeaderControls = () => {
     } else {
       console.log('No project ID available, relying on auto-selection');
     }
-  }, [viewMode, selectedProjectId, selectedHistoricalProjectId, setViewMode, setSelectedProject, setSelectedHistoricalProject]);
+  }, [
+    viewMode,
+    selectedProjectId,
+    selectedHistoricalProjectId,
+    setViewMode,
+    setSelectedProject,
+    setSelectedHistoricalProject,
+  ]);
+
+  // Handler for selecting a project from the archive browser
+  const handleSelectFromArchive = useCallback(
+    async (projectId: string) => {
+      console.log('Project selected from archive browser:', projectId);
+      await setSelectedHistoricalProject(projectId);
+    },
+    [setSelectedHistoricalProject]
+  );
 
   return (
     <>
       <div className="header-top">
-        <h1>Cato - Marcus Parallelization Visualization</h1>
+        <h1>Cato - Multi-agent Workspace</h1>
         <div className="header-controls">
           {/* Project dropdown - on the left */}
           {currentProjects.length > 0 ? (
@@ -116,7 +138,6 @@ const HeaderControls = () => {
               value={currentSelectedId || ''}
               onChange={handleProjectChange}
               onFocus={handleDropdownFocus}
-              disabled={isLoading}
               title={
                 viewMode === 'historical'
                   ? 'Select project for historical analysis'
@@ -150,7 +171,6 @@ const HeaderControls = () => {
           <button
             className={`mode-toggle ${viewMode === 'historical' ? 'historical' : 'live'}`}
             onClick={handleModeToggle}
-            disabled={isLoading}
             title={
               viewMode === 'live'
                 ? 'Click to view historical project analysis'
@@ -160,12 +180,22 @@ const HeaderControls = () => {
             {viewMode === 'live' ? '📊 View Historical' : '🟢 Live Monitoring'}
           </button>
 
+          {/* Archive browser button - on the right (historical mode only) */}
+          {viewMode === 'historical' && (
+            <button
+              className="archive-button"
+              onClick={() => setIsArchiveBrowserOpen(true)}
+              title="Browse all project archives (active and archived)"
+            >
+              📁 Browse Archives
+            </button>
+          )}
+
           {/* Refresh button - on the right (live mode only) */}
           {viewMode === 'live' && (
             <button
               className="refresh-button"
               onClick={refreshData}
-              disabled={isLoading}
               title="Refresh live data now"
             >
               🔄 Refresh
@@ -179,29 +209,42 @@ const HeaderControls = () => {
         </div>
       )}
       {loadingStatus && (
-        <div className="loading-banner" style={{
-          background: 'linear-gradient(135deg, #1e3a8a 0%, #312e81 100%)',
-          color: '#e0e7ff',
-          padding: '0.5rem 1rem',
-          borderRadius: '4px',
-          marginBottom: '1rem',
-          fontSize: '0.9rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem'
-        }}>
-          <span className="loading-spinner" style={{
-            display: 'inline-block',
-            width: '16px',
-            height: '16px',
-            border: '2px solid #e0e7ff',
-            borderTopColor: 'transparent',
-            borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite'
-          }} />
+        <div
+          className="loading-banner"
+          style={{
+            background: 'linear-gradient(135deg, #1e3a8a 0%, #312e81 100%)',
+            color: '#e0e7ff',
+            padding: '0.5rem 1rem',
+            borderRadius: '4px',
+            marginBottom: '1rem',
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          <span
+            className="loading-spinner"
+            style={{
+              display: 'inline-block',
+              width: '16px',
+              height: '16px',
+              border: '2px solid #e0e7ff',
+              borderTopColor: 'transparent',
+              borderRadius: '50%',
+              animation: 'spin 0.8s linear infinite',
+            }}
+          />
           {loadingStatus}
         </div>
       )}
+
+      {/* Archive Browser Modal */}
+      <ArchiveBrowser
+        isOpen={isArchiveBrowserOpen}
+        onClose={() => setIsArchiveBrowserOpen(false)}
+        onSelectProject={handleSelectFromArchive}
+      />
     </>
   );
 };

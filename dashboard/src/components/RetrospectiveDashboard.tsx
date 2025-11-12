@@ -1,5 +1,4 @@
 import { useVisualizationStore } from '../store/visualizationStore';
-import AnalysisProgress from './AnalysisProgress';
 import './RetrospectiveDashboard.css';
 
 /**
@@ -8,6 +7,10 @@ import './RetrospectiveDashboard.css';
  * Displays high-level project summary and Phase 1 metrics for completed projects.
  * Shows task completion rates, decision counts, agent activity, and project timeline.
  * Uses SSE streaming to show real-time analysis progress.
+ *
+ * Note: Analysis is triggered by setSelectedHistoricalProject() in the store,
+ * which is called from HeaderControls when user selects a project.
+ * No need for useEffect here as it would cause duplicate analysis calls.
  */
 const RetrospectiveDashboard = () => {
   const historicalAnalysis = useVisualizationStore((state) => state.historicalAnalysis);
@@ -17,38 +20,8 @@ const RetrospectiveDashboard = () => {
     (state) => state.selectedHistoricalProjectId
   );
 
-  // Show progress component while loading
-  if (isLoading && selectedHistoricalProjectId) {
-    return (
-      <div className="retrospective-dashboard loading">
-        <AnalysisProgress
-          projectId={selectedHistoricalProjectId}
-          onComplete={(data) => {
-            // Update the store with the completed analysis
-            useVisualizationStore.setState({
-              historicalAnalysis: data,
-              isLoading: false,
-            });
-          }}
-          onError={(error) => {
-            // Update the store with the error
-            useVisualizationStore.setState({
-              loadError: error,
-              isLoading: false,
-            });
-          }}
-        />
-      </div>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <div className="retrospective-dashboard loading">
-        <div className="loading-spinner">Initializing...</div>
-      </div>
-    );
-  }
+  // Note: Loading state is now handled by FloatingProgressIndicator
+  // No longer blocking the UI during analysis
 
   if (loadError) {
     return (
@@ -197,6 +170,13 @@ const RetrospectiveDashboard = () => {
           >
             ⚠️ Failure Diagnosis
             <span className="link-description">Understand what went wrong and why</span>
+          </button>
+          <button
+            className="quick-link-btn"
+            onClick={() => useVisualizationStore.getState().setCurrentLayer('redundancy')}
+          >
+            🔄 Task Redundancy
+            <span className="link-description">Identify duplicate and redundant work</span>
           </button>
         </div>
       </div>

@@ -463,11 +463,27 @@ if HISTORICAL_MODE_AVAILABLE:
     history_aggregator = ProjectHistoryAggregator()
     history_query = ProjectHistoryQuery(history_aggregator)
 
+# Import project registry for active project filtering
+project_registry = None
+try:
+    if marcus_root:
+        sys.path.insert(0, str(marcus_root))
+        from src.core.project_registry import ProjectRegistry
+        project_registry = ProjectRegistry()
+        logger.info("✅ Project registry loaded for historical filtering")
+except Exception as e:
+    logger.warning(f"Could not load project registry: {e}")
+
 
 @app.get("/api/historical/projects")
 async def list_historical_projects():
     """
-    List all completed projects with summary metrics.
+    List historical projects for ACTIVE projects only (default view).
+
+    This endpoint returns only projects that exist in the active project
+    registry, providing a clean, focused list of current projects.
+
+    For accessing archived/deleted projects, use /api/historical/projects/all
 
     Returns
     -------
@@ -481,9 +497,12 @@ async def list_historical_projects():
           "completion_rate": 91.7,
           "blocked_tasks": 1,
           "total_decisions": 15,
-          "project_duration_hours": 48.5
+          "project_duration_hours": 48.5,
+          "is_active": true
         }
-      ]
+      ],
+      "count": 2,
+      "view": "active"
     }
     """
     if not HISTORICAL_MODE_AVAILABLE:
@@ -493,36 +512,197 @@ async def list_historical_projects():
         )
 
     try:
+        # Get active project IDs from registry
+        active_project_ids = set()
+        if project_registry:
+            try:
+                await project_registry.initialize()
+                active_projects = await project_registry.list_projects()
+                active_project_ids = {p.id for p in active_projects}
+                logger.info(
+                    f"Found {len(active_project_ids)} active projects in registry"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Could not load project registry, showing all projects: {e}"
+                )
+
         # Find all project IDs from persistence layer
         if marcus_root:
             history_dir = marcus_root / "data" / "project_history"
         else:
-            # Fallback: try to find Marcus root
             history_dir = Path.home() / "dev" / "marcus" / "data" / "project_history"
 
-        projects = []
+        active_projects_data = []
         if history_dir.exists():
             logger.info(f"Scanning for historical projects in {history_dir}")
-            for project_dir in history_dir.iterdir():
-                if project_dir.is_dir():
-                    project_id = project_dir.name
-                    try:
-                        summary = await history_query.get_project_summary(project_id)
-                        projects.append(summary)
-                        logger.info(f"Loaded project summary: {project_id}")
-                    except Exception as e:
-                        logger.warning(f"Error loading project {project_id}: {e}")
+
+            # OPTIMIZATION: Only load summaries for active projects
+            # Instead of loading all 26 projects and filtering, we filter FIRST
+            if active_project_ids:
+                # Load only active projects (fast path)
+                for project_id in active_project_ids:
+                    project_dir = history_dir / project_id
+                    if project_dir.exists() and project_dir.is_dir():
+                        try:
+                            summary = await history_query.get_project_summary(project_id)
+                            summary["is_active"] = True
+                            active_projects_data.append(summary)
+                        except Exception as e:
+                            logger.warning(f"Error loading project {project_id}: {e}")
+                logger.info(
+                    f"Loaded {len(active_projects_data)} active projects "
+                    f"(from {len(active_project_ids)} in registry)"
+                )
+            else:
+                # No registry available - load all projects (slow path)
+                logger.warning("No registry available, loading all historical projects")
+                for project_dir in history_dir.iterdir():
+                    if project_dir.is_dir():
+                        project_id = project_dir.name
+                        try:
+                            summary = await history_query.get_project_summary(project_id)
+                            summary["is_active"] = True
+                            active_projects_data.append(summary)
+                        except Exception as e:
+                            logger.warning(f"Error loading project {project_id}: {e}")
         else:
             logger.warning(f"Project history directory not found: {history_dir}")
 
-        logger.info(f"Found {len(projects)} historical projects")
-        return {"projects": projects}
+        logger.info(
+            f"Returning {len(active_projects_data)} active projects"
+        )
+        return {
+            "projects": active_projects_data,
+            "count": len(active_projects_data),
+            "view": "active",
+        }
 
     except Exception as e:
         logger.error(f"Error listing historical projects: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Error listing historical projects: {str(e)}"
+        )
+
+
+@app.get("/api/historical/projects/all")
+async def list_all_historical_projects(
+    search: Optional[str] = Query(
+        None, description="Search projects by name (case-insensitive)"
+    )
+):
+    """
+    List ALL historical projects including archived ones (archive browser).
+
+    Returns all projects with active/archived status, optionally filtered by search.
+    Use this endpoint for the archive browser UI.
+
+    Parameters
+    ----------
+    search : Optional[str]
+        Search term to filter project names
+
+    Returns
+    -------
+    {
+      "active": [
+        {
+          "project_id": "...",
+          "project_name": "...",
+          "is_active": true,
+          "status": "active",
+          ...
+        }
+      ],
+      "archived": [
+        {
+          "project_id": "...",
+          "project_name": "...",
+          "is_active": false,
+          "status": "archived",
+          ...
+        }
+      ],
+      "total": 5,
+      "view": "all"
+    }
+    """
+    if not HISTORICAL_MODE_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Historical analysis mode not available (missing dependencies)"
+        )
+
+    try:
+        # Get active project IDs from registry
+        active_project_ids = set()
+        if project_registry:
+            try:
+                await project_registry.initialize()
+                active_projects = await project_registry.list_projects()
+                active_project_ids = {p.id for p in active_projects}
+                logger.info(
+                    f"Found {len(active_project_ids)} active projects in registry"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Could not load project registry: {e}"
+                )
+
+        # Find all historical projects
+        if marcus_root:
+            history_dir = marcus_root / "data" / "project_history"
+        else:
+            history_dir = Path.home() / "dev" / "marcus" / "data" / "project_history"
+
+        all_projects = []
+        if history_dir.exists():
+            logger.info(f"Scanning for all historical projects in {history_dir}")
+            for project_dir in history_dir.iterdir():
+                if project_dir.is_dir():
+                    project_id = project_dir.name
+                    try:
+                        summary = await history_query.get_project_summary(project_id)
+
+                        # Apply search filter if provided
+                        if search:
+                            project_name = summary.get("project_name", "").lower()
+                            if search.lower() not in project_name:
+                                continue
+
+                        # Add status fields
+                        is_active = project_id in active_project_ids
+                        summary["is_active"] = is_active
+                        summary["status"] = "active" if is_active else "archived"
+
+                        all_projects.append(summary)
+                    except Exception as e:
+                        logger.warning(f"Error loading project {project_id}: {e}")
+        else:
+            logger.warning(f"Project history directory not found: {history_dir}")
+
+        # Separate into active and archived
+        active = [p for p in all_projects if p["is_active"]]
+        archived = [p for p in all_projects if not p["is_active"]]
+
+        logger.info(
+            f"Found {len(active)} active and {len(archived)} archived projects"
+            + (f" (filtered by '{search}')" if search else "")
+        )
+
+        return {
+            "active": active,
+            "archived": archived,
+            "total": len(all_projects),
+            "view": "all",
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing all historical projects: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing all historical projects: {str(e)}"
         )
 
 
@@ -822,6 +1002,28 @@ async def get_project_analysis(project_id: str):
                 }
                 for fd in analysis.failure_diagnoses
             ],
+            "task_redundancy": {
+                "project_id": analysis.task_redundancy.project_id,
+                "redundant_pairs": [
+                    {
+                        "task_1_id": rp.task_1_id,
+                        "task_1_name": rp.task_1_name,
+                        "task_2_id": rp.task_2_id,
+                        "task_2_name": rp.task_2_name,
+                        "overlap_score": rp.overlap_score,
+                        "evidence": rp.evidence,
+                        "time_wasted": rp.time_wasted,
+                    }
+                    for rp in analysis.task_redundancy.redundant_pairs
+                ],
+                "redundancy_score": analysis.task_redundancy.redundancy_score,
+                "total_time_wasted": analysis.task_redundancy.total_time_wasted,
+                "over_decomposition_detected": analysis.task_redundancy.over_decomposition_detected,
+                "recommended_complexity": analysis.task_redundancy.recommended_complexity,
+                "raw_data": analysis.task_redundancy.raw_data,
+                "llm_interpretation": analysis.task_redundancy.llm_interpretation,
+                "recommendations": analysis.task_redundancy.recommendations,
+            } if analysis.task_redundancy else None,
             "metadata": analysis.metadata,
             })
         else:
@@ -834,6 +1036,7 @@ async def get_project_analysis(project_id: str):
                 "decision_impacts": [],
                 "instruction_quality_issues": [],
                 "failure_diagnoses": [],
+                "task_redundancy": None,
                 "metadata": {"phase2_available": False, "error": phase2_error},
             })
 

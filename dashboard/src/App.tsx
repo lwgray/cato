@@ -5,9 +5,14 @@ import AgentSwimLanesView from './components/AgentSwimLanesView';
 import ConversationView from './components/ConversationView';
 import HealthCheckDashboard from './components/HealthCheckDashboard';
 import RetrospectiveDashboard from './components/RetrospectiveDashboard';
+import RequirementFidelityView from './components/RequirementFidelityView';
+import DecisionImpactView from './components/DecisionImpactView';
+import FailureDiagnosisView from './components/FailureDiagnosisView';
+import TaskRedundancyView from './components/TaskRedundancyView';
 import TimelineControls from './components/TimelineControls';
 import MetricsPanel from './components/MetricsPanel';
 import HeaderControls from './components/HeaderControls';
+import FloatingProgressIndicator from './components/FloatingProgressIndicator';
 import './App.css';
 
 function App() {
@@ -88,6 +93,12 @@ function App() {
             >
               ⚠️ Failure Diagnosis
             </button>
+            <button
+              className={currentLayer === 'redundancy' ? 'active' : ''}
+              onClick={() => setCurrentLayer('redundancy')}
+            >
+              🔄 Task Redundancy
+            </button>
           </div>
         )}
       </header>
@@ -105,21 +116,36 @@ function App() {
             <RetrospectiveDashboard />
           )}
           {viewMode === 'historical' && currentLayer === 'fidelity' && (
-            <div>RequirementFidelityView component (coming next)</div>
+            <RequirementFidelityView
+              projectId={useVisualizationStore.getState().selectedHistoricalProjectId || ''}
+            />
           )}
           {viewMode === 'historical' && currentLayer === 'decisions' && (
-            <div>DecisionImpactView component (coming next)</div>
+            <DecisionImpactView
+              projectId={useVisualizationStore.getState().selectedHistoricalProjectId || ''}
+            />
           )}
           {viewMode === 'historical' && currentLayer === 'failures' && (
-            <div>FailureDiagnosisView component (coming next)</div>
+            <FailureDiagnosisView
+              projectId={useVisualizationStore.getState().selectedHistoricalProjectId || ''}
+            />
+          )}
+          {viewMode === 'historical' && currentLayer === 'redundancy' && (
+            <TaskRedundancyView
+              projectId={useVisualizationStore.getState().selectedHistoricalProjectId || ''}
+            />
           )}
         </div>
 
-        <MetricsPanel />
+        {/* Metrics panel only in live mode */}
+        {viewMode === 'live' && <MetricsPanel />}
       </div>
 
       {/* Timeline controls (live mode only) */}
       {viewMode === 'live' && <TimelineControls />}
+
+      {/* Floating progress indicator (historical mode only, shown during analysis) */}
+      <FloatingProgressIndicator />
     </div>
   );
 }
