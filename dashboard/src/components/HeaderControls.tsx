@@ -55,13 +55,26 @@ const HeaderControls = () => {
     async (event: React.ChangeEvent<HTMLSelectElement>) => {
       const projectId = event.target.value || null;
 
+      // Check if "Browse Archives" option was selected
+      if (projectId === '__browse_archives__') {
+        setIsArchiveBrowserOpen(true);
+        // Reset dropdown to current selection
+        event.target.value = currentSelectedId || '';
+        return;
+      }
+
       if (viewMode === 'live') {
         await setSelectedProject(projectId);
       } else {
         await setSelectedHistoricalProject(projectId);
       }
     },
-    [viewMode, setSelectedProject, setSelectedHistoricalProject]
+    [
+      viewMode,
+      setSelectedProject,
+      setSelectedHistoricalProject,
+      currentSelectedId,
+    ]
   );
 
   const handleDropdownFocus = useCallback(async () => {
@@ -153,6 +166,15 @@ const HeaderControls = () => {
                   </option>
                 );
               })}
+              {/* Add Browse Archives option for historical mode */}
+              {viewMode === 'historical' && (
+                <>
+                  <option disabled>────────────</option>
+                  <option value="__browse_archives__">
+                    📦 Browse Archives...
+                  </option>
+                </>
+              )}
             </select>
           ) : (
             <div className="project-selector loading" style={{
@@ -167,7 +189,7 @@ const HeaderControls = () => {
             </div>
           )}
 
-          {/* Mode toggle - in the middle */}
+          {/* Mode toggle - on the right */}
           <button
             className={`mode-toggle ${viewMode === 'historical' ? 'historical' : 'live'}`}
             onClick={handleModeToggle}
@@ -179,17 +201,6 @@ const HeaderControls = () => {
           >
             {viewMode === 'live' ? '📊 View Historical' : '🟢 Live Monitoring'}
           </button>
-
-          {/* Archive browser button - on the right (historical mode only) */}
-          {viewMode === 'historical' && (
-            <button
-              className="archive-button"
-              onClick={() => setIsArchiveBrowserOpen(true)}
-              title="Browse all project archives (active and archived)"
-            >
-              📁 Browse Archives
-            </button>
-          )}
 
           {/* Refresh button - on the right (live mode only) */}
           {viewMode === 'live' && (
