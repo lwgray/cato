@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
 import ArchiveBrowser from './ArchiveBrowser';
+import ExportButton from './ExportButton';
 
 /**
  * Header controls component to prevent flickering during data refreshes.
@@ -212,6 +213,9 @@ const HeaderControls = () => {
               🔄 Refresh
             </button>
           )}
+
+          {/* Export button - on the right */}
+          <ExportButton />
         </div>
       </div>
       {loadError && (

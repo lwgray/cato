@@ -6,10 +6,13 @@ Supports CORS for local development and production deployment.
 """
 
 import asyncio
+import csv
+import io
 import json
 import logging
 import os
 import sys
+import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional
@@ -21,7 +24,7 @@ if str(cato_root) not in sys.path:
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 
 from cato_src.core.aggregator import Aggregator
 
@@ -275,6 +278,7 @@ async def root() -> Dict[str, Any]:
         "endpoints": {
             "/api/snapshot": "Get unified denormalized snapshot",
             "/api/projects": "Get list of all projects",
+            "/api/export": "Export snapshot data (JSON or CSV bundle)",
             "/health": "Health check",
         },
     }
@@ -451,6 +455,189 @@ async def get_snapshot(
         logger.error(f"Error creating snapshot: {e}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Error creating snapshot: {str(e)}"
+        )
+
+
+@app.get("/api/export")  # type: ignore[misc]
+async def export_snapshot(
+    project_id: Optional[str] = Query(None, description="Project ID to export"),
+    format: Literal["json", "csv"] = Query("json", description="Export format: 'json' or 'csv'"),
+) -> Response:
+    """
+    Export snapshot data in JSON or CSV format.
+
+    Parameters
+    ----------
+    project_id : Optional[str]
+        Specific project to export (None = all projects)
+    format : str
+        Export format: 'json' (default) or 'csv' (bundle)
+
+    Returns
+    -------
+    Response
+        File download response (JSON or ZIP)
+    """
+    try:
+        logger.info(f"Creating export: project_id={project_id}, format={format}")
+
+        # Create snapshot with full data
+        snapshot = aggregator.create_snapshot(
+            project_id=project_id,
+            view_mode="subtasks",
+            timeline_scale_exponent=1.0,
+        )
+
+        # Get project name for filename
+        project_name = snapshot.project_name.replace(" ", "_").replace("/", "_")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+        if format == "json":
+            # Export as pretty-printed JSON
+            snapshot_dict = snapshot.to_dict()
+            json_content = json.dumps(snapshot_dict, indent=2, ensure_ascii=False)
+
+            filename = f"cato_export_{project_name}_{timestamp}.json"
+
+            return Response(
+                content=json_content,
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"'
+                }
+            )
+
+        elif format == "csv":
+            # Export as CSV bundle (ZIP file)
+            zip_buffer = io.BytesIO()
+
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # 1. Export conversations.csv
+                if snapshot.messages:
+                    csv_buffer = io.StringIO()
+                    writer = csv.writer(csv_buffer)
+                    writer.writerow([
+                        'id', 'timestamp', 'type', 'from_agent_id', 'from_agent_name',
+                        'to_agent_id', 'to_agent_name', 'task_id', 'task_name',
+                        'message', 'parent_message_id'
+                    ])
+                    for msg in snapshot.messages:
+                        writer.writerow([
+                            msg.id, msg.timestamp, msg.type, msg.from_agent_id,
+                            msg.from_agent_name, msg.to_agent_id, msg.to_agent_name,
+                            msg.task_id or '', msg.task_name or '', msg.message,
+                            msg.parent_message_id or ''
+                        ])
+                    zip_file.writestr('conversations.csv', csv_buffer.getvalue())
+
+                # 2. Export tasks.csv
+                if snapshot.tasks:
+                    csv_buffer = io.StringIO()
+                    writer = csv.writer(csv_buffer)
+                    writer.writerow([
+                        'id', 'name', 'description', 'status', 'progress_percent',
+                        'assigned_agent_id', 'assigned_agent_name', 'parent_task_id',
+                        'parent_task_name', 'project_id', 'project_name',
+                        'created_at', 'started_at', 'completed_at', 'updated_at',
+                        'priority', 'estimated_hours', 'actual_hours'
+                    ])
+                    for task in snapshot.tasks:
+                        writer.writerow([
+                            task.id, task.name, task.description, task.status,
+                            task.progress_percent, task.assigned_agent_id or '',
+                            task.assigned_agent_name or '', task.parent_task_id or '',
+                            task.parent_task_name or '', task.project_id, task.project_name,
+                            task.created_at, task.started_at or '', task.completed_at or '',
+                            task.updated_at, task.priority, task.estimated_hours,
+                            task.actual_hours
+                        ])
+                    zip_file.writestr('tasks.csv', csv_buffer.getvalue())
+
+                # 3. Export agents.csv
+                if snapshot.agents:
+                    csv_buffer = io.StringIO()
+                    writer = csv.writer(csv_buffer)
+                    writer.writerow([
+                        'id', 'name', 'role', 'skills', 'completed_tasks_count',
+                        'total_hours_worked', 'average_task_duration_hours',
+                        'performance_score', 'capacity_utilization',
+                        'messages_sent', 'messages_received', 'blockers_reported'
+                    ])
+                    for agent in snapshot.agents:
+                        writer.writerow([
+                            agent.id, agent.name, agent.role,
+                            ';'.join(agent.skills) if agent.skills else '',
+                            agent.completed_tasks_count, agent.total_hours_worked,
+                            agent.average_task_duration_hours, agent.performance_score,
+                            agent.capacity_utilization, agent.messages_sent,
+                            agent.messages_received, agent.blockers_reported
+                        ])
+                    zip_file.writestr('agents.csv', csv_buffer.getvalue())
+
+                # 4. Export task_dependencies.csv
+                if snapshot.task_dependency_graph:
+                    csv_buffer = io.StringIO()
+                    writer = csv.writer(csv_buffer)
+                    writer.writerow(['source_task_id', 'target_task_id'])
+                    for source_id, targets in snapshot.task_dependency_graph.items():
+                        for target_id in targets:
+                            writer.writerow([source_id, target_id])
+                    zip_file.writestr('task_dependencies.csv', csv_buffer.getvalue())
+
+                # 5. Export agent_communications.csv
+                if snapshot.agent_communication_graph:
+                    csv_buffer = io.StringIO()
+                    writer = csv.writer(csv_buffer)
+                    writer.writerow(['from_agent_id', 'to_agent_id', 'message_count'])
+
+                    # Count messages between agents
+                    comm_counts: Dict[tuple[str, str], int] = {}
+                    for msg in snapshot.messages:
+                        if msg.from_agent_id and msg.to_agent_id:
+                            key = (msg.from_agent_id, msg.to_agent_id)
+                            comm_counts[key] = comm_counts.get(key, 0) + 1
+
+                    for (from_id, to_id), count in comm_counts.items():
+                        writer.writerow([from_id, to_id, count])
+                    zip_file.writestr('agent_communications.csv', csv_buffer.getvalue())
+
+                # 6. Export timeline_events.csv
+                if snapshot.timeline_events:
+                    csv_buffer = io.StringIO()
+                    writer = csv.writer(csv_buffer)
+                    writer.writerow([
+                        'id', 'timestamp', 'event_type', 'agent_id', 'agent_name',
+                        'task_id', 'task_name', 'data'
+                    ])
+                    for event in snapshot.timeline_events:
+                        writer.writerow([
+                            event.id, event.timestamp, event.event_type,
+                            event.agent_id or '', event.agent_name or '',
+                            event.task_id or '', event.task_name or '',
+                            json.dumps(event.data) if event.data else ''
+                        ])
+                    zip_file.writestr('timeline_events.csv', csv_buffer.getvalue())
+
+            # Reset buffer position
+            zip_buffer.seek(0)
+
+            filename = f"cato_export_{project_name}_{timestamp}.zip"
+
+            return Response(
+                content=zip_buffer.getvalue(),
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"'
+                }
+            )
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid format: {format}")
+
+    except Exception as e:
+        logger.error(f"Error creating export: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Error creating export: {str(e)}"
         )
 
 
