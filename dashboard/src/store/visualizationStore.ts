@@ -12,31 +12,16 @@ export type ViewLayer =
   | 'failures'
   | 'redundancy';
 export type TaskView = 'subtasks' | 'parents' | 'all';
-export type ViewMode = 'live' | 'historical';
 
 interface VisualizationState {
-  // Mode state
-  viewMode: ViewMode;
-
   // Snapshot data (denormalized, pre-calculated)
   snapshot: Snapshot | null;
   isLoading: boolean;
   loadError: string | null;
   loadingStatus: string | null; // Status message for what's being loaded
 
-  // Projects list (live mode)
+  // Projects list
   projects: Project[];
-
-  // Historical mode state
-  historicalProjects: any[]; // TODO: Define HistoricalProject type
-  selectedHistoricalProjectId: string | null;
-  historicalAnalysis: any | null; // TODO: Define HistoricalAnalysis type
-
-  // Caching state
-  historicalProjectsCache: { data: any[]; timestamp: number } | null;
-  historicalAnalysisCache: Map<string, { data: any; timestamp: number }>;
-  cacheExpiryMs: number; // 5 minutes for project list cache
-  analysisCacheExpiryMs: number; // 30 days for completed analyses
 
   // Project filtering (now handled by snapshot)
   selectedProjectId: string | null;
@@ -63,13 +48,9 @@ interface VisualizationState {
   autoRefreshInterval: number; // milliseconds
 
   // Actions
-  setViewMode: (mode: ViewMode) => void;
   loadData: (projectId?: string) => Promise<void>;
   loadProjects: () => Promise<void>;
-  loadHistoricalProjects: () => Promise<void>;
   setSelectedProject: (projectId: string | null) => void;
-  setSelectedHistoricalProject: (projectId: string | null) => void;
-  loadHistoricalAnalysis: (projectId: string) => Promise<void>;
   setCurrentTime: (time: number) => void;
   play: () => void;
   pause: () => void;
@@ -95,19 +76,11 @@ interface VisualizationState {
 
 export const useVisualizationStore = create<VisualizationState>((set, get) => {
   return {
-    viewMode: 'live', // Default to live mode
     snapshot: null,
     isLoading: false,
     loadError: null,
     loadingStatus: null,
     projects: [],
-    historicalProjects: [],
-    selectedHistoricalProjectId: null,
-    historicalAnalysis: null,
-    historicalProjectsCache: null,
-    historicalAnalysisCache: new Map(),
-    cacheExpiryMs: 30 * 24 * 60 * 60 * 1000, // 30 days for project list cache
-    analysisCacheExpiryMs: 30 * 24 * 60 * 60 * 1000, // 30 days for completed analyses
     selectedProjectId: null,
     currentTime: 0,
     isPlaying: false,
@@ -197,143 +170,11 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
           await get().setSelectedProject(newestProject.id);
         }
 
-        // Start auto-refresh after initial load (only in live mode)
-        const currentMode = get().viewMode;
-        if (currentMode === 'live') {
-          get().startAutoRefresh();
-        }
+        // Start auto-refresh after initial load
+        get().startAutoRefresh();
       } catch (error) {
         console.error('Error loading projects:', error);
         set({ projects: [] });
-      }
-    },
-
-    loadHistoricalProjects: async () => {
-      const state = get();
-
-      // Check cache first
-      if (state.historicalProjectsCache) {
-        const age = Date.now() - state.historicalProjectsCache.timestamp;
-        if (age < state.cacheExpiryMs) {
-          console.log(`[loadHistoricalProjects] Using cached data (age: ${Math.round(age / 1000)}s)`);
-          set({
-            historicalProjects: state.historicalProjectsCache.data,
-            loadingStatus: null
-          });
-
-          // Auto-select if needed (but don't trigger analysis)
-          if (state.historicalProjectsCache.data.length > 0 && !state.selectedHistoricalProjectId) {
-            const firstProject = state.historicalProjectsCache.data[0];
-            console.log('[loadHistoricalProjects] Auto-selecting from cache (no analysis):', firstProject.project_name);
-            // Only set the selectedHistoricalProjectId, don't trigger analysis
-            set({ selectedHistoricalProjectId: firstProject.project_id });
-          }
-          return;
-        }
-        console.log('[loadHistoricalProjects] Cache expired, fetching fresh data');
-      }
-
-      try {
-        console.log('[loadHistoricalProjects] Fetching active projects only...');
-        set({ loadingStatus: 'Loading active projects...' });
-
-        // Fetch active projects only (fast, filtered by ProjectRegistry)
-        const response = await fetch('http://localhost:4301/api/historical/projects');
-        if (!response.ok) {
-          throw new Error(`Failed to fetch projects: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        const historicalProjects = data.projects || [];
-
-        console.log(`[loadHistoricalProjects] Loaded ${historicalProjects.length} active projects`);
-
-        // Update cache and state
-        set({
-          historicalProjects,
-          historicalProjectsCache: {
-            data: historicalProjects,
-            timestamp: Date.now()
-          },
-          loadingStatus: null
-        });
-
-        // Auto-select first project if none selected
-        // BUT don't trigger analysis yet - wait for user interaction
-        if (historicalProjects.length > 0 && !state.selectedHistoricalProjectId) {
-          const firstProject = historicalProjects[0];
-          console.log('[loadHistoricalProjects] Auto-selecting (no analysis):', firstProject.project_name);
-          // Only set the selectedHistoricalProjectId, don't call setSelectedHistoricalProject
-          // which would trigger analysis
-          set({ selectedHistoricalProjectId: firstProject.project_id });
-        }
-
-        return;
-
-        /* OLD SSE STREAMING CODE - keeping for reference but commented out
-        // Use SSE streaming endpoint for progress updates
-        const eventSource = new EventSource('http://localhost:4301/api/historical/projects/stream');
-
-        return new Promise((resolve, reject) => {
-          eventSource.onmessage = async (event) => {
-            try {
-              const data = JSON.parse(event.data);
-              console.log('[loadHistoricalProjects] SSE event:', data);
-
-              if (data.type === 'log' || data.type === 'progress') {
-                // Update loading status with progress message
-                set({ loadingStatus: data.message });
-              } else if (data.type === 'complete') {
-                console.log('[loadHistoricalProjects] Loading complete!');
-                eventSource.close();
-
-                const historicalProjects = data.data?.projects || [];
-
-                // Update cache and state
-                set({
-                  historicalProjects,
-                  historicalProjectsCache: {
-                    data: historicalProjects,
-                    timestamp: Date.now()
-                  },
-                  loadingStatus: null
-                });
-
-                // Auto-select first project if available and none selected
-                if (historicalProjects.length > 0 && !get().selectedHistoricalProjectId) {
-                  const firstProject = historicalProjects[0];
-                  console.log('[loadHistoricalProjects] Auto-selecting:', firstProject.project_name);
-                  await get().setSelectedHistoricalProject(firstProject.project_id);
-                  resolve();
-                } else {
-                  resolve();
-                }
-              } else if (data.type === 'error') {
-                console.error('[loadHistoricalProjects] Error:', data.message);
-                set({ historicalProjects: [], loadingStatus: null });
-                eventSource.close();
-                reject(new Error(data.message));
-              }
-            } catch (err) {
-              console.error('[loadHistoricalProjects] Failed to parse SSE event:', err);
-            }
-          };
-
-          eventSource.onerror = (err) => {
-            console.error('[loadHistoricalProjects] EventSource error:', err);
-            set({ historicalProjects: [], loadingStatus: null });
-            eventSource.close();
-            reject(new Error('Connection lost. Please refresh and try again.'));
-          };
-        });
-        */ // END OLD SSE CODE
-      } catch (error) {
-        console.error('[loadHistoricalProjects] Error:', error);
-        set({
-          historicalProjects: [],
-          loadingStatus: null,
-          loadError: error instanceof Error ? error.message : 'Failed to load projects'
-        });
       }
     },
 
@@ -342,107 +183,6 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
 
       // Reload data with the new project filter
       await get().loadData(projectId || undefined);
-    },
-
-    setSelectedHistoricalProject: async (projectId: string | null) => {
-      // Don't update selectedHistoricalProjectId yet - let loadHistoricalAnalysis
-      // handle it after checking cache. This prevents FloatingProgressIndicator
-      // from mounting AnalysisProgress prematurely which would create an SSE
-      // connection before we check the cache.
-
-      // Load historical analysis for the selected project
-      if (projectId) {
-        await get().loadHistoricalAnalysis(projectId);
-      } else {
-        set({
-          selectedHistoricalProjectId: null,
-          historicalAnalysis: null
-        });
-      }
-    },
-
-    setViewMode: async (mode: ViewMode) => {
-      console.log(`[setViewMode] Switching from ${get().viewMode} to ${mode}`);
-      set({ viewMode: mode });
-
-      // Switch to appropriate layer for the mode
-      if (mode === 'live') {
-        // Switch to network graph for live mode
-        console.log('[setViewMode] Switching to live mode: setting layer to network');
-        set({ currentLayer: 'network' });
-        // Load live projects only if not already loaded
-        const currentState = get();
-        if (currentState.projects.length === 0) {
-          console.log('[setViewMode] No cached projects, loading live projects...');
-          await get().loadProjects();
-        } else {
-          console.log(`[setViewMode] Using cached projects (${currentState.projects.length} projects)`);
-        }
-      } else {
-        // Switch to retrospective for historical mode
-        console.log('[setViewMode] Switching to historical mode: setting layer to retrospective');
-        set({ currentLayer: 'retrospective' });
-        get().stopAutoRefresh(); // Historical data is static
-        // Load historical projects only if not already loaded
-        const currentState = get();
-        if (currentState.historicalProjects.length === 0) {
-          console.log('[setViewMode] No cached historical projects, loading...');
-          await get().loadHistoricalProjects();
-          // After loading projects, trigger analysis for the auto-selected project
-          const newState = get();
-          if (newState.selectedHistoricalProjectId && !newState.historicalAnalysis) {
-            console.log('[setViewMode] Triggering analysis for auto-selected project:', newState.selectedHistoricalProjectId);
-            await get().loadHistoricalAnalysis(newState.selectedHistoricalProjectId);
-          }
-        } else {
-          console.log(`[setViewMode] Using cached historical projects (${currentState.historicalProjects.length} projects)`);
-          // If there's a selected project but no analysis data, trigger analysis
-          if (currentState.selectedHistoricalProjectId && !currentState.historicalAnalysis) {
-            console.log('[setViewMode] Triggering analysis for selected project:', currentState.selectedHistoricalProjectId);
-            await get().loadHistoricalAnalysis(currentState.selectedHistoricalProjectId);
-          }
-        }
-      }
-
-      console.log(`[setViewMode] Mode switch complete: ${mode}`);
-    },
-
-    loadHistoricalAnalysis: async (projectId: string) => {
-      const state = get();
-
-      // Check if already loading this project (prevent duplicate calls)
-      if (state.isLoading && state.selectedHistoricalProjectId === projectId) {
-        console.log(`[loadHistoricalAnalysis] Already loading analysis for ${projectId}, skipping`);
-        return;
-      }
-
-      // Check cache first
-      const cached = state.historicalAnalysisCache.get(projectId);
-      if (cached) {
-        const age = Date.now() - cached.timestamp;
-        if (age < state.analysisCacheExpiryMs) {
-          console.log(`[loadHistoricalAnalysis] Using cached analysis for ${projectId} (age: ${Math.round(age / 1000)}s)`);
-          set({
-            historicalAnalysis: cached.data,
-            isLoading: false,
-            loadingStatus: null,
-            selectedHistoricalProjectId: projectId,
-          });
-          return;
-        }
-        console.log(`[loadHistoricalAnalysis] Cache expired for ${projectId}`);
-      }
-
-      // Set loading state - the AnalysisProgress component will handle
-      // the actual SSE streaming and update the store when complete
-      console.log(`[loadHistoricalAnalysis] Starting SSE stream for ${projectId}`);
-      set({
-        isLoading: true,
-        loadError: null,
-        loadingStatus: null,
-        selectedHistoricalProjectId: projectId,
-        historicalAnalysis: null, // Clear old data
-      });
     },
 
     setCurrentTime: (time) => set({ currentTime: time }),
@@ -540,6 +280,11 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       if (!snapshot) return [];
 
       let tasks = snapshot.tasks;
+
+      // Filter by selected project (if one is selected)
+      if (state.selectedProjectId) {
+        tasks = tasks.filter((t) => t.project_id === state.selectedProjectId);
+      }
 
       if (!state.showCompletedTasks) {
         tasks = tasks.filter((t) => t.status !== 'done');
