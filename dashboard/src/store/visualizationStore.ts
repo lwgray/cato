@@ -281,10 +281,9 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
 
       let tasks = snapshot.tasks;
 
-      // Filter by selected project (if one is selected)
-      if (state.selectedProjectId) {
-        tasks = tasks.filter((t) => t.project_id === state.selectedProjectId);
-      }
+      // Note: Project filtering is handled by the backend when loading the snapshot
+      // The snapshot already contains only tasks for the selected project
+      // No need to filter again on the client side
 
       if (!state.showCompletedTasks) {
         tasks = tasks.filter((t) => t.status !== 'done');
