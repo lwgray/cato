@@ -15,7 +15,7 @@ import sys
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 # Ensure we import from the local Cato cato_src directory, not elsewhere
 cato_root = Path(__file__).parent.parent
@@ -288,6 +288,61 @@ async def health() -> Dict[str, str]:
     return {"status": "healthy"}
 
 
+def count_tasks_for_project(all_tasks: List[Dict[str, Any]], project_info: Dict[str, Any]) -> int:
+    """
+    Count tasks that match a project using Planka fuzzy ID matching.
+
+    This replicates the logic from aggregator._load_tasks() but operates on
+    pre-loaded tasks for efficiency.
+    """
+    if "provider_config" not in project_info:
+        return 0
+
+    planka_project_id = project_info["provider_config"].get("project_id", "")
+    planka_board_id = project_info["provider_config"].get("board_id", "")
+
+    if not planka_project_id and not planka_board_id:
+        return 0
+
+    # Extract target prefixes (first 8 digits of Planka IDs)
+    target_prefixes = []
+    for id_to_check in [planka_board_id, planka_project_id]:
+        if id_to_check and len(id_to_check) >= 8:
+            try:
+                target_prefixes.append(int(id_to_check[:8]))
+            except ValueError:
+                pass
+
+    if not target_prefixes:
+        return 0
+
+    # Count matching tasks using fuzzy matching (±20 range)
+    match_count = 0
+    for task in all_tasks:
+        task_id = str(task.get("id", ""))
+
+        # Skip non-Planka IDs
+        if not task_id or len(task_id) < 8 or not task_id[0].isdigit():
+            continue
+
+        try:
+            id_prefix = int(task_id[:8])
+            # Check if within ±20 of any target prefix
+            for target_prefix in target_prefixes:
+                distance = abs(id_prefix - target_prefix)
+                if distance <= 20:
+                    match_count += 1
+                    break  # Found match, no need to check other prefixes
+        except ValueError:
+            # Fallback: try string prefix match
+            for planka_id in [planka_board_id, planka_project_id]:
+                if planka_id and task_id.startswith(planka_id[:8]):
+                    match_count += 1
+                    break
+
+    return match_count
+
+
 @app.get("/api/projects")  # type: ignore[misc]
 async def get_projects() -> Dict[str, Any]:
     """
@@ -309,10 +364,12 @@ async def get_projects() -> Dict[str, Any]:
 
         logger.info(f"Active project ID: {active_project_id}")
 
-        # Show ALL projects from the registry
-        # Note: We can't accurately count tasks per project here because tasks don't
-        # have project_id set - the backend uses fuzzy matching with Planka IDs.
-        # Instead, we show all projects and let users select them.
+        # Load all tasks ONCE for efficiency (instead of per-project)
+        all_tasks = aggregator._load_tasks(project_id=None)
+        logger.info(f"Loaded {len(all_tasks)} tasks total for project filtering")
+
+        # Show projects that have tasks OR are the active project
+        # Uses fuzzy matching to determine which projects have tasks
 
         projects_with_tasks = []
         active_project_included = False
@@ -324,19 +381,23 @@ async def get_projects() -> Dict[str, Any]:
             project_id = p.get("id", "")
             is_active = (project_id == active_project_id)
 
-            # Include all projects from the registry
-            projects_with_tasks.append({
-                "id": project_id,
-                "name": p.get("name", project_id),
-                "created_at": p.get("created_at", ""),
-                "last_used": p.get("last_used"),
-                "description": p.get("description", ""),
-                "task_count": 0,  # Not accurate without fuzzy matching per project
-                "is_active": is_active,  # Flag for frontend to highlight
-            })
+            # Count tasks for this project using local fuzzy matching
+            task_count = count_tasks_for_project(all_tasks, p)
 
-            if is_active:
-                active_project_included = True
+            # Include if: (1) it's the active project OR (2) it has tasks
+            if is_active or task_count > 0:
+                projects_with_tasks.append({
+                    "id": project_id,
+                    "name": p.get("name", project_id),
+                    "created_at": p.get("created_at", ""),
+                    "last_used": p.get("last_used"),
+                    "description": p.get("description", ""),
+                    "task_count": task_count,
+                    "is_active": is_active,  # Flag for frontend to highlight
+                })
+
+                if is_active:
+                    active_project_included = True
 
         logger.info(f"Filtered to {len(projects_with_tasks)}/{len(projects_data)} projects (active={'included' if active_project_included else 'not found'})")
 
