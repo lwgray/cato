@@ -137,54 +137,44 @@ CACHE_TTL_SECONDS = 60  # Increased from 30s to reduce cold loads
 
 def prewarm_recent_projects() -> None:
     """
-    Pre-warm cache for projects created in the last 7 days.
+    Pre-warm cache for active project only.
 
-    This runs in the background on startup to make recent projects load instantly.
+    This runs in the background on startup to make the active project load instantly.
+    Only pre-warms the currently active project to avoid loading old/archived projects
+    which was causing slow startup with many historical projects.
     """
     try:
-        logger.info("Starting cache pre-warming for recent projects...")
-        projects_data = aggregator._load_projects()
+        logger.info("Starting cache pre-warming for active project...")
+
+        # Get active project ID only
+        active_project_id = aggregator.get_active_project_id()
+
+        if not active_project_id:
+            logger.info("No active project found, skipping pre-warming")
+            return
+
+        logger.info(f"Pre-warming active project: {active_project_id}")
+
         now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(days=7)
 
-        recent_projects = []
-        for p in projects_data:
-            if "id" not in p or "created_at" not in p:
-                continue
+        try:
+            # Create snapshot and cache it for active project only
+            snapshot = aggregator.create_snapshot(
+                project_id=active_project_id,
+                view_mode="subtasks",
+                timeline_scale_exponent=1.0,
+            )
+            snapshot_dict = snapshot.to_dict()
 
-            try:
-                created_at = datetime.fromisoformat(p["created_at"].replace("Z", "+00:00"))
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=timezone.utc)
+            # Cache with default view settings
+            cache_key = f"{active_project_id}_subtasks_1.0"
+            snapshot_cache[cache_key] = (snapshot_dict, now)
 
-                if created_at >= cutoff:
-                    recent_projects.append(p)
-            except (ValueError, AttributeError):
-                continue
+            logger.info(f"Pre-warmed cache for active project: {active_project_id[:40]}")
+        except Exception as e:
+            logger.warning(f"Failed to pre-warm active project {active_project_id}: {e}")
 
-        logger.info(f"Found {len(recent_projects)} projects created in last 7 days")
-
-        # Pre-warm cache for each recent project
-        for p in recent_projects:
-            project_id = p.get("id", "")
-            try:
-                # Create snapshot and cache it
-                snapshot = aggregator.create_snapshot(
-                    project_id=project_id,
-                    view_mode="subtasks",
-                    timeline_scale_exponent=1.0,
-                )
-                snapshot_dict = snapshot.to_dict()
-
-                # Cache with default view settings
-                cache_key = f"{project_id}_subtasks_1.0"
-                snapshot_cache[cache_key] = (snapshot_dict, now)
-
-                logger.info(f"Pre-warmed cache for project: {p.get('name', project_id)[:40]}")
-            except Exception as e:
-                logger.warning(f"Failed to pre-warm project {project_id}: {e}")
-
-        logger.info(f"Cache pre-warming complete: {len(recent_projects)} projects cached")
+        logger.info("Cache pre-warming complete")
     except Exception as e:
         logger.error(f"Error pre-warming cache: {e}", exc_info=True)
 
@@ -250,10 +240,11 @@ async def startup_event() -> None:
     """Run background tasks on startup."""
     import threading
 
-    # Pre-warm cache in background thread to not block startup
-    prewarm_thread = threading.Thread(target=prewarm_recent_projects, daemon=True)
-    prewarm_thread.start()
-    logger.info("Started background cache pre-warming")
+    # DISABLED: Pre-warming was causing slow startup with many projects
+    # Cache will be populated on first request instead
+    # prewarm_thread = threading.Thread(target=prewarm_recent_projects, daemon=True)
+    # prewarm_thread.start()
+    logger.info("Pre-warming disabled - cache will populate on demand")
 
     # Start background cache refresh
     refresh_thread = threading.Thread(target=background_cache_refresh, daemon=True)
@@ -318,6 +309,15 @@ async def get_projects() -> Dict[str, Any]:
 
         logger.info(f"Active project ID: {active_project_id}")
 
+        # Load ALL tasks once (not per-project) for efficiency
+        all_tasks = aggregator._load_tasks(project_id=None)
+
+        # Count tasks per project
+        task_counts: Dict[str, int] = {}
+        for task in all_tasks:
+            proj_id = task.get("project_id", "")
+            task_counts[proj_id] = task_counts.get(proj_id, 0) + 1
+
         # Build list of projects with tasks
         projects_with_tasks = []
         active_project_included = False
@@ -327,9 +327,7 @@ async def get_projects() -> Dict[str, Any]:
                 continue
 
             project_id = p.get("id", "")
-            # Load tasks for this project to check if it has any
-            project_tasks = aggregator._load_tasks(project_id=project_id)
-            task_count = len(project_tasks)
+            task_count = task_counts.get(project_id, 0)
 
             is_active = (project_id == active_project_id)
 

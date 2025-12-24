@@ -51,7 +51,6 @@
 .data-mode-toggle,
 .auto-refresh-toggle,
 .refresh-button,
-.mode-toggle,
 .archive-button {
   padding: 0.5rem 1rem;
   background: #1e293b;
@@ -62,21 +61,6 @@
   font-size: 0.9rem;
   font-weight: 600;
   transition: all 0.2s;
-}
-
-/* Mode toggle specific styles */
-.mode-toggle.live {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  border-color: #10b981;
-  color: white;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-}
-
-.mode-toggle.historical {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  border-color: #3b82f6;
-  color: white;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 }
 
 .auto-refresh-toggle.enabled {
@@ -98,25 +82,10 @@
 .data-mode-toggle:hover:not(:disabled),
 .auto-refresh-toggle:hover:not(:disabled),
 .refresh-button:hover:not(:disabled),
-.mode-toggle:hover:not(:disabled),
 .archive-button:hover:not(:disabled) {
   background: #334155;
   border-color: #475569;
   color: #e2e8f0;
-}
-
-.mode-toggle.live:hover:not(:disabled) {
-  background: linear-gradient(135deg, #059669 0%, #047857 100%);
-  border-color: #059669;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-}
-
-.mode-toggle.historical:hover:not(:disabled) {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  border-color: #2563eb;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 }
 
 .auto-refresh-toggle.enabled:hover:not(:disabled) {
