@@ -309,16 +309,11 @@ async def get_projects() -> Dict[str, Any]:
 
         logger.info(f"Active project ID: {active_project_id}")
 
-        # Load ALL tasks once (not per-project) for efficiency
-        all_tasks = aggregator._load_tasks(project_id=None)
+        # Show ALL projects from the registry
+        # Note: We can't accurately count tasks per project here because tasks don't
+        # have project_id set - the backend uses fuzzy matching with Planka IDs.
+        # Instead, we show all projects and let users select them.
 
-        # Count tasks per project
-        task_counts: Dict[str, int] = {}
-        for task in all_tasks:
-            proj_id = task.get("project_id", "")
-            task_counts[proj_id] = task_counts.get(proj_id, 0) + 1
-
-        # Build list of projects with tasks
         projects_with_tasks = []
         active_project_included = False
 
@@ -327,24 +322,21 @@ async def get_projects() -> Dict[str, Any]:
                 continue
 
             project_id = p.get("id", "")
-            task_count = task_counts.get(project_id, 0)
-
             is_active = (project_id == active_project_id)
 
-            # Include if: (1) it's the active project OR (2) it has tasks
-            if is_active or task_count > 0:
-                projects_with_tasks.append({
-                    "id": project_id,
-                    "name": p.get("name", project_id),
-                    "created_at": p.get("created_at", ""),
-                    "last_used": p.get("last_used"),
-                    "description": p.get("description", ""),
-                    "task_count": task_count,
-                    "is_active": is_active,  # Flag for frontend to highlight
-                })
+            # Include all projects from the registry
+            projects_with_tasks.append({
+                "id": project_id,
+                "name": p.get("name", project_id),
+                "created_at": p.get("created_at", ""),
+                "last_used": p.get("last_used"),
+                "description": p.get("description", ""),
+                "task_count": 0,  # Not accurate without fuzzy matching per project
+                "is_active": is_active,  # Flag for frontend to highlight
+            })
 
-                if is_active:
-                    active_project_included = True
+            if is_active:
+                active_project_included = True
 
         logger.info(f"Filtered to {len(projects_with_tasks)}/{len(projects_data)} projects (active={'included' if active_project_included else 'not found'})")
 
