@@ -365,6 +365,117 @@ class Event:
 
 
 @dataclass
+class Decision:
+    """
+    Architectural decision made during task execution.
+
+    Mirrors Marcus's Decision class but adapted for Cato's denormalized model.
+    All related context (task/agent names) is embedded to avoid lookups.
+
+    Parameters
+    ----------
+    decision_id : str
+        Unique identifier
+    task_id : str
+        Task where decision was made
+    agent_id : str
+        Agent who made the decision
+    timestamp : datetime
+        When decision was made (must be timezone-aware UTC)
+    what : str
+        The decision made (the choice)
+    why : str
+        Rationale for the decision
+    impact : str
+        Expected impact on other tasks/components
+    affected_tasks : List[str]
+        Task IDs affected by this decision
+    confidence : float
+        Agent's confidence (0.0-1.0)
+    task_name : Optional[str]
+        Name of task (embedded, no join needed)
+    agent_name : Optional[str]
+        Name of agent (embedded, no join needed)
+    """
+
+    decision_id: str
+    task_id: str
+    agent_id: str
+    timestamp: datetime
+    what: str
+    why: str
+    impact: str
+    affected_tasks: List[str] = field(default_factory=list)
+    confidence: float = 0.8
+
+    # Embedded context (denormalized)
+    task_name: Optional[str] = None
+    agent_name: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        """Validate timezone-aware timestamp."""
+        if self.timestamp.tzinfo is None:
+            raise ValueError(f"Decision {self.decision_id}: timestamp must be timezone-aware")
+
+
+@dataclass
+class Artifact:
+    """
+    Artifact metadata produced during task execution.
+
+    Mirrors Marcus's ArtifactMetadata class but adapted for Cato.
+    All related context is embedded to avoid lookups.
+
+    Parameters
+    ----------
+    artifact_id : str
+        Unique identifier
+    task_id : str
+        Task that produced the artifact
+    agent_id : str
+        Agent who created it
+    timestamp : datetime
+        When artifact was created (must be timezone-aware UTC)
+    filename : str
+        Name of artifact file
+    artifact_type : str
+        Type (design, specification, api, code, etc.)
+    description : str
+        What this artifact contains
+    file_size_bytes : int
+        Size of the file
+    referenced_by_tasks : List[str]
+        Task IDs that consumed this artifact
+    task_name : Optional[str]
+        Name of task (embedded, no join needed)
+    agent_name : Optional[str]
+        Name of agent (embedded, no join needed)
+    relative_path : Optional[str]
+        Path relative to project root
+    """
+
+    artifact_id: str
+    task_id: str
+    agent_id: str
+    timestamp: datetime
+    filename: str
+    artifact_type: str
+    description: str
+    file_size_bytes: int
+    referenced_by_tasks: List[str] = field(default_factory=list)
+
+    # Embedded context (denormalized)
+    task_name: Optional[str] = None
+    agent_name: Optional[str] = None
+    relative_path: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        """Validate timezone-aware timestamp."""
+        if self.timestamp.tzinfo is None:
+            raise ValueError(f"Artifact {self.artifact_id}: timestamp must be timezone-aware")
+
+
+@dataclass
 class Snapshot:
     """
     Immutable snapshot of entire Marcus state for visualization.
@@ -429,6 +540,8 @@ class Snapshot:
     agents: List[Agent] = field(default_factory=list)
     messages: List[Message] = field(default_factory=list)
     timeline_events: List[Event] = field(default_factory=list)
+    decisions: List[Decision] = field(default_factory=list)
+    artifacts: List[Artifact] = field(default_factory=list)
 
     # Pre-calculated metrics (no recalculation needed)
     metrics: Optional[Metrics] = None
@@ -503,6 +616,24 @@ class Snapshot:
                     }
                 }
                 for event in self.timeline_events
+            ],
+            "decisions": [
+                {
+                    **{
+                        k: (serialize_datetime(v) if isinstance(v, datetime) else v)
+                        for k, v in vars(decision).items()
+                    }
+                }
+                for decision in self.decisions
+            ],
+            "artifacts": [
+                {
+                    **{
+                        k: (serialize_datetime(v) if isinstance(v, datetime) else v)
+                        for k, v in vars(artifact).items()
+                    }
+                }
+                for artifact in self.artifacts
             ],
             "metrics": vars(self.metrics) if self.metrics else None,
             "start_time": serialize_datetime(self.start_time),

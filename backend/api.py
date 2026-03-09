@@ -364,13 +364,12 @@ async def get_projects() -> Dict[str, Any]:
 
         logger.info(f"Active project ID: {active_project_id}")
 
-        # Load all tasks ONCE for efficiency (instead of per-project)
+        # Load all tasks ONCE for efficiency
         all_tasks = aggregator._load_tasks(project_id=None)
         logger.info(f"Loaded {len(all_tasks)} tasks total for project filtering")
 
-        # Show projects that have tasks OR are the active project
-        # Uses fuzzy matching to determine which projects have tasks
-
+        # Show only "discovered" projects (currently on Planka board) + active project
+        # "discovered" tag is set by Marcus when it finds projects on the Planka board
         projects_with_tasks = []
         active_project_included = False
 
@@ -381,11 +380,15 @@ async def get_projects() -> Dict[str, Any]:
             project_id = p.get("id", "")
             is_active = (project_id == active_project_id)
 
-            # Count tasks for this project using local fuzzy matching
-            task_count = count_tasks_for_project(all_tasks, p)
+            # Check if project has "discovered" tag (indicates it's on Planka board)
+            tags = p.get("tags", [])
+            is_discovered = "discovered" in tags
 
-            # Include if: (1) it's the active project OR (2) it has tasks
-            if is_active or task_count > 0:
+            # Include if: (1) it's the active project OR (2) has "discovered" tag
+            if is_active or is_discovered:
+                # Count tasks for this project using fuzzy matching
+                # (Only checking ~8-9 projects, so this is fast)
+                task_count = count_tasks_for_project(all_tasks, p)
                 projects_with_tasks.append({
                     "id": project_id,
                     "name": p.get("name", project_id),

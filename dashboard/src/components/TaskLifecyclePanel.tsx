@@ -10,6 +10,8 @@ interface TaskLifecyclePanelProps {
 
 const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
   const snapshot = useVisualizationStore((state) => state.snapshot);
+  const getDecisionsUpToCurrentTime = useVisualizationStore((state) => state.getDecisionsUpToCurrentTime);
+  const getArtifactsUpToCurrentTime = useVisualizationStore((state) => state.getArtifactsUpToCurrentTime);
 
   // Get messages related to this task
   const taskMessages = useMemo(() => {
@@ -26,6 +28,24 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
       .filter(event => event.task_id === task.id)
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }, [task, snapshot]);
+
+  // Get decisions for this task (filtered by timeline)
+  const taskDecisions = useMemo(() => {
+    if (!task) return [];
+    const decisions = getDecisionsUpToCurrentTime();
+    return decisions
+      .filter(decision => decision.task_id === task.id)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [task, getDecisionsUpToCurrentTime]);
+
+  // Get artifacts for this task (filtered by timeline)
+  const taskArtifacts = useMemo(() => {
+    if (!task) return [];
+    const artifacts = getArtifactsUpToCurrentTime();
+    return artifacts
+      .filter(artifact => artifact.task_id === task.id)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [task, getArtifactsUpToCurrentTime]);
 
   // Get dependent tasks
   const dependentTasks = useMemo(() => {
@@ -86,6 +106,33 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
   // Calculate diagnostic flags
   const isZombie = task.status === 'in_progress' && !task.assigned_agent_id;
   const isBottleneck = task.dependent_task_ids.length >= 3;
+
+  // Helper function for confidence color gradient
+  const getConfidenceColor = (confidence: number) => {
+    if (confidence >= 0.8) return '#10b981'; // green
+    if (confidence >= 0.6) return '#3b82f6'; // blue
+    if (confidence >= 0.4) return '#f59e0b'; // amber
+    return '#ef4444'; // red
+  };
+
+  // Helper function for artifact icon
+  const getArtifactIcon = (artifactType: string) => {
+    switch (artifactType.toLowerCase()) {
+      case 'specification':
+      case 'design':
+        return '📄';
+      case 'api':
+      case 'code':
+        return '🔧';
+      case 'data':
+      case 'analysis':
+        return '📊';
+      case 'documentation':
+        return '📋';
+      default:
+        return '📦';
+    }
+  };
 
   return (
     <div className="task-lifecycle-panel">
@@ -234,6 +281,64 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
           </section>
         )}
 
+        {/* Decisions */}
+        {taskDecisions.length > 0 && (
+          <section className="panel-section">
+            <h3 className="section-title">📋 Decisions Made ({taskDecisions.length})</h3>
+            <div className="decisions-list">
+              {taskDecisions.map(decision => (
+                <div key={decision.decision_id} className="decision-card">
+                  <div className="decision-header">
+                    <div className="decision-title">{decision.what}</div>
+                    <div className="decision-meta">
+                      <span className="decision-agent">{decision.agent_name}</span>
+                      <span className="decision-time">{formatTime(decision.timestamp)}</span>
+                    </div>
+                  </div>
+                  <div className="decision-body">
+                    <div className="decision-section">
+                      <span className="decision-label">Why:</span>
+                      <span className="decision-text">{decision.why}</span>
+                    </div>
+                    <div className="decision-section">
+                      <span className="decision-label">Impact:</span>
+                      <span className="decision-text">{decision.impact}</span>
+                    </div>
+                    <div className="decision-confidence">
+                      <span className="decision-label">Confidence:</span>
+                      <div className="confidence-bar-container">
+                        <div
+                          className="confidence-bar"
+                          style={{
+                            width: `${decision.confidence * 100}%`,
+                            backgroundColor: getConfidenceColor(decision.confidence)
+                          }}
+                        />
+                      </div>
+                      <span className="confidence-text">{Math.round(decision.confidence * 100)}%</span>
+                    </div>
+                    {decision.affected_tasks.length > 0 && (
+                      <div className="decision-section">
+                        <span className="decision-label">Affects:</span>
+                        <div className="affected-tasks">
+                          {decision.affected_tasks.map(taskId => {
+                            const affectedTask = snapshot.tasks.find(t => t.id === taskId);
+                            return (
+                              <span key={taskId} className="affected-task-chip">
+                                {affectedTask?.name || taskId}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Messages */}
         {taskMessages.length > 0 && (
           <section className="panel-section">
@@ -249,6 +354,55 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
                     {msg.from_agent_name} → {msg.to_agent_name}
                   </div>
                   <div className="message-content-small">{msg.message}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Artifacts */}
+        {taskArtifacts.length > 0 && (
+          <section className="panel-section">
+            <h3 className="section-title">📦 Artifacts Produced ({taskArtifacts.length})</h3>
+            <div className="artifacts-list">
+              {taskArtifacts.map(artifact => (
+                <div key={artifact.artifact_id} className="artifact-card">
+                  <div className="artifact-header">
+                    <div className="artifact-title">
+                      <span className="artifact-icon">{getArtifactIcon(artifact.artifact_type)}</span>
+                      <span className="artifact-filename">{artifact.filename}</span>
+                    </div>
+                    <div className="artifact-meta">
+                      <span className="artifact-type">{artifact.artifact_type}</span>
+                      <span className="artifact-agent">{artifact.agent_name}</span>
+                    </div>
+                  </div>
+                  <div className="artifact-body">
+                    <div className="artifact-info">
+                      <span className="artifact-time">{formatTime(artifact.timestamp)}</span>
+                      <span className="artifact-size">
+                        {(artifact.file_size_bytes / 1024).toFixed(1)} KB
+                      </span>
+                    </div>
+                    {artifact.description && (
+                      <div className="artifact-description">{artifact.description}</div>
+                    )}
+                    {artifact.referenced_by_tasks.length > 0 && (
+                      <div className="artifact-section">
+                        <span className="artifact-label">Referenced by:</span>
+                        <div className="referenced-tasks">
+                          {artifact.referenced_by_tasks.map(taskId => {
+                            const referencedTask = snapshot.tasks.find(t => t.id === taskId);
+                            return (
+                              <span key={taskId} className="referenced-task-chip">
+                                {referencedTask?.name || taskId}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

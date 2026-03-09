@@ -28,6 +28,8 @@ from typing import Any, Dict, List, Literal, Optional, Set
 
 from cato_src.core.store import (
     Agent,
+    Artifact,
+    Decision,
     Event,
     Message,
     Metrics,
@@ -191,6 +193,8 @@ class Aggregator:
         raw_tasks = self._load_tasks(project_id)
         raw_messages = self._load_messages()
         raw_events = self._load_events()
+        raw_decisions = self._load_decisions(project_id)
+        raw_artifacts = self._load_artifacts(project_id)
 
         # Step 2: Inherit parent dependencies to first subtasks BEFORE filtering
         # (must happen before parent tasks are filtered out)
@@ -291,6 +295,12 @@ class Aggregator:
         # Step 9: Build denormalized events
         events = self._build_events(raw_events, final_task_ids_set, all_tasks_by_id, agents_by_id)
 
+        # Step 9a: Build denormalized decisions
+        decisions = self._build_decisions(raw_decisions, final_task_ids_set, all_tasks_by_id, agents_by_id)
+
+        # Step 9b: Build denormalized artifacts
+        artifacts = self._build_artifacts(raw_artifacts, final_task_ids_set, all_tasks_by_id, agents_by_id)
+
         # Step 8a: Generate diagnostic events for timeline
         diagnostic_events = self._build_diagnostic_events(
             tasks, agents, timeline_start, timeline_end
@@ -329,6 +339,8 @@ class Aggregator:
             agents=agents,
             messages=messages,
             timeline_events=all_events,
+            decisions=decisions,
+            artifacts=artifacts,
             metrics=metrics,
             start_time=timeline_start,
             end_time=timeline_end,
@@ -989,6 +1001,162 @@ class Aggregator:
 
         logger.info(f"Loaded {len(events)} events")
         return events
+
+    def _load_decisions(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Load decisions from Marcus persistence layer.
+
+        Uses ProjectHistoryPersistence to access decisions from SQLite.
+        Falls back to JSON files if unavailable.
+
+        Parameters
+        ----------
+        project_id : Optional[str]
+            Specific project to load decisions for (None = all projects)
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            List of decision dictionaries
+        """
+        decisions: List[Dict[str, Any]] = []
+
+        try:
+            # Try to import Marcus's persistence layer
+            import sys
+            if str(self.marcus_root) not in sys.path:
+                sys.path.insert(0, str(self.marcus_root))
+
+            from src.core.project_history import ProjectHistoryPersistence
+            import asyncio
+
+            persistence = ProjectHistoryPersistence()
+
+            if project_id:
+                # Load for specific project
+                decision_objects = asyncio.run(persistence.load_decisions(project_id))
+                decisions = [d.to_dict() for d in decision_objects]
+            else:
+                # Load for all projects
+                project_history_dir = self.marcus_root / "data" / "project_history"
+                if project_history_dir.exists():
+                    for project_dir in project_history_dir.iterdir():
+                        if project_dir.is_dir():
+                            try:
+                                proj_decisions = asyncio.run(
+                                    persistence.load_decisions(project_dir.name)
+                                )
+                                decisions.extend([d.to_dict() for d in proj_decisions])
+                            except Exception as e:
+                                logger.debug(f"Could not load decisions for {project_dir.name}: {e}")
+
+        except (ImportError, RuntimeError, Exception) as e:
+            logger.debug(f"Marcus persistence not available or failed, trying JSON fallback: {e}")
+            # Fallback to JSON files
+            if project_id:
+                json_path = self.marcus_root / "data" / "project_history" / project_id / "decisions.json"
+                if json_path.exists():
+                    try:
+                        with open(json_path, "r") as f:
+                            data = json.load(f)
+                            decisions = data.get("decisions", [])
+                    except Exception as json_error:
+                        logger.warning(f"JSON fallback failed for decisions: {json_error}")
+            else:
+                # Load all projects from JSON files
+                project_history_dir = self.marcus_root / "data" / "project_history"
+                if project_history_dir.exists():
+                    for project_dir in project_history_dir.iterdir():
+                        if project_dir.is_dir():
+                            json_path = project_dir / "decisions.json"
+                            if json_path.exists():
+                                try:
+                                    with open(json_path, "r") as f:
+                                        data = json.load(f)
+                                        decisions.extend(data.get("decisions", []))
+                                except Exception as json_error:
+                                    logger.debug(f"Could not load decisions from {json_path}: {json_error}")
+
+        logger.info(f"Loaded {len(decisions)} decisions")
+        return decisions
+
+    def _load_artifacts(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Load artifacts from Marcus persistence layer.
+
+        Uses ProjectHistoryPersistence to access artifacts from SQLite.
+        Falls back to JSON files if unavailable.
+
+        Parameters
+        ----------
+        project_id : Optional[str]
+            Specific project to load artifacts for (None = all projects)
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            List of artifact metadata dictionaries
+        """
+        artifacts: List[Dict[str, Any]] = []
+
+        try:
+            # Try to import Marcus's persistence layer
+            import sys
+            if str(self.marcus_root) not in sys.path:
+                sys.path.insert(0, str(self.marcus_root))
+
+            from src.core.project_history import ProjectHistoryPersistence
+            import asyncio
+
+            persistence = ProjectHistoryPersistence()
+
+            if project_id:
+                # Load for specific project
+                artifact_objects = asyncio.run(persistence.load_artifacts(project_id))
+                artifacts = [a.to_dict() for a in artifact_objects]
+            else:
+                # Load for all projects
+                project_history_dir = self.marcus_root / "data" / "project_history"
+                if project_history_dir.exists():
+                    for project_dir in project_history_dir.iterdir():
+                        if project_dir.is_dir():
+                            try:
+                                proj_artifacts = asyncio.run(
+                                    persistence.load_artifacts(project_dir.name)
+                                )
+                                artifacts.extend([a.to_dict() for a in proj_artifacts])
+                            except Exception as e:
+                                logger.debug(f"Could not load artifacts for {project_dir.name}: {e}")
+
+        except (ImportError, RuntimeError, Exception) as e:
+            logger.debug(f"Marcus persistence not available or failed, trying JSON fallback: {e}")
+            # Fallback to JSON files
+            if project_id:
+                json_path = self.marcus_root / "data" / "project_history" / project_id / "artifacts.json"
+                if json_path.exists():
+                    try:
+                        with open(json_path, "r") as f:
+                            data = json.load(f)
+                            artifacts = data.get("artifacts", [])
+                    except Exception as json_error:
+                        logger.warning(f"JSON fallback failed for artifacts: {json_error}")
+            else:
+                # Load all projects from JSON files
+                project_history_dir = self.marcus_root / "data" / "project_history"
+                if project_history_dir.exists():
+                    for project_dir in project_history_dir.iterdir():
+                        if project_dir.is_dir():
+                            json_path = project_dir / "artifacts.json"
+                            if json_path.exists():
+                                try:
+                                    with open(json_path, "r") as f:
+                                        data = json.load(f)
+                                        artifacts.extend(data.get("artifacts", []))
+                                except Exception as json_error:
+                                    logger.debug(f"Could not load artifacts from {json_path}: {json_error}")
+
+        logger.info(f"Loaded {len(artifacts)} artifacts")
+        return artifacts
 
     def _filter_tasks_by_view(
         self, tasks: List[Dict[str, Any]], view_mode: str
@@ -1975,6 +2143,9 @@ class Aggregator:
         # Detect and mark duplicates
         messages = self._detect_duplicates(messages)
 
+        # Filter out duplicates - keep only originals
+        messages = [msg for msg in messages if not msg.is_duplicate]
+
         return messages
 
     def _detect_duplicates(
@@ -2105,6 +2276,152 @@ class Aggregator:
             events.append(event)
 
         return events
+
+    def _build_decisions(
+        self,
+        raw_decisions: List[Dict[str, Any]],
+        task_ids_set: Set[str],
+        tasks_by_id: Dict[str, Dict[str, Any]],
+        agents_by_id: Dict[str, Dict[str, Any]],
+    ) -> List[Decision]:
+        """
+        Build denormalized Decision objects with embedded context.
+
+        Parameters
+        ----------
+        raw_decisions : List[Dict[str, Any]]
+            Raw decision data from persistence layer
+        task_ids_set : Set[str]
+            Set of task IDs in this snapshot
+        tasks_by_id : Dict[str, Dict[str, Any]]
+            Task lookup dictionary
+        agents_by_id : Dict[str, Dict[str, Any]]
+            Agent lookup dictionary
+
+        Returns
+        -------
+        List[Decision]
+            Denormalized decisions with embedded task/agent names
+        """
+        decisions: List[Decision] = []
+
+        for dec_data in raw_decisions:
+            task_id = dec_data.get("task_id")
+
+            # Only include if task is in this snapshot
+            if task_id not in task_ids_set:
+                continue
+
+            try:
+                # Parse timestamp
+                ts_str = dec_data.get("timestamp")
+                if isinstance(ts_str, str):
+                    ts = datetime.fromisoformat(ts_str)
+                else:
+                    ts = ts_str
+
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+
+                # Embed task and agent names
+                task = tasks_by_id.get(task_id, {})
+                agent_id = dec_data.get("agent_id", "")
+                agent = agents_by_id.get(agent_id, {})
+
+                decision = Decision(
+                    decision_id=dec_data.get("decision_id", ""),
+                    task_id=task_id,
+                    agent_id=agent_id,
+                    timestamp=ts,
+                    what=dec_data.get("what", ""),
+                    why=dec_data.get("why", ""),
+                    impact=dec_data.get("impact", ""),
+                    affected_tasks=dec_data.get("affected_tasks", []),
+                    confidence=dec_data.get("confidence", 0.8),
+                    task_name=task.get("name", task_id),
+                    agent_name=agent.get("name", agent_id),
+                )
+
+                decisions.append(decision)
+
+            except Exception as e:
+                logger.warning(f"Error building decision: {e}")
+                continue
+
+        logger.info(f"Built {len(decisions)} denormalized decisions")
+        return decisions
+
+    def _build_artifacts(
+        self,
+        raw_artifacts: List[Dict[str, Any]],
+        task_ids_set: Set[str],
+        tasks_by_id: Dict[str, Dict[str, Any]],
+        agents_by_id: Dict[str, Dict[str, Any]],
+    ) -> List[Artifact]:
+        """
+        Build denormalized Artifact objects with embedded context.
+
+        Parameters
+        ----------
+        raw_artifacts : List[Dict[str, Any]]
+            Raw artifact data from persistence layer
+        task_ids_set : Set[str]
+            Set of task IDs in this snapshot
+        tasks_by_id : Dict[str, Dict[str, Any]]
+            Task lookup dictionary
+        agents_by_id : Dict[str, Dict[str, Any]]
+            Agent lookup dictionary
+
+        Returns
+        -------
+        List[Artifact]
+            Denormalized artifacts with embedded task/agent names
+        """
+        artifacts: List[Artifact] = []
+
+        for art_data in raw_artifacts:
+            task_id = art_data.get("task_id")
+
+            if task_id not in task_ids_set:
+                continue
+
+            try:
+                ts_str = art_data.get("timestamp")
+                if isinstance(ts_str, str):
+                    ts = datetime.fromisoformat(ts_str)
+                else:
+                    ts = ts_str
+
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+
+                task = tasks_by_id.get(task_id, {})
+                agent_id = art_data.get("agent_id", "")
+                agent = agents_by_id.get(agent_id, {})
+
+                artifact = Artifact(
+                    artifact_id=art_data.get("artifact_id", ""),
+                    task_id=task_id,
+                    agent_id=agent_id,
+                    timestamp=ts,
+                    filename=art_data.get("filename", ""),
+                    artifact_type=art_data.get("artifact_type", ""),
+                    description=art_data.get("description", ""),
+                    file_size_bytes=art_data.get("file_size_bytes", 0),
+                    referenced_by_tasks=art_data.get("referenced_by_tasks", []),
+                    task_name=task.get("name", task_id),
+                    agent_name=agent.get("name", agent_id),
+                    relative_path=art_data.get("relative_path"),
+                )
+
+                artifacts.append(artifact)
+
+            except Exception as e:
+                logger.warning(f"Error building artifact: {e}")
+                continue
+
+        logger.info(f"Built {len(artifacts)} denormalized artifacts")
+        return artifacts
 
     def _build_diagnostic_events(
         self,

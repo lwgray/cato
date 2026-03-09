@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Snapshot, Task, Agent, Message, Metrics, Project, fetchSnapshot, fetchProjects } from '../services/dataService';
+import { Snapshot, Task, Agent, Message, Metrics, Project, Decision, Artifact, fetchSnapshot, fetchProjects } from '../services/dataService';
 
 export type ViewLayer =
   | 'network'
@@ -72,6 +72,8 @@ interface VisualizationState {
   getMessagesUpToCurrentTime: () => Message[];
   getActiveAgentsAtCurrentTime: () => Agent[];
   getMetrics: () => Metrics | null;
+  getDecisionsUpToCurrentTime: () => Decision[];
+  getArtifactsUpToCurrentTime: () => Artifact[];
 }
 
 export const useVisualizationStore = create<VisualizationState>((set, get) => {
@@ -347,6 +349,36 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     getMetrics: () => {
       const state = get();
       return state.snapshot?.metrics || null;
+    },
+
+    getDecisionsUpToCurrentTime: () => {
+      const state = get();
+      const snapshot = state.snapshot;
+
+      if (!snapshot || !snapshot.start_time) return [];
+
+      const startTime = new Date(snapshot.start_time).getTime();
+      const currentAbsTime = startTime + state.currentTime;
+
+      return snapshot.decisions.filter((decision) => {
+        const decisionTime = new Date(decision.timestamp).getTime();
+        return decisionTime <= currentAbsTime;
+      });
+    },
+
+    getArtifactsUpToCurrentTime: () => {
+      const state = get();
+      const snapshot = state.snapshot;
+
+      if (!snapshot || !snapshot.start_time) return [];
+
+      const startTime = new Date(snapshot.start_time).getTime();
+      const currentAbsTime = startTime + state.currentTime;
+
+      return snapshot.artifacts.filter((artifact) => {
+        const artifactTime = new Date(artifact.timestamp).getTime();
+        return artifactTime <= currentAbsTime;
+      });
     },
 
     startAutoRefresh: () => {
