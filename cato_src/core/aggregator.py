@@ -1051,8 +1051,12 @@ class Aggregator:
                                 logger.debug(f"Could not load decisions for {project_dir.name}: {e}")
 
         except (ImportError, RuntimeError, Exception) as e:
-            logger.debug(f"Marcus persistence not available or failed, trying JSON fallback: {e}")
-            # Fallback to JSON files
+            logger.debug(f"Marcus persistence not available or failed: {e}")
+
+        # If no decisions loaded (persistence failed or asyncio.run() failed silently),
+        # fall back to JSON files
+        if not decisions:
+            logger.debug("No decisions from persistence, trying JSON fallback")
             if project_id:
                 json_path = self.marcus_root / "data" / "project_history" / project_id / "decisions.json"
                 if json_path.exists():
@@ -1129,8 +1133,12 @@ class Aggregator:
                                 logger.debug(f"Could not load artifacts for {project_dir.name}: {e}")
 
         except (ImportError, RuntimeError, Exception) as e:
-            logger.debug(f"Marcus persistence not available or failed, trying JSON fallback: {e}")
-            # Fallback to JSON files
+            logger.debug(f"Marcus persistence not available or failed: {e}")
+
+        # If no artifacts loaded (persistence failed or asyncio.run() failed silently),
+        # fall back to JSON files
+        if not artifacts:
+            logger.debug("No artifacts from persistence, trying JSON fallback")
             if project_id:
                 json_path = self.marcus_root / "data" / "project_history" / project_id / "artifacts.json"
                 if json_path.exists():
@@ -2308,8 +2316,9 @@ class Aggregator:
         for dec_data in raw_decisions:
             task_id = dec_data.get("task_id")
 
-            # Only include if task is in this snapshot
-            if task_id not in task_ids_set:
+            # Filter by all tasks in project, not just view-filtered tasks
+            # Decisions on parent tasks should be visible even in subtasks view
+            if task_id and task_id not in tasks_by_id:
                 continue
 
             try:
@@ -2382,7 +2391,9 @@ class Aggregator:
         for art_data in raw_artifacts:
             task_id = art_data.get("task_id")
 
-            if task_id not in task_ids_set:
+            # Filter by all tasks in project, not just view-filtered tasks
+            # Artifacts from parent tasks should be visible even in subtasks view
+            if task_id and task_id not in tasks_by_id:
                 continue
 
             try:
