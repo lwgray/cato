@@ -113,13 +113,26 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
 
         // Update store - preserve currentTime to avoid resetting playback position
         const currentState = get();
+
+        // If this is the first load (currentTime = 0), set to end to show all data
+        const shouldInitializeTime = currentState.currentTime === 0;
+        const newCurrentTime = shouldInitializeTime
+          ? (newSnapshot.duration_minutes * 60 * 1000) // Convert minutes to milliseconds
+          : currentState.currentTime;
+
         set({
           snapshot: newSnapshot,
           isLoading: false,
-          currentTime: currentState.currentTime,
+          currentTime: newCurrentTime,
         });
 
-        console.log('Snapshot loaded successfully');
+        console.log('Snapshot loaded successfully', {
+          currentTime: newCurrentTime,
+          duration_minutes: newSnapshot.duration_minutes,
+          decisions: newSnapshot.decisions.length,
+          artifacts: newSnapshot.artifacts.length,
+          initialized_to_end: shouldInitializeTime
+        });
       } catch (error) {
         console.error('Error loading snapshot:', error);
         set({
