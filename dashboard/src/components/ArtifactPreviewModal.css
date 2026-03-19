@@ -96,6 +96,7 @@
 .markdown-content {
   color: #e2e8f0;
   line-height: 1.6;
+  font-size: 16px;
 }
 
 .markdown-content h1,
@@ -129,7 +130,7 @@
   padding: 2px 6px;
   border-radius: 3px;
   font-family: 'Courier New', monospace;
-  font-size: 14px;
+  font-size: 15px;
   color: #f687b3;
 }
 
@@ -145,6 +146,7 @@
   background: none;
   padding: 0;
   color: #a0aec0;
+  font-size: 15px;
 }
 
 .markdown-content ul,
@@ -166,6 +168,37 @@
   text-decoration: underline;
 }
 
+.markdown-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 16px 0;
+  background: #1a1a1a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.markdown-content th,
+.markdown-content td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid #333;
+}
+
+.markdown-content th {
+  background: #2d2d2d;
+  font-weight: 600;
+  color: #fff;
+  border-bottom: 2px solid #4a5568;
+}
+
+.markdown-content tr:last-child td {
+  border-bottom: none;
+}
+
+.markdown-content tr:hover {
+  background: #252525;
+}
+
 .code-content,
 .plain-text-content {
   background: #1a1a1a;
@@ -174,7 +207,7 @@
   border-radius: 6px;
   overflow-x: auto;
   font-family: 'Courier New', monospace;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.5;
   margin: 0;
   white-space: pre-wrap;

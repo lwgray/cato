@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import mermaid from 'mermaid';
 import './ArtifactPreviewModal.css';
 
@@ -102,6 +103,7 @@ const ArtifactPreviewModal = ({ artifactId, filename, artifactType, onClose }: A
       return (
         <div className="markdown-content">
           <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
             components={{
               code({ node, inline, className, children, ...props }) {
                 const match = /language-(\w+)/.exec(className || '');
