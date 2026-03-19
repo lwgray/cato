@@ -2432,6 +2432,7 @@ class Aggregator:
                     task_name=task.get("name", task_id),
                     agent_name=agent.get("name", agent_id),
                     relative_path=art_data.get("relative_path"),
+                    absolute_path=art_data.get("absolute_path"),
                 )
 
                 artifacts.append(artifact)
@@ -2825,6 +2826,49 @@ class Aggregator:
             if msg.from_agent_id and msg.to_agent_id:
                 graph[msg.from_agent_id].add(msg.to_agent_id)
         return {k: list(v) for k, v in graph.items()}
+
+    def get_artifact_by_id(self, artifact_id: str) -> Optional[Artifact]:
+        """
+        Lightweight artifact lookup by ID without loading full snapshot.
+
+        This is optimized for artifact preview - only loads artifacts,
+        not the full snapshot with 6,970+ tasks.
+
+        Parameters
+        ----------
+        artifact_id : str
+            The artifact ID to look up
+
+        Returns
+        -------
+        Optional[Artifact]
+            The artifact if found, None otherwise
+        """
+        # Load just artifacts (fast - typically < 100 items)
+        artifact_dicts = self._load_artifacts()
+
+        # Find the artifact by ID
+        for art_data in artifact_dicts:
+            if art_data.get("artifact_id") == artifact_id:
+                # Build minimal Artifact object
+                return Artifact(
+                    artifact_id=art_data["artifact_id"],
+                    task_id=art_data.get("task_id", ""),
+                    agent_id=art_data.get("agent_id", ""),
+                    filename=art_data.get("filename", ""),
+                    artifact_type=art_data.get("artifact_type", ""),
+                    description=art_data.get("description", ""),
+                    file_size_bytes=art_data.get("file_size_bytes", 0),
+                    timestamp=self._parse_timestamp(art_data.get("timestamp")) or datetime.now(timezone.utc),
+                    # Embedded context
+                    task_name=None,
+                    agent_name=None,
+                    relative_path=art_data.get("relative_path"),
+                    absolute_path=art_data.get("absolute_path"),
+                    referenced_by_tasks=[],
+                )
+
+        return None
 
     def _parse_timestamp(self, ts_str: Optional[str]) -> Optional[datetime]:
         """Parse timestamp string to timezone-aware datetime."""
