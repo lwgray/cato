@@ -105,26 +105,17 @@ const ArtifactPreviewModal = ({ artifactId, filename, artifactType, onClose }: A
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
-              code({ node, inline, className, children, ...props }) {
+              code({ inline, className, children, ...props }) {
                 const match = /language-(\w+)/.exec(className || '');
                 const language = match ? match[1] : '';
-                const codeString = String(children).replace(/\n$/, '');
 
-                // Render Mermaid diagrams
+                // Only intercept Mermaid diagrams - let everything else render normally
                 if (language === 'mermaid' && !inline) {
+                  const codeString = String(children).replace(/\n$/, '');
                   return <MermaidDiagram code={codeString} />;
                 }
 
-                // Regular code block
-                if (!inline) {
-                  return (
-                    <pre className={className} {...props}>
-                      <code className={className}>{children}</code>
-                    </pre>
-                  );
-                }
-
-                // Inline code
+                // Let ReactMarkdown handle all other code normally
                 return <code className={className} {...props}>{children}</code>;
               },
             }}
