@@ -271,18 +271,58 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
           </section>
         )}
 
-        {/* Events */}
-        {taskEvents.length > 0 && (
+        {/* Artifacts */}
+        {taskArtifacts.length > 0 && (
           <section className="panel-section">
-            <h3 className="section-title">Events ({taskEvents.length})</h3>
-            <div className="events-list">
-              {taskEvents.map(event => (
-                <div key={event.id} className="event-item">
-                  <span className="event-time">{formatTime(event.timestamp)}</span>
-                  <span className="event-type">{event.event_type}</span>
-                  {event.agent_name && (
-                    <span className="event-agent">by {event.agent_name}</span>
-                  )}
+            <h3 className="section-title">📦 Artifacts Produced ({taskArtifacts.length})</h3>
+            <div className="artifacts-list">
+              {taskArtifacts.map(artifact => (
+                <div
+                  key={artifact.artifact_id}
+                  className="artifact-card artifact-card-clickable"
+                  onClick={() => setPreviewArtifact({
+                    artifactId: artifact.artifact_id,
+                    filename: artifact.filename,
+                    artifactType: artifact.artifact_type
+                  })}
+                >
+                  <div className="artifact-header">
+                    <div className="artifact-title">
+                      <span className="artifact-icon">{getArtifactIcon(artifact.artifact_type)}</span>
+                      <span className="artifact-filename">{artifact.filename}</span>
+                      <span className="preview-hint">👁️ Click to preview</span>
+                    </div>
+                    <div className="artifact-meta">
+                      <span className="artifact-type">{artifact.artifact_type}</span>
+                      <span className="artifact-agent">{artifact.agent_name}</span>
+                    </div>
+                  </div>
+                  <div className="artifact-body">
+                    <div className="artifact-info">
+                      <span className="artifact-time">{formatTime(artifact.timestamp)}</span>
+                      <span className="artifact-size">
+                        {(artifact.file_size_bytes / 1024).toFixed(1)} KB
+                      </span>
+                    </div>
+                    {artifact.description && (
+                      <div className="artifact-description">{artifact.description}</div>
+                    )}
+                    {artifact.referenced_by_tasks.length > 0 && (
+                      <div className="artifact-section">
+                        <span className="artifact-label">Referenced by:</span>
+                        <div className="referenced-tasks">
+                          {artifact.referenced_by_tasks.map(taskId => {
+                            const referencedTask = snapshot.tasks.find(t => t.id === taskId);
+                            return (
+                              <span key={taskId} className="referenced-task-chip">
+                                {referencedTask?.name || taskId}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -347,6 +387,24 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
           </section>
         )}
 
+        {/* Events */}
+        {taskEvents.length > 0 && (
+          <section className="panel-section">
+            <h3 className="section-title">Events ({taskEvents.length})</h3>
+            <div className="events-list">
+              {taskEvents.map(event => (
+                <div key={event.id} className="event-item">
+                  <span className="event-time">{formatTime(event.timestamp)}</span>
+                  <span className="event-type">{event.event_type}</span>
+                  {event.agent_name && (
+                    <span className="event-agent">by {event.agent_name}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Messages */}
         {taskMessages.length > 0 && (
           <section className="panel-section">
@@ -362,64 +420,6 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
                     {msg.from_agent_name} → {msg.to_agent_name}
                   </div>
                   <div className="message-content-small">{msg.message}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Artifacts */}
-        {taskArtifacts.length > 0 && (
-          <section className="panel-section">
-            <h3 className="section-title">📦 Artifacts Produced ({taskArtifacts.length})</h3>
-            <div className="artifacts-list">
-              {taskArtifacts.map(artifact => (
-                <div
-                  key={artifact.artifact_id}
-                  className="artifact-card artifact-card-clickable"
-                  onClick={() => setPreviewArtifact({
-                    artifactId: artifact.artifact_id,
-                    filename: artifact.filename,
-                    artifactType: artifact.artifact_type
-                  })}
-                >
-                  <div className="artifact-header">
-                    <div className="artifact-title">
-                      <span className="artifact-icon">{getArtifactIcon(artifact.artifact_type)}</span>
-                      <span className="artifact-filename">{artifact.filename}</span>
-                      <span className="preview-hint">👁️ Click to preview</span>
-                    </div>
-                    <div className="artifact-meta">
-                      <span className="artifact-type">{artifact.artifact_type}</span>
-                      <span className="artifact-agent">{artifact.agent_name}</span>
-                    </div>
-                  </div>
-                  <div className="artifact-body">
-                    <div className="artifact-info">
-                      <span className="artifact-time">{formatTime(artifact.timestamp)}</span>
-                      <span className="artifact-size">
-                        {(artifact.file_size_bytes / 1024).toFixed(1)} KB
-                      </span>
-                    </div>
-                    {artifact.description && (
-                      <div className="artifact-description">{artifact.description}</div>
-                    )}
-                    {artifact.referenced_by_tasks.length > 0 && (
-                      <div className="artifact-section">
-                        <span className="artifact-label">Referenced by:</span>
-                        <div className="referenced-tasks">
-                          {artifact.referenced_by_tasks.map(taskId => {
-                            const referencedTask = snapshot.tasks.find(t => t.id === taskId);
-                            return (
-                              <span key={taskId} className="referenced-task-chip">
-                                {referencedTask?.name || taskId}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 </div>
               ))}
             </div>

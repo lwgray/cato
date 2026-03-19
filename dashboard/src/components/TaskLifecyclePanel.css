@@ -2,7 +2,7 @@
   position: fixed;
   top: 0;
   right: 0;
-  width: 450px;
+  width: 600px;
   height: 100vh;
   background-color: #1e293b;
   border-left: 2px solid #334155;
@@ -38,10 +38,11 @@
 }
 
 .panel-title {
-  font-size: 1.25rem;
+  font-size: 1.5rem;
   font-weight: 700;
   color: #e2e8f0;
   margin: 0 0 0.75rem 0;
+  line-height: 1.3;
   word-wrap: break-word;
 }
 
@@ -133,7 +134,7 @@
 }
 
 .panel-section {
-  margin-bottom: 2rem;
+  margin-bottom: 2.5rem;
 }
 
 .panel-section:last-child {
@@ -141,14 +142,15 @@
 }
 
 .section-title {
-  font-size: 0.875rem;
+  font-size: 1.125rem;
   font-weight: 700;
   color: #e2e8f0;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin: 0 0 1rem 0;
+  margin: 0 0 1.25rem 0;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid #334155;
+  line-height: 1.3;
 }
 
 .info-grid {
@@ -164,14 +166,16 @@
 }
 
 .info-label {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: #94a3b8;
   font-weight: 600;
+  line-height: 1.4;
 }
 
 .info-value {
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   color: #e2e8f0;
+  line-height: 1.6;
 }
 
 .progress-bar-container {
@@ -203,7 +207,7 @@
 }
 
 .task-description {
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   color: #cbd5e1;
   line-height: 1.6;
   margin: 0;
@@ -222,14 +226,16 @@
 }
 
 .timeline-label {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: #94a3b8;
   font-weight: 600;
+  line-height: 1.4;
 }
 
 .timeline-value {
-  font-size: 0.8rem;
+  font-size: 0.9375rem;
   color: #e2e8f0;
+  line-height: 1.6;
 }
 
 .dependency-group {
@@ -351,9 +357,9 @@
 }
 
 .message-content-small {
-  font-size: 0.8rem;
+  font-size: 0.9375rem;
   color: #cbd5e1;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .labels-list {
@@ -375,11 +381,11 @@
 .decisions-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.5rem;
 }
 
 .decision-card {
-  padding: 0.875rem;
+  padding: 1rem;
   background-color: #0f172a;
   border-radius: 0.5rem;
   border-left: 4px solid #3b82f6;
@@ -391,11 +397,11 @@
 }
 
 .decision-title {
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-weight: 700;
   color: #e2e8f0;
   margin-bottom: 0.5rem;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
 .decision-meta {
@@ -426,17 +432,18 @@
 }
 
 .decision-label {
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.025em;
+  line-height: 1.4;
 }
 
 .decision-text {
-  font-size: 0.8rem;
+  font-size: 0.9375rem;
   color: #cbd5e1;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .decision-confidence {
@@ -497,11 +504,11 @@
 .artifacts-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.5rem;
 }
 
 .artifact-card {
-  padding: 0.875rem;
+  padding: 1rem;
   background-color: #0f172a;
   border-radius: 0.5rem;
   border-left: 4px solid #10b981;
@@ -526,9 +533,10 @@
 }
 
 .artifact-filename {
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-weight: 700;
   color: #e2e8f0;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -578,9 +586,9 @@
 }
 
 .artifact-description {
-  font-size: 0.8rem;
+  font-size: 0.9375rem;
   color: #cbd5e1;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .artifact-section {
@@ -590,11 +598,12 @@
 }
 
 .artifact-label {
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.025em;
+  line-height: 1.4;
 }
 
 .referenced-tasks {
