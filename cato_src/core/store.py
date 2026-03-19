@@ -468,6 +468,7 @@ class Artifact:
     task_name: Optional[str] = None
     agent_name: Optional[str] = None
     relative_path: Optional[str] = None
+    absolute_path: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validate timezone-aware timestamp."""

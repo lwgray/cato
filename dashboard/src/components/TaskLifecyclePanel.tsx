@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
 import { Task } from '../services/dataService';
+import ArtifactPreviewModal from './ArtifactPreviewModal';
 import './TaskLifecyclePanel.css';
 
 interface TaskLifecyclePanelProps {
@@ -12,6 +13,13 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
   const snapshot = useVisualizationStore((state) => state.snapshot);
   const getDecisionsUpToCurrentTime = useVisualizationStore((state) => state.getDecisionsUpToCurrentTime);
   const getArtifactsUpToCurrentTime = useVisualizationStore((state) => state.getArtifactsUpToCurrentTime);
+
+  // State for artifact preview modal
+  const [previewArtifact, setPreviewArtifact] = useState<{
+    artifactId: string;
+    filename: string;
+    artifactType: string;
+  } | null>(null);
 
   // Get messages related to this task
   const taskMessages = useMemo(() => {
@@ -366,11 +374,20 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
             <h3 className="section-title">📦 Artifacts Produced ({taskArtifacts.length})</h3>
             <div className="artifacts-list">
               {taskArtifacts.map(artifact => (
-                <div key={artifact.artifact_id} className="artifact-card">
+                <div
+                  key={artifact.artifact_id}
+                  className="artifact-card artifact-card-clickable"
+                  onClick={() => setPreviewArtifact({
+                    artifactId: artifact.artifact_id,
+                    filename: artifact.filename,
+                    artifactType: artifact.artifact_type
+                  })}
+                >
                   <div className="artifact-header">
                     <div className="artifact-title">
                       <span className="artifact-icon">{getArtifactIcon(artifact.artifact_type)}</span>
                       <span className="artifact-filename">{artifact.filename}</span>
+                      <span className="preview-hint">👁️ Click to preview</span>
                     </div>
                     <div className="artifact-meta">
                       <span className="artifact-type">{artifact.artifact_type}</span>
@@ -421,6 +438,16 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
           </section>
         )}
       </div>
+
+      {/* Artifact Preview Modal */}
+      {previewArtifact && (
+        <ArtifactPreviewModal
+          artifactId={previewArtifact.artifactId}
+          filename={previewArtifact.filename}
+          artifactType={previewArtifact.artifactType}
+          onClose={() => setPreviewArtifact(null)}
+        />
+      )}
     </div>
   );
 };

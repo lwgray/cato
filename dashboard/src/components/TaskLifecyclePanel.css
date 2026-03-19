@@ -639,3 +639,27 @@
 .panel-content::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
+
+/* Artifact preview styles */
+.artifact-card-clickable {
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.artifact-card-clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: rgba(45, 55, 72, 0.6);
+}
+
+.preview-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: #718096;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.artifact-card-clickable:hover .preview-hint {
+  opacity: 1;
+}

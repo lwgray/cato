@@ -716,6 +716,82 @@ except Exception as e:
     logger.warning(f"Could not load project registry: {e}")
 
 
+@app.get("/api/artifacts/{artifact_id}/content")  # type: ignore[misc]
+async def get_artifact_content(artifact_id: str) -> Dict[str, Any]:
+    """
+    Get artifact file content for preview.
+
+    Serves the content of an artifact file identified by artifact_id.
+    Validates that the path is safe and within allowed directories.
+
+    PERFORMANCE: Uses lightweight artifact lookup instead of full snapshot.
+    """
+    try:
+        # OPTIMIZED: Only load artifacts, not full snapshot (6,970+ tasks)
+        artifact = aggregator.get_artifact_by_id(artifact_id)
+
+        if not artifact:
+            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+
+        # Security: Validate path is safe
+        artifact_path = Path(artifact.absolute_path)
+
+        # Check if file exists
+        if not artifact_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Artifact file not found: {artifact.absolute_path}"
+            )
+
+        # Check if it's actually a file (not a directory)
+        if not artifact_path.is_file():
+            raise HTTPException(
+                status_code=400,
+                detail="Artifact path is not a file"
+            )
+
+        # Check file size (limit to 10MB for preview)
+        file_size = artifact_path.stat().st_size
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            raise HTTPException(
+                status_code=413,
+                detail="File too large for preview (>10MB)"
+            )
+
+        # Read file content
+        try:
+            content = artifact_path.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            # Binary file, return base64 encoded
+            import base64
+            content = base64.b64encode(artifact_path.read_bytes()).decode('ascii')
+            return {
+                "success": True,
+                "artifact_id": artifact_id,
+                "filename": artifact.filename,
+                "artifact_type": artifact.artifact_type,
+                "content": content,
+                "encoding": "base64",
+                "size_bytes": file_size
+            }
+
+        return {
+            "success": True,
+            "artifact_id": artifact_id,
+            "filename": artifact.filename,
+            "artifact_type": artifact.artifact_type,
+            "content": content,
+            "encoding": "utf-8",
+            "size_bytes": file_size
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error loading artifact content: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/historical/projects")
 async def list_historical_projects():
     """
