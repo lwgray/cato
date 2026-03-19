@@ -783,9 +783,18 @@ class Aggregator:
 
                             if not target_prefixes:
                                 logger.warning(
-                                    f"No valid Planka ID prefixes for project {project_id}"
+                                    f"No valid Planka ID prefixes for project {project_id} - "
+                                    f"using fallback project_id field matching"
                                 )
-                                return all_tasks
+                                # Fallback: filter by task's project_id field
+                                filtered_tasks = [
+                                    t for t in all_tasks
+                                    if t.get("project_id") == project_id
+                                ]
+                                logger.info(
+                                    f"Fallback filtering: {len(filtered_tasks)}/{len(all_tasks)} tasks"
+                                )
+                                return filtered_tasks if filtered_tasks else []
 
                             # Get project creation time for timestamp-based filtering
                             from datetime import datetime, timezone, timedelta
