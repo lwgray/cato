@@ -2,7 +2,7 @@
 # React + TypeScript + Vite frontend with multi-stage build
 
 # Stage 1: Build the frontend
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 LABEL maintainer="Marcus Team <team@marcus.ai>"
 LABEL description="Cato Frontend - Marcus Visualization Dashboard UI (Builder)"
