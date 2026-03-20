@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir git+https://github.com/yourusername/marcus.git@${
 
 # Copy backend code
 COPY backend/ /app/backend/
+COPY cato_src/ /app/cato_src/
 COPY config.json /app/config.json
 
 # Set Python path
