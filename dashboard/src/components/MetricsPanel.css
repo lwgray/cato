@@ -81,9 +81,9 @@
 }
 
 .metric-value.speedup {
-  font-size: 1.75rem;
+  font-size: 1.25rem;
   color: #10b981;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .metric-value.good {

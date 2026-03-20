@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.core.aggregator import Aggregator
+from cato_src.core.aggregator import Aggregator
 
 
 @pytest.fixture

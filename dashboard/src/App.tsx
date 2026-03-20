@@ -29,6 +29,8 @@ function App() {
     <div className="app">
       <header className="app-header">
         <HeaderControls />
+
+        {/* Live mode tabs */}
         <div className="layer-tabs">
           <button
             className={currentLayer === 'network' ? 'active' : ''}
@@ -59,15 +61,18 @@ function App() {
 
       <div className="app-content">
         <div className="visualization-container">
+          {/* Live mode views */}
           {currentLayer === 'network' && <NetworkGraphView />}
           {currentLayer === 'swimlanes' && <AgentSwimLanesView />}
           {currentLayer === 'conversations' && <ConversationView />}
           {currentLayer === 'health' && <HealthCheckDashboard />}
         </div>
 
+        {/* Metrics panel */}
         <MetricsPanel />
       </div>
 
+      {/* Timeline controls */}
       <TimelineControls />
     </div>
   );

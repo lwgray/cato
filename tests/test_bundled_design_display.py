@@ -122,7 +122,7 @@ def test_filter_tasks_includes_bundled_design_tasks(
 
     Expected: Both design tasks appear in filtered results
     """
-    from src.core.aggregator import Aggregator
+    from cato_src.core.aggregator import Aggregator
 
     aggregator = Aggregator()
     all_tasks = sample_bundled_design_tasks + sample_regular_tasks
@@ -161,7 +161,7 @@ def test_filter_tasks_includes_parents_without_children(sample_regular_tasks):
 
     Expected: task_standalone should appear since it has no children.
     """
-    from src.core.aggregator import Aggregator
+    from cato_src.core.aggregator import Aggregator
 
     aggregator = Aggregator()
 
@@ -185,7 +185,7 @@ def test_filter_tasks_includes_design_tasks_in_dependency_chain(
     Even if logic fails for "not has_children", they should still appear
     if they're in a dependency chain.
     """
-    from src.core.aggregator import Aggregator
+    from cato_src.core.aggregator import Aggregator
 
     aggregator = Aggregator()
 
@@ -212,7 +212,7 @@ def test_filter_tasks_includes_design_tasks_in_dependency_chain(
 
 def test_all_view_mode_shows_everything():
     """Test that 'all' view mode shows all tasks."""
-    from src.core.aggregator import Aggregator
+    from cato_src.core.aggregator import Aggregator
 
     aggregator = Aggregator()
 
@@ -229,7 +229,7 @@ def test_all_view_mode_shows_everything():
 
 def test_parents_view_mode_excludes_subtasks():
     """Test that 'parents' view mode only shows parent tasks."""
-    from src.core.aggregator import Aggregator
+    from cato_src.core.aggregator import Aggregator
 
     aggregator = Aggregator()
 

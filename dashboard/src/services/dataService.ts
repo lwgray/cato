@@ -26,6 +26,8 @@ export interface Snapshot {
   agents: Agent[];
   messages: Message[];
   timeline_events: Event[];
+  decisions: Decision[];
+  artifacts: Artifact[];
 
   // Pre-calculated metrics
   metrics: Metrics | null;
@@ -167,6 +169,41 @@ export interface Event {
 }
 
 /**
+ * Decision with embedded context
+ */
+export interface Decision {
+  decision_id: string;
+  task_id: string;
+  agent_id: string;
+  timestamp: string;
+  what: string;
+  why: string;
+  impact: string;
+  affected_tasks: string[];
+  confidence: number;
+  task_name: string | null;
+  agent_name: string | null;
+}
+
+/**
+ * Artifact with embedded context
+ */
+export interface Artifact {
+  artifact_id: string;
+  task_id: string;
+  agent_id: string;
+  timestamp: string;
+  filename: string;
+  artifact_type: string;
+  description: string;
+  file_size_bytes: number;
+  referenced_by_tasks: string[];
+  task_name: string | null;
+  agent_name: string | null;
+  relative_path: string | null;
+}
+
+/**
  * Pre-calculated metrics
  */
 export interface Metrics {
@@ -242,6 +279,8 @@ export async function fetchSnapshot(
       tasks: snapshot.tasks.length,
       agents: snapshot.agents.length,
       messages: snapshot.messages.length,
+      decisions: snapshot.decisions?.length || 0,
+      artifacts: snapshot.artifacts?.length || 0,
     });
     return snapshot as Snapshot;
   } catch (error) {

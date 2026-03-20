@@ -2,7 +2,7 @@
   position: fixed;
   top: 0;
   right: 0;
-  width: 450px;
+  width: 600px;
   height: 100vh;
   background-color: #1e293b;
   border-left: 2px solid #334155;
@@ -38,10 +38,11 @@
 }
 
 .panel-title {
-  font-size: 1.25rem;
+  font-size: 1.5rem;
   font-weight: 700;
   color: #e2e8f0;
   margin: 0 0 0.75rem 0;
+  line-height: 1.3;
   word-wrap: break-word;
 }
 
@@ -133,7 +134,7 @@
 }
 
 .panel-section {
-  margin-bottom: 2rem;
+  margin-bottom: 2.5rem;
 }
 
 .panel-section:last-child {
@@ -141,14 +142,15 @@
 }
 
 .section-title {
-  font-size: 0.875rem;
+  font-size: 1.125rem;
   font-weight: 700;
   color: #e2e8f0;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin: 0 0 1rem 0;
+  margin: 0 0 1.25rem 0;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid #334155;
+  line-height: 1.3;
 }
 
 .info-grid {
@@ -164,14 +166,16 @@
 }
 
 .info-label {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: #94a3b8;
   font-weight: 600;
+  line-height: 1.4;
 }
 
 .info-value {
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   color: #e2e8f0;
+  line-height: 1.6;
 }
 
 .progress-bar-container {
@@ -203,7 +207,7 @@
 }
 
 .task-description {
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   color: #cbd5e1;
   line-height: 1.6;
   margin: 0;
@@ -222,14 +226,16 @@
 }
 
 .timeline-label {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: #94a3b8;
   font-weight: 600;
+  line-height: 1.4;
 }
 
 .timeline-value {
-  font-size: 0.8rem;
+  font-size: 0.9375rem;
   color: #e2e8f0;
+  line-height: 1.6;
 }
 
 .dependency-group {
@@ -351,9 +357,9 @@
 }
 
 .message-content-small {
-  font-size: 0.8rem;
+  font-size: 0.9375rem;
   color: #cbd5e1;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .labels-list {
@@ -369,6 +375,260 @@
   color: #94a3b8;
   border-radius: 0.375rem;
   font-weight: 600;
+}
+
+/* Decisions */
+.decisions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.decision-card {
+  padding: 1rem;
+  background-color: #0f172a;
+  border-radius: 0.5rem;
+  border-left: 4px solid #3b82f6;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.decision-header {
+  margin-bottom: 0.75rem;
+}
+
+.decision-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-bottom: 0.5rem;
+  line-height: 1.3;
+}
+
+.decision-meta {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.7rem;
+  color: #94a3b8;
+}
+
+.decision-agent {
+  font-weight: 600;
+}
+
+.decision-time {
+  color: #64748b;
+}
+
+.decision-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.decision-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.decision-label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  line-height: 1.4;
+}
+
+.decision-text {
+  font-size: 0.9375rem;
+  color: #cbd5e1;
+  line-height: 1.6;
+}
+
+.decision-confidence {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.confidence-bar-container {
+  flex: 1;
+  height: 8px;
+  background-color: #1e293b;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.confidence-bar {
+  height: 100%;
+  transition: width 0.3s ease, background-color 0.3s ease;
+  border-radius: 4px;
+}
+
+.confidence-text {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  flex-shrink: 0;
+  min-width: 35px;
+  text-align: right;
+}
+
+.affected-tasks {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+
+.affected-task-chip {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.6rem;
+  background-color: #1e293b;
+  color: #94a3b8;
+  border-radius: 0.375rem;
+  border: 1px solid #334155;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.affected-task-chip:hover {
+  background-color: #334155;
+  color: #e2e8f0;
+  border-color: #475569;
+}
+
+/* Artifacts */
+.artifacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.artifact-card {
+  padding: 1rem;
+  background-color: #0f172a;
+  border-radius: 0.5rem;
+  border-left: 4px solid #10b981;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.artifact-header {
+  margin-bottom: 0.75rem;
+}
+
+.artifact-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.artifact-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.artifact-filename {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-meta {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.7rem;
+}
+
+.artifact-type {
+  padding: 0.2rem 0.5rem;
+  background-color: #1e293b;
+  color: #10b981;
+  border-radius: 0.25rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.artifact-agent {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.artifact-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.artifact-info {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.artifact-time {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.artifact-size {
+  font-weight: 600;
+}
+
+.artifact-description {
+  font-size: 0.9375rem;
+  color: #cbd5e1;
+  line-height: 1.6;
+}
+
+.artifact-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.artifact-label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  line-height: 1.4;
+}
+
+.referenced-tasks {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+
+.referenced-task-chip {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.6rem;
+  background-color: #1e293b;
+  color: #94a3b8;
+  border-radius: 0.375rem;
+  border: 1px solid #334155;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.referenced-task-chip:hover {
+  background-color: #334155;
+  color: #e2e8f0;
+  border-color: #475569;
 }
 
 /* Scrollbar styling */
@@ -387,4 +647,28 @@
 
 .panel-content::-webkit-scrollbar-thumb:hover {
   background: #64748b;
+}
+
+/* Artifact preview styles */
+.artifact-card-clickable {
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.artifact-card-clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: rgba(45, 55, 72, 0.6);
+}
+
+.preview-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: #718096;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.artifact-card-clickable:hover .preview-hint {
+  opacity: 1;
 }

@@ -1,7 +1,16 @@
 import { create } from 'zustand';
-import { Snapshot, Task, Agent, Message, Metrics, Project, fetchSnapshot, fetchProjects } from '../services/dataService';
+import { Snapshot, Task, Agent, Message, Metrics, Project, Decision, Artifact, fetchSnapshot, fetchProjects } from '../services/dataService';
 
-export type ViewLayer = 'network' | 'swimlanes' | 'conversations';
+export type ViewLayer =
+  | 'network'
+  | 'swimlanes'
+  | 'conversations'
+  | 'health'
+  | 'retrospective'
+  | 'fidelity'
+  | 'decisions'
+  | 'failures'
+  | 'redundancy';
 export type TaskView = 'subtasks' | 'parents' | 'all';
 
 interface VisualizationState {
@@ -9,6 +18,7 @@ interface VisualizationState {
   snapshot: Snapshot | null;
   isLoading: boolean;
   loadError: string | null;
+  loadingStatus: string | null; // Status message for what's being loaded
 
   // Projects list
   projects: Project[];
@@ -62,6 +72,8 @@ interface VisualizationState {
   getMessagesUpToCurrentTime: () => Message[];
   getActiveAgentsAtCurrentTime: () => Agent[];
   getMetrics: () => Metrics | null;
+  getDecisionsUpToCurrentTime: () => Decision[];
+  getArtifactsUpToCurrentTime: () => Artifact[];
 }
 
 export const useVisualizationStore = create<VisualizationState>((set, get) => {
@@ -69,6 +81,7 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     snapshot: null,
     isLoading: false,
     loadError: null,
+    loadingStatus: null,
     projects: [],
     selectedProjectId: null,
     currentTime: 0,
@@ -100,13 +113,26 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
 
         // Update store - preserve currentTime to avoid resetting playback position
         const currentState = get();
+
+        // If this is the first load (currentTime = 0), set to end to show all data
+        const shouldInitializeTime = currentState.currentTime === 0;
+        const newCurrentTime = shouldInitializeTime
+          ? (newSnapshot.duration_minutes * 60 * 1000) // Convert minutes to milliseconds
+          : currentState.currentTime;
+
         set({
           snapshot: newSnapshot,
           isLoading: false,
-          currentTime: currentState.currentTime,
+          currentTime: newCurrentTime,
         });
 
-        console.log('Snapshot loaded successfully');
+        console.log('Snapshot loaded successfully', {
+          currentTime: newCurrentTime,
+          duration_minutes: newSnapshot.duration_minutes,
+          decisions: newSnapshot.decisions.length,
+          artifacts: newSnapshot.artifacts.length,
+          initialized_to_end: shouldInitializeTime
+        });
       } catch (error) {
         console.error('Error loading snapshot:', error);
         set({
@@ -270,6 +296,10 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
 
       let tasks = snapshot.tasks;
 
+      // Note: Project filtering is handled by the backend when loading the snapshot
+      // The snapshot already contains only tasks for the selected project
+      // No need to filter again on the client side
+
       if (!state.showCompletedTasks) {
         tasks = tasks.filter((t) => t.status !== 'done');
       }
@@ -332,6 +362,36 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     getMetrics: () => {
       const state = get();
       return state.snapshot?.metrics || null;
+    },
+
+    getDecisionsUpToCurrentTime: () => {
+      const state = get();
+      const snapshot = state.snapshot;
+
+      if (!snapshot || !snapshot.start_time) return [];
+
+      const startTime = new Date(snapshot.start_time).getTime();
+      const currentAbsTime = startTime + state.currentTime;
+
+      return snapshot.decisions.filter((decision) => {
+        const decisionTime = new Date(decision.timestamp).getTime();
+        return decisionTime <= currentAbsTime;
+      });
+    },
+
+    getArtifactsUpToCurrentTime: () => {
+      const state = get();
+      const snapshot = state.snapshot;
+
+      if (!snapshot || !snapshot.start_time) return [];
+
+      const startTime = new Date(snapshot.start_time).getTime();
+      const currentAbsTime = startTime + state.currentTime;
+
+      return snapshot.artifacts.filter((artifact) => {
+        const artifactTime = new Date(artifact.timestamp).getTime();
+        return artifactTime <= currentAbsTime;
+      });
     },
 
     startAutoRefresh: () => {
