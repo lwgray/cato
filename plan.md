@@ -1,81 +1,144 @@
-# Kill Switch & Live DAG Updates — Implementation Plan
+# Kill Switch — Hard Kill Implementation Plan
 
 ## Overview
 
-Add a **kill switch** that actually stops the Marcus agent working on a task, directly from the DAG. Plus **real-time live updates** so you can see task state changes as they happen and know exactly when to intervene.
+Add a **hard kill switch** that sends SIGTERM to the actual agent process, killing it dead. This is the real kill — the agent process is gone, and we get to see Marcus's recovery mechanism kick in (reassignment, respawn, etc.).
 
-### Key Insight: Marcus Has No Kill Mechanism
+### Architecture Reality
 
-Marcus agents run as autonomous Claude Code sessions in separate terminals. Marcus's MCP server exposes these tools for task management:
-- `request_next_task` — agent gets assigned work
-- `report_task_progress` — agent reports %, status changes
-- `report_blocker` — agent flags obstacles
-- `unassign_task` — **manually breaks a stuck assignment, resets task to TODO**
+- Marcus agents are **Claude Code sessions** running in separate terminals
+- They connect to Marcus's MCP server at `:4298` via HTTP
+- `register_agent` currently accepts: `agent_id`, `name`, `role`, `skills`
+- **Marcus does NOT track PIDs** — agents are external processes, not children
+- Agent state is **in-memory only** in the Marcus server (not persisted to `marcus.db`)
 
-**There is no `kill_task` or `deregister_agent` tool.** The `unassign_task` tool is the closest thing — it clears the assignment from `state.agent_tasks`, removes from persistent storage, deletes active leases, and resets the Kanban card to TODO. But it doesn't stop the agent process itself.
+### The Fix: PID Registration
 
-### The Real Kill = Two Actions
-
-A true kill switch must:
-1. **Call Marcus's `unassign_task`** via MCP — breaks the assignment so Marcus stops routing context to that task
-2. **Signal the agent process to stop** — the agent is a Claude Code session running in a terminal. Without termination, it will just call `request_next_task` again and get new work (or retry the same task)
-
-For (2), Marcus agents are Claude Code subprocesses. The kill options are:
-- **Option A**: Send `SIGTERM`/`SIGINT` to the agent process (requires knowing the PID)
-- **Option B**: Add a new `cancel_task` MCP tool to Marcus that sets a "poisoned" flag — when the agent next calls `report_task_progress` or `request_next_task`, Marcus responds with a "you've been terminated" signal and the agent's prompt instructs it to exit
-- **Option C**: Use both — unassign + soft poison flag for graceful stop, with hard SIGTERM as fallback
-
-**Recommended: Option B (soft kill via MCP) + Option A fallback (hard kill via PID)**
+Marcus needs to know the PID to kill it. The agent must **post its PID on registration**.
 
 ---
 
-## Part 1: Marcus-Side Changes (MCP Server)
+## Part 1: Marcus-Side Changes
 
-> These changes go in the **Marcus repo**, not Cato. Cato calls them via HTTP.
+> These changes go in the **Marcus repo** (`lwgray/marcus`).
 
-### 1a. New MCP Tool: `cancel_task` (Marcus: `src/marcus_mcp/tools/task.py`)
-- Calls `unassign_task` internally (breaks assignment, resets to TODO)
-- Sets a **cancellation flag** in Marcus state: `state.cancelled_tasks[task_id] = { reason, cancelled_at, cancelled_by }`
-- Next time the agent calls ANY MCP tool (`report_task_progress`, `request_next_task`), Marcus checks the flag and returns: `{ "status": "terminated", "message": "Task was cancelled by dashboard operator", "action": "exit" }`
-- The agent's system prompt should instruct it to **exit immediately** when it receives a `terminated` response
+### 1a. Agent Registration with PID (`src/marcus_mcp/tools/agent.py`)
 
-### 1b. New MCP Tool: `kill_agent` (Marcus: `src/marcus_mcp/tools/agent.py`)
-- Harder kill — unassigns ALL tasks from a specific agent
-- Marks agent as `deregistered` in state
-- If PID tracking is available, sends SIGTERM to the process
+**`register_agent` gets a new `pid` parameter:**
+```python
+# Current: register_agent(agent_id, name, role, skills)
+# New:     register_agent(agent_id, name, role, skills, pid)
+```
 
-### 1c. Agent Prompt Update (Marcus: `prompts/Agent_prompt.md`)
-- Add instruction: "If any MCP tool returns `status: terminated`, stop ALL work immediately and exit. Do not request another task."
+- `pid: int` — the OS process ID of the agent
+- Stored in `state.agent_status[agent_id].pid`
+- Add `pid: Optional[int]` field to `WorkerStatus` dataclass
+- Optional for backwards compat (old agents without PID still work, just can't be hard-killed)
+
+### 1b. New MCP Tool: `kill_agent` (`src/marcus_mcp/tools/agent.py`)
+
+```python
+def kill_agent(agent_id: str, reason: str = "") -> dict:
+    """Hard kill — SIGTERM the agent process."""
+    agent = state.agent_status.get(agent_id)
+    if not agent:
+        return {"error": "Agent not found"}
+    if not agent.pid:
+        return {"error": "No PID registered — agent cannot be hard-killed"}
+
+    # 1. Unassign all tasks from this agent
+    for task_id in list(agent.current_tasks):
+        unassign_task(task_id)  # resets to TODO
+
+    # 2. SIGTERM the process
+    import os, signal
+    try:
+        os.kill(agent.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return {"status": "already_dead", "message": "Process not found — agent already exited"}
+
+    # 3. Mark agent as killed in state
+    agent.status = "killed"
+    agent.killed_at = datetime.utcnow()
+    agent.kill_reason = reason
+
+    return {
+        "status": "killed",
+        "agent_id": agent_id,
+        "pid": agent.pid,
+        "tasks_unassigned": list(agent.current_tasks),
+        "message": f"SIGTERM sent to PID {agent.pid}"
+    }
+```
+
+### 1c. New MCP Tool: `kill_task` (`src/marcus_mcp/tools/task.py`)
+
+Kills the specific agent working on a task:
+```python
+def kill_task(task_id: str, reason: str = "") -> dict:
+    """Kill the agent working on this task via SIGTERM."""
+    # Find which agent owns this task
+    assignment = state.agent_tasks.get(task_id)
+    if not assignment:
+        return {"error": "Task not assigned to any agent"}
+
+    agent_id = assignment.agent_id
+    # Delegate to kill_agent
+    return kill_agent(agent_id, reason=reason or f"Task {task_id} killed from dashboard")
+```
+
+### 1d. Agent Prompt Update (`prompts/Agent_prompt.md`)
+
+Add to registration instructions:
+```
+When calling register_agent, you MUST include your process ID (PID).
+Use the appropriate method for your runtime to get your PID.
+Example: register_agent(agent_id="agent-1", name="Builder", role="developer", skills=["python"], pid=12345)
+```
+
+### 1e. Expose Kill via MCP HTTP Endpoint
+
+Marcus's MCP server needs to register `kill_agent` and `kill_task` as callable tools so Cato can invoke them via HTTP at `http://localhost:4298/mcp`.
 
 ---
 
-## Part 2: Cato Backend — Kill Proxy API
+## Part 2: Cato Backend — Kill Proxy
 
-### 2a. Cato Calls Marcus MCP (`backend/api.py`)
+### 2a. Marcus MCP Client (`backend/marcus_client.py` — new file)
 
-Cato's backend acts as a **proxy** to Marcus's MCP server:
+Simple HTTP client that calls Marcus's MCP tools:
 
-- **New endpoint: `POST /api/tasks/{task_id}/kill`**
-  - Calls Marcus MCP at `http://localhost:4298/mcp` with tool `cancel_task`
-  - Request body: `{ "reason": "optional reason" }`
-  - Marcus unassigns + poisons the task
-  - Cato invalidates its snapshot cache
-  - Returns result to dashboard
+```python
+class MarcusClient:
+    def __init__(self, mcp_url: str):
+        self.mcp_url = mcp_url  # "http://localhost:4298/mcp"
 
-- **New endpoint: `POST /api/agents/{agent_id}/kill`**
-  - Calls Marcus MCP with tool `kill_agent`
-  - Kills all tasks for that agent
-  - Returns result
+    async def kill_task(self, task_id: str, reason: str = "") -> dict:
+        """Call Marcus kill_task tool — SIGTERMs the agent working on this task."""
+        return await self._call_tool("kill_task", {"task_id": task_id, "reason": reason})
 
-- **New endpoint: `POST /api/kill-all`**
-  - Emergency stop — calls `cancel_task` for every `in_progress` task
-  - Nuclear option with double-confirmation on frontend
+    async def kill_agent(self, agent_id: str, reason: str = "") -> dict:
+        """Call Marcus kill_agent tool — SIGTERMs the agent process."""
+        return await self._call_tool("kill_agent", {"agent_id": agent_id, "reason": reason})
 
-### 2b. MCP Client in Cato (`backend/marcus_client.py` — new file)
-- Simple HTTP client that talks to Marcus's MCP server at `localhost:4298`
-- Methods: `cancel_task(task_id, reason)`, `kill_agent(agent_id)`, `get_task_status(task_id)`
-- Handles connection errors gracefully (Marcus might be down)
-- Config: MCP endpoint URL from `config.json`
+    async def _call_tool(self, tool_name: str, arguments: dict) -> dict:
+        """Send MCP tool call to Marcus server."""
+        # POST to MCP endpoint with tool invocation
+        # Handle connection errors (Marcus might be down)
+```
+
+### 2b. Kill API Endpoints (`backend/api.py`)
+
+```
+POST /api/tasks/{task_id}/kill    →  marcus_client.kill_task(task_id, reason)
+POST /api/agents/{agent_id}/kill  →  marcus_client.kill_agent(agent_id, reason)
+POST /api/kill-all                →  kill_task for every in_progress task
+```
+
+Each endpoint:
+1. Calls Marcus MCP
+2. Invalidates Cato's snapshot cache
+3. Returns result (killed, already_dead, error, no PID)
 
 ### 2c. Config Update (`config.json`)
 ```json
@@ -88,148 +151,146 @@ Cato's backend acts as a **proxy** to Marcus's MCP server:
 
 ## Part 3: Cato Data Model — `killed` Status
 
-### 3a. Backend Data Model (`src/core/store.py`)
-- Add `"killed"` to Task status: `Literal["todo", "in_progress", "done", "blocked", "killed"]`
-- Add fields:
-  - `killed_at: Optional[datetime]`
-  - `killed_by: Optional[str]`
-  - `kill_reason: Optional[str]`
+### 3a. Store (`src/core/store.py`)
+- Add `"killed"` to Task status literal
+- Add `killed_at`, `killed_by`, `kill_reason` optional fields
+- Add `killed_tasks: int` to Metrics
 
-### 3b. Metrics (`src/core/store.py`)
-- Add `killed_tasks: int` to `Metrics`
+### 3b. Aggregator (`src/core/aggregator.py`)
+- Detect killed tasks (unassigned tasks that were previously in_progress with a kill event)
+- Count in metrics
+- Freeze progress at kill time
 
-### 3c. Aggregator (`src/core/aggregator.py`)
-- Map Marcus's cancelled/unassigned tasks to `killed` status
-- Count killed tasks in metrics
-- Freeze progress at time of kill
-
-### 3d. Timeline Utils (`dashboard/src/utils/timelineUtils.ts`)
-- Handle `killed` status in `getTaskStateAtTime` — show as killed from kill time forward
+### 3c. Timeline Utils (`dashboard/src/utils/timelineUtils.ts`)
+- Handle `killed` in `getTaskStateAtTime`
 
 ---
 
-## Part 4: Live Updates via Server-Sent Events (SSE)
+## Part 4: Live Updates via SSE
 
-### 4a. Backend SSE Endpoint (`backend/api.py`)
-- **New endpoint: `GET /api/stream`** — SSE stream
-- Events:
-  - `snapshot_updated` — new snapshot version available (with changed task IDs)
-  - `task_killed` — immediate notification when a kill is issued
-  - `task_status_changed` — any task state transition
-- Polls Marcus for changes every **5 seconds** and pushes diffs
-- Each event includes `snapshot_version`
+### 4a. Backend SSE (`backend/api.py`)
+- `GET /api/stream` — Server-Sent Events endpoint
+- Events: `task_killed`, `snapshot_updated`, `task_status_changed`
+- Polls every 5s, pushes diffs
 
 ### 4b. Frontend SSE Client (`dashboard/src/services/dataService.ts`)
-- `connectStream()` → returns `EventSource`, auto-reconnects
-- `killTask(taskId, reason)` → `POST /api/tasks/{task_id}/kill`
-- `killAgent(agentId)` → `POST /api/agents/{agent_id}/kill`
-- `killAll()` → `POST /api/kill-all`
+- `connectStream()` → `EventSource`, auto-reconnect
+- `killTask(taskId, reason)` → POST
+- `killAgent(agentId)` → POST
+- `killAll()` → POST
 
-### 4c. Store Updates (`dashboard/src/store/visualizationStore.ts`)
-- New state: `isLive`, `connectionStatus`, `lastEventTime`
-- `connectLiveUpdates()` / `disconnectLiveUpdates()`
-- On `task_killed` → optimistic update before full refresh
-- Replace 60s polling with SSE (keep polling as fallback)
+### 4c. Store (`dashboard/src/store/visualizationStore.ts`)
+- `isLive`, `connectionStatus`, `lastEventTime`
+- SSE-driven updates replace 60s polling (polling as fallback)
+- Optimistic kill updates
 
 ---
 
-## Part 5: Kill Switch on DAG
+## Part 5: Kill Switch UI on DAG
 
-### 5a. Kill Button on Nodes (`NetworkGraphView.tsx`)
-- Hover over `in_progress` node → small kill icon (■ stop square) appears
-- Click → confirmation: "Kill task '{name}'? This will unassign the agent and stop execution."
-- Confirmation shows what will happen: task killed, agent freed, dependents blocked
+### 5a. Kill on Nodes (`NetworkGraphView.tsx`)
+- Hover `in_progress` node → kill icon (■) appears
+- Click → confirmation: "Kill task '{name}'? This will SIGTERM the agent (PID {pid}) and unassign the task."
+- Shows: agent name, PID, downstream impact
 
-### 5b. Kill Button in TaskLifecyclePanel (`TaskLifecyclePanel.tsx`)
-- Red "Kill Task" button (only for `in_progress` tasks)
-- Shows agent name that will be affected
-- After kill: shows "Killed at {time}" with reason
+### 5b. Kill in TaskLifecyclePanel (`TaskLifecyclePanel.tsx`)
+- Red "Kill Task" button for `in_progress` tasks
+- Shows agent name + PID
+- After kill: "Killed at {time} — PID {pid} terminated"
 
-### 5c. Kill Execution Flow
-1. User clicks kill → confirmation dialog
+### 5c. Kill Flow
+1. User clicks kill → confirmation dialog (shows PID + agent)
 2. Optimistic update: node turns purple immediately
-3. `POST /api/tasks/{task_id}/kill` → Cato backend → Marcus MCP `cancel_task`
-4. Marcus unassigns agent + sets poison flag
-5. Agent receives "terminated" on next MCP call → exits
-6. SSE broadcasts `task_killed` to all dashboard clients
-7. Full snapshot refresh updates dependent task states
+3. `POST /api/tasks/{task_id}/kill` → Cato → Marcus MCP `kill_task`
+4. Marcus calls `os.kill(pid, SIGTERM)` + unassigns task
+5. Agent process dies
+6. **Marcus recovery kicks in**: task goes back to TODO, available for next `request_next_task` by another agent (or same agent if respawned)
+7. SSE broadcasts `task_killed`
+8. Dashboard shows the full lifecycle: in_progress → killed → (optionally) TODO → reassigned
 
-### 5d. Visual Treatment for `killed` Status
-- **Color**: Purple (`#a855f7`) — distinct from all other statuses
-- **Border**: Dashed to indicate interrupted
-- **Icon**: Stop square (■) overlaid
-- **Animation**: Red flash → fade to purple on kill
-- **Dependents**: Auto-blocked with "upstream killed" indicator
+### 5d. Visual Treatment
+- **Color**: Purple (`#a855f7`)
+- **Border**: Dashed
+- **Icon**: Stop square (■)
+- **Animation**: Red flash → purple
+- **Dependents**: Auto-blocked with "upstream killed"
 
 ---
 
 ## Part 6: Live DAG Visual Enhancements
 
-### 6a. Pulse Animation on Active Nodes
-- `in_progress` nodes pulse (CSS `@keyframes` breathing glow)
-- Kill removes pulse immediately
+### 6a. Pulse on Active Nodes
+- `in_progress` nodes pulse (CSS keyframes)
+- Kill removes pulse instantly
 
 ### 6b. Progress Rings
-- SVG arc around each node showing 0→100% completion
-- Immediate visual sense of how far along each task is
+- SVG arc around nodes showing % complete
 
-### 6c. Status Transition Animations
-- 300ms color transitions on status changes
-- Killed: red flash → purple settle
-- Completed: green glow → green settle
+### 6c. Transition Animations
+- 300ms color transitions
+- Kill: red flash → purple
+- Complete: green glow → green
 
 ### 6d. Live Badge
-- "LIVE" indicator top-right of DAG view
-- Green pulsing dot = connected, gray = disconnected
+- "LIVE" top-right, green pulse = connected
 - "Last update: Xs ago"
 
-### 6e. Dependency Cascade Animation
-- On kill: edges from killed task flash red → dependents flash orange → settle to blocked
-- Visual ripple showing kill impact through the pipeline
+### 6e. Dependency Cascade
+- Kill ripple: edges flash red → dependents flash orange → settle blocked
 
 ---
 
 ## Part 7: Legend & Controls
 
-### 7a. Updated Legend
-- Add Killed status (purple)
-- Add Live indicator explanation
+### 7a. Legend
+- Add Killed (purple) + Live indicator
 
-### 7b. DAG Toolbar
-- "Kill All In-Progress" emergency button (double-confirmation)
-- Connection status indicator
+### 7b. Toolbar
+- "Kill All In-Progress" (double-confirm)
+- Connection status
+
+---
+
+## What We Get to Observe
+
+The hard kill is interesting because after SIGTERM:
+1. **Agent dies immediately** — process gone
+2. **Marcus detects stale assignment** — via lease expiry or next health check
+3. **Task returns to TODO** — `unassign_task` already handled this
+4. **Recovery mechanism fires** — another agent (or respawned agent) calls `request_next_task` and picks it up
+5. **Cato shows the full story** — in_progress → killed → TODO → in_progress (new agent)
+
+This tests Marcus's resilience and makes the kill feel **real** in the dashboard.
 
 ---
 
 ## File Change Summary
 
-| File | Changes |
-|------|---------|
-| **Marcus repo** (separate) | |
-| `src/marcus_mcp/tools/task.py` | Add `cancel_task` tool with poison flag |
-| `src/marcus_mcp/tools/agent.py` | Add `kill_agent` tool |
-| `prompts/Agent_prompt.md` | Add "exit on terminated" instruction |
-| **Cato repo** | |
-| `config.json` | Add `marcus_mcp_url` |
-| `backend/marcus_client.py` | **New** — MCP client to call Marcus |
-| `backend/api.py` | Add kill endpoints, SSE stream, MCP proxy |
-| `src/core/store.py` | Add `killed` status + fields, killed metric |
-| `src/core/aggregator.py` | Handle killed status in metrics + snapshots |
-| `dashboard/src/services/dataService.ts` | Add `killTask()`, `killAgent()`, `killAll()`, `connectStream()` |
-| `dashboard/src/store/visualizationStore.ts` | Add live update state, kill actions, SSE management |
-| `dashboard/src/components/NetworkGraphView.tsx` | Kill button on nodes, progress rings, pulse, killed color |
-| `dashboard/src/components/NetworkGraphView.css` | Pulse keyframes, killed styles, live badge |
-| `dashboard/src/components/TaskLifecyclePanel.tsx` | Kill button in panel |
-| `dashboard/src/components/TaskLifecyclePanel.css` | Kill button styles |
-| `dashboard/src/utils/timelineUtils.ts` | Handle `killed` in `getTaskStateAtTime` |
+| File | Repo | Changes |
+|------|------|---------|
+| `src/marcus_mcp/tools/agent.py` | Marcus | Add `pid` to registration, add `kill_agent` tool |
+| `src/marcus_mcp/tools/task.py` | Marcus | Add `kill_task` tool |
+| `prompts/Agent_prompt.md` | Marcus | Add PID registration instruction |
+| `config.json` | Cato | Add `marcus_mcp_url` |
+| `backend/marcus_client.py` | Cato | **New** — MCP client for Marcus |
+| `backend/api.py` | Cato | Kill endpoints + SSE stream |
+| `src/core/store.py` | Cato | `killed` status + fields + metric |
+| `src/core/aggregator.py` | Cato | Handle killed status |
+| `dashboard/src/services/dataService.ts` | Cato | Kill + stream functions |
+| `dashboard/src/store/visualizationStore.ts` | Cato | Live state + kill actions |
+| `dashboard/src/components/NetworkGraphView.tsx` | Cato | Kill button, pulse, rings, killed color |
+| `dashboard/src/components/NetworkGraphView.css` | Cato | Kill styles, pulse keyframes |
+| `dashboard/src/components/TaskLifecyclePanel.tsx` | Cato | Kill button in panel |
+| `dashboard/src/components/TaskLifecyclePanel.css` | Cato | Kill button styles |
+| `dashboard/src/utils/timelineUtils.ts` | Cato | Handle `killed` status |
 
 ## Implementation Order
 
-1. **Marcus: `cancel_task` MCP tool** — the actual kill mechanism
-2. **Marcus: Agent prompt update** — agents obey termination signals
-3. **Cato: MCP client + kill proxy API** — Cato can call Marcus
-4. **Cato: `killed` status in data model** — store + aggregator + timeline
-5. **Cato: Frontend kill UI** — buttons on DAG nodes + lifecycle panel
-6. **Cato: SSE streaming** — live updates replace polling
-7. **Cato: Visual polish** — progress rings, pulse, transitions, live badge
-8. **Cato: Dependency cascade** — downstream blocking + ripple animation
+1. **Marcus: PID in `register_agent`** — foundation, agents report their PID
+2. **Marcus: `kill_task` + `kill_agent` MCP tools** — the actual SIGTERM mechanism
+3. **Marcus: Agent prompt update** — agents send PID on registration
+4. **Cato: MCP client + kill proxy API** — Cato can call Marcus to kill
+5. **Cato: `killed` status in data model** — store + aggregator + timeline
+6. **Cato: Frontend kill UI** — buttons on DAG + lifecycle panel
+7. **Cato: SSE streaming** — live updates
+8. **Cato: Visual polish** — pulse, rings, transitions, live badge, cascade
