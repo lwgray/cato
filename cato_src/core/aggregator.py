@@ -787,12 +787,17 @@ class Aggregator:
                                     f"using fallback project_id field matching"
                                 )
                                 # Fallback: filter by task's project_id field
+                                # Match Marcus registry ID or provider-level ID
+                                match_ids = {project_id}
+                                if planka_project_id:
+                                    match_ids.add(planka_project_id)
                                 filtered_tasks = [
                                     t for t in all_tasks
-                                    if t.get("project_id") == project_id
+                                    if t.get("project_id") in match_ids
                                 ]
                                 logger.info(
-                                    f"Fallback filtering: {len(filtered_tasks)}/{len(all_tasks)} tasks"
+                                    f"Fallback filtering: {len(filtered_tasks)}/{len(all_tasks)} tasks "
+                                    f"(match_ids={match_ids})"
                                 )
                                 return filtered_tasks if filtered_tasks else []
 
@@ -950,13 +955,49 @@ class Aggregator:
 
                             return filtered_tasks
                         else:
-                            logger.warning(
-                                f"Project {project_id} has no Planka IDs, returning all tasks"
+                            logger.info(
+                                f"Project {project_id} has no Planka IDs, "
+                                f"trying project_id field match"
                             )
                     else:
-                        logger.warning(
-                            f"Project {project_id} not found, returning all tasks"
+                        logger.info(
+                            f"Project {project_id} no provider_config, "
+                            f"trying project_id field match"
                         )
+
+                # Fallback: match by project_id field on tasks
+                # For SQLite/non-Planka providers, the task's project_id
+                # is the kanban-level ID (from auto_setup_project), not
+                # the Marcus registry ID. Check both.
+                provider_project_id = None
+                if project_info and project_info.get("provider_config"):
+                    provider_project_id = project_info["provider_config"].get(
+                        "project_id"
+                    )
+
+                if project_id:
+                    match_ids = {project_id}
+                    if provider_project_id:
+                        match_ids.add(provider_project_id)
+
+                    matched = [
+                        t for t in all_tasks
+                        if t.get("project_id") in match_ids
+                    ]
+                    if matched:
+                        logger.info(
+                            f"project_id field matched "
+                            f"{len(matched)}/{len(all_tasks)} tasks "
+                            f"(match_ids={match_ids})"
+                        )
+                        return matched
+
+                    # Project specified, no match — return empty
+                    logger.info(
+                        f"No tasks matched project {project_id} "
+                        f"(also tried provider_id={provider_project_id})"
+                    )
+                    return []
 
                 logger.info(f"Loaded {len(all_tasks)} tasks (all projects)")
                 return all_tasks
@@ -1188,6 +1229,16 @@ class Aggregator:
 
         This creates clean parallelization visualization showing task execution flow.
         """
+        # Filter out About cards — they are project descriptors,
+        # not work items. Should not appear in DAG or swim lanes.
+        tasks = [
+            t for t in tasks
+            if not (
+                t.get("name", "").startswith("About:")
+                or t.get("source_type") == "project_about"
+            )
+        ]
+
         if view_mode == "subtasks":
             # Build set of parent IDs that have subtasks
             parent_ids_with_subtasks = {
@@ -1405,6 +1456,44 @@ class Aggregator:
                 task.setdefault("project_name", None)
 
                 parent_tasks.append(task)
+
+            # Enrich with authoritative status from kanban.db
+            # (for SQLite provider, kanban.db is the source of truth)
+            kanban_db = self.marcus_root / "data" / "kanban.db"
+            if kanban_db.exists():
+                try:
+                    kanban_conn = sqlite3.connect(str(kanban_db))
+                    kanban_rows = kanban_conn.execute(
+                        "SELECT id, status, assigned_to "
+                        "FROM tasks"
+                    ).fetchall()
+                    kanban_status = {
+                        r[0]: {"status": r[1], "assigned_to": r[2]}
+                        for r in kanban_rows
+                    }
+                    kanban_conn.close()
+
+                    enriched = 0
+                    for task in parent_tasks:
+                        tid = task.get("task_id", task.get("id"))
+                        if tid and tid in kanban_status:
+                            task["status"] = kanban_status[tid]["status"]
+                            if kanban_status[tid]["assigned_to"]:
+                                task["assigned_agent_id"] = (
+                                    kanban_status[tid]["assigned_to"]
+                                )
+                            enriched += 1
+
+                    if enriched:
+                        logger.info(
+                            f"Enriched {enriched} tasks with "
+                            f"status from kanban.db"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Could not read kanban.db for "
+                        f"status enrichment: {e}"
+                    )
 
             logger.info(f"Loaded {len(parent_tasks)} parent tasks from marcus.db")
             return parent_tasks
@@ -2811,10 +2900,27 @@ class Aggregator:
         )
 
     def _build_dependency_graph(self, tasks: List[Task]) -> Dict[str, List[str]]:
-        """Build task dependency graph."""
+        """Build task dependency graph.
+
+        Documentation/README tasks have their inbound edges removed
+        to avoid visual clutter (they depend on all other tasks,
+        creating a fan-in of lines). They still appear as nodes.
+        """
         graph = {}
         for task in tasks:
-            graph[task.id] = task.dependency_ids
+            name = task.name if hasattr(task, "name") else ""
+            is_readme = (
+                "README" in name
+                and any(
+                    lbl in (task.labels if hasattr(task, "labels") else [])
+                    for lbl in ["documentation", "docs"]
+                )
+            )
+            if is_readme:
+                # Show node but suppress inbound edge clutter
+                graph[task.id] = []
+            else:
+                graph[task.id] = task.dependency_ids
         return graph
 
     def _build_communication_graph(
