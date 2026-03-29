@@ -6,6 +6,7 @@ export type ViewLayer =
   | 'swimlanes'
   | 'conversations'
   | 'health'
+  | 'board'
   | 'retrospective'
   | 'fidelity'
   | 'decisions'
