@@ -120,6 +120,10 @@
   color: #cbd5e1;
   line-height: 1.6;
   margin-bottom: 1rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .task-details {

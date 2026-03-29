@@ -4,6 +4,7 @@ import NetworkGraphView from './components/NetworkGraphView';
 import AgentSwimLanesView from './components/AgentSwimLanesView';
 import ConversationView from './components/ConversationView';
 import HealthCheckDashboard from './components/HealthCheckDashboard';
+import BoardView from './components/BoardView';
 import TimelineControls from './components/TimelineControls';
 import MetricsPanel from './components/MetricsPanel';
 import HeaderControls from './components/HeaderControls';
@@ -51,6 +52,12 @@ function App() {
             💬 Conversations
           </button>
           <button
+            className={currentLayer === 'board' ? 'active' : ''}
+            onClick={() => setCurrentLayer('board')}
+          >
+            📋 Board
+          </button>
+          <button
             className={currentLayer === 'health' ? 'active' : ''}
             onClick={() => setCurrentLayer('health')}
           >
@@ -65,6 +72,7 @@ function App() {
           {currentLayer === 'network' && <NetworkGraphView />}
           {currentLayer === 'swimlanes' && <AgentSwimLanesView />}
           {currentLayer === 'conversations' && <ConversationView />}
+          {currentLayer === 'board' && <BoardView />}
           {currentLayer === 'health' && <HealthCheckDashboard />}
         </div>
 
