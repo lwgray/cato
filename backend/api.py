@@ -29,10 +29,7 @@ from fastapi.responses import StreamingResponse, Response
 from cato_src.core.aggregator import Aggregator
 
 # Configure logging to show INFO level from all loggers
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s:%(name)s:%(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 logger = logging.getLogger(__name__)
 
 # Phase 3: Historical analysis imports
@@ -65,6 +62,7 @@ try:
     # Add Marcus root to sys.path so "from src." imports work
     # No namespace conflict since Cato uses "cato_src" not "src"
     import sys
+
     if str(marcus_root) not in sys.path:
         sys.path.insert(0, str(marcus_root))
 
@@ -79,7 +77,9 @@ try:
     logger.info("✅ Historical analysis mode ENABLED")
 
 except Exception as e:
-    logger.error(f"❌ Historical analysis mode disabled: {type(e).__name__}: {e}", exc_info=True)
+    logger.error(
+        f"❌ Historical analysis mode disabled: {type(e).__name__}: {e}", exc_info=True
+    )
 
 # Initialize historical analysis components if available
 history_aggregator = None
@@ -170,9 +170,13 @@ def prewarm_recent_projects() -> None:
             cache_key = f"{active_project_id}_subtasks_1.0"
             snapshot_cache[cache_key] = (snapshot_dict, now)
 
-            logger.info(f"Pre-warmed cache for active project: {active_project_id[:40]}")
+            logger.info(
+                f"Pre-warmed cache for active project: {active_project_id[:40]}"
+            )
         except Exception as e:
-            logger.warning(f"Failed to pre-warm active project {active_project_id}: {e}")
+            logger.warning(
+                f"Failed to pre-warm active project {active_project_id}: {e}"
+            )
 
         logger.info("Cache pre-warming complete")
     except Exception as e:
@@ -203,7 +207,9 @@ def background_cache_refresh() -> None:
                     cache_keys_to_refresh.append(cache_key)
 
             if cache_keys_to_refresh:
-                logger.info(f"Background refresh: refreshing {len(cache_keys_to_refresh)} cached snapshots")
+                logger.info(
+                    f"Background refresh: refreshing {len(cache_keys_to_refresh)} cached snapshots"
+                )
 
                 for cache_key in cache_keys_to_refresh:
                     try:
@@ -288,7 +294,9 @@ async def health() -> Dict[str, str]:
     return {"status": "healthy"}
 
 
-def count_tasks_for_project(all_tasks: List[Dict[str, Any]], project_info: Dict[str, Any]) -> int:
+def count_tasks_for_project(
+    all_tasks: List[Dict[str, Any]], project_info: Dict[str, Any]
+) -> int:
     """
     Count tasks that match a project using Planka fuzzy ID matching.
 
@@ -378,36 +386,41 @@ async def get_projects() -> Dict[str, Any]:
                 continue
 
             project_id = p.get("id", "")
-            is_active = (project_id == active_project_id)
+            is_active = project_id == active_project_id
 
-            # Check if project has "discovered" tag (indicates it's on Planka board)
+            # Check if project should appear in the list
             tags = p.get("tags", [])
             is_discovered = "discovered" in tags
+            is_auto_created = "auto-created" in tags
 
-            # Include if: (1) it's the active project OR (2) has "discovered" tag
-            if is_active or is_discovered:
+            # Include if: active, discovered (Planka), or auto-created (SQLite)
+            if is_active or is_discovered or is_auto_created:
                 # Count tasks for this project using fuzzy matching
                 # (Only checking ~8-9 projects, so this is fast)
                 task_count = count_tasks_for_project(all_tasks, p)
-                projects_with_tasks.append({
-                    "id": project_id,
-                    "name": p.get("name", project_id),
-                    "created_at": p.get("created_at", ""),
-                    "last_used": p.get("last_used"),
-                    "description": p.get("description", ""),
-                    "task_count": task_count,
-                    "is_active": is_active,  # Flag for frontend to highlight
-                })
+                projects_with_tasks.append(
+                    {
+                        "id": project_id,
+                        "name": p.get("name", project_id),
+                        "created_at": p.get("created_at", ""),
+                        "last_used": p.get("last_used"),
+                        "description": p.get("description", ""),
+                        "task_count": task_count,
+                        "is_active": is_active,  # Flag for frontend to highlight
+                    }
+                )
 
                 if is_active:
                     active_project_included = True
 
-        logger.info(f"Filtered to {len(projects_with_tasks)}/{len(projects_data)} projects (active={'included' if active_project_included else 'not found'})")
+        logger.info(
+            f"Filtered to {len(projects_with_tasks)}/{len(projects_data)} projects (active={'included' if active_project_included else 'not found'})"
+        )
 
         # Sort: active project first, then by creation date (most recent first)
         projects_with_tasks.sort(
             key=lambda p: (not p.get("is_active", False), p.get("created_at", "")),
-            reverse=True
+            reverse=True,
         )
         logger.info("Sorted projects (active first, then by creation date)")
 
@@ -515,7 +528,9 @@ async def get_snapshot(
 @app.get("/api/export")  # type: ignore[misc]
 async def export_snapshot(
     project_id: Optional[str] = Query(None, description="Project ID to export"),
-    format: Literal["json", "csv"] = Query("json", description="Export format: 'json' or 'csv'"),
+    format: Literal["json", "csv"] = Query(
+        "json", description="Export format: 'json' or 'csv'"
+    ),
 ) -> Response:
     """
     Export snapshot data in JSON or CSV format.
@@ -556,93 +571,156 @@ async def export_snapshot(
             return Response(
                 content=json_content,
                 media_type="application/json",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{filename}"'
-                }
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
 
         elif format == "csv":
             # Export as CSV bundle (ZIP file)
             zip_buffer = io.BytesIO()
 
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 # 1. Export conversations.csv
                 if snapshot.messages:
                     csv_buffer = io.StringIO()
                     writer = csv.writer(csv_buffer)
-                    writer.writerow([
-                        'id', 'timestamp', 'type', 'from_agent_id', 'from_agent_name',
-                        'to_agent_id', 'to_agent_name', 'task_id', 'task_name',
-                        'message', 'parent_message_id'
-                    ])
+                    writer.writerow(
+                        [
+                            "id",
+                            "timestamp",
+                            "type",
+                            "from_agent_id",
+                            "from_agent_name",
+                            "to_agent_id",
+                            "to_agent_name",
+                            "task_id",
+                            "task_name",
+                            "message",
+                            "parent_message_id",
+                        ]
+                    )
                     for msg in snapshot.messages:
-                        writer.writerow([
-                            msg.id, msg.timestamp, msg.type, msg.from_agent_id,
-                            msg.from_agent_name, msg.to_agent_id, msg.to_agent_name,
-                            msg.task_id or '', msg.task_name or '', msg.message,
-                            msg.parent_message_id or ''
-                        ])
-                    zip_file.writestr('conversations.csv', csv_buffer.getvalue())
+                        writer.writerow(
+                            [
+                                msg.id,
+                                msg.timestamp,
+                                msg.type,
+                                msg.from_agent_id,
+                                msg.from_agent_name,
+                                msg.to_agent_id,
+                                msg.to_agent_name,
+                                msg.task_id or "",
+                                msg.task_name or "",
+                                msg.message,
+                                msg.parent_message_id or "",
+                            ]
+                        )
+                    zip_file.writestr("conversations.csv", csv_buffer.getvalue())
 
                 # 2. Export tasks.csv
                 if snapshot.tasks:
                     csv_buffer = io.StringIO()
                     writer = csv.writer(csv_buffer)
-                    writer.writerow([
-                        'id', 'name', 'description', 'status', 'progress_percent',
-                        'assigned_agent_id', 'assigned_agent_name', 'parent_task_id',
-                        'parent_task_name', 'project_id', 'project_name',
-                        'created_at', 'started_at', 'completed_at', 'updated_at',
-                        'priority', 'estimated_hours', 'actual_hours'
-                    ])
+                    writer.writerow(
+                        [
+                            "id",
+                            "name",
+                            "description",
+                            "status",
+                            "progress_percent",
+                            "assigned_agent_id",
+                            "assigned_agent_name",
+                            "parent_task_id",
+                            "parent_task_name",
+                            "project_id",
+                            "project_name",
+                            "created_at",
+                            "started_at",
+                            "completed_at",
+                            "updated_at",
+                            "priority",
+                            "estimated_hours",
+                            "actual_hours",
+                        ]
+                    )
                     for task in snapshot.tasks:
-                        writer.writerow([
-                            task.id, task.name, task.description, task.status,
-                            task.progress_percent, task.assigned_agent_id or '',
-                            task.assigned_agent_name or '', task.parent_task_id or '',
-                            task.parent_task_name or '', task.project_id, task.project_name,
-                            task.created_at, task.started_at or '', task.completed_at or '',
-                            task.updated_at, task.priority, task.estimated_hours,
-                            task.actual_hours
-                        ])
-                    zip_file.writestr('tasks.csv', csv_buffer.getvalue())
+                        writer.writerow(
+                            [
+                                task.id,
+                                task.name,
+                                task.description,
+                                task.status,
+                                task.progress_percent,
+                                task.assigned_agent_id or "",
+                                task.assigned_agent_name or "",
+                                task.parent_task_id or "",
+                                task.parent_task_name or "",
+                                task.project_id,
+                                task.project_name,
+                                task.created_at,
+                                task.started_at or "",
+                                task.completed_at or "",
+                                task.updated_at,
+                                task.priority,
+                                task.estimated_hours,
+                                task.actual_hours,
+                            ]
+                        )
+                    zip_file.writestr("tasks.csv", csv_buffer.getvalue())
 
                 # 3. Export agents.csv
                 if snapshot.agents:
                     csv_buffer = io.StringIO()
                     writer = csv.writer(csv_buffer)
-                    writer.writerow([
-                        'id', 'name', 'role', 'skills', 'completed_tasks_count',
-                        'total_hours_worked', 'average_task_duration_hours',
-                        'performance_score', 'capacity_utilization',
-                        'messages_sent', 'messages_received', 'blockers_reported'
-                    ])
+                    writer.writerow(
+                        [
+                            "id",
+                            "name",
+                            "role",
+                            "skills",
+                            "completed_tasks_count",
+                            "total_hours_worked",
+                            "average_task_duration_hours",
+                            "performance_score",
+                            "capacity_utilization",
+                            "messages_sent",
+                            "messages_received",
+                            "blockers_reported",
+                        ]
+                    )
                     for agent in snapshot.agents:
-                        writer.writerow([
-                            agent.id, agent.name, agent.role,
-                            ';'.join(agent.skills) if agent.skills else '',
-                            agent.completed_tasks_count, agent.total_hours_worked,
-                            agent.average_task_duration_hours, agent.performance_score,
-                            agent.capacity_utilization, agent.messages_sent,
-                            agent.messages_received, agent.blockers_reported
-                        ])
-                    zip_file.writestr('agents.csv', csv_buffer.getvalue())
+                        writer.writerow(
+                            [
+                                agent.id,
+                                agent.name,
+                                agent.role,
+                                ";".join(agent.skills) if agent.skills else "",
+                                agent.completed_tasks_count,
+                                agent.total_hours_worked,
+                                agent.average_task_duration_hours,
+                                agent.performance_score,
+                                agent.capacity_utilization,
+                                agent.messages_sent,
+                                agent.messages_received,
+                                agent.blockers_reported,
+                            ]
+                        )
+                    zip_file.writestr("agents.csv", csv_buffer.getvalue())
 
                 # 4. Export task_dependencies.csv
                 if snapshot.task_dependency_graph:
                     csv_buffer = io.StringIO()
                     writer = csv.writer(csv_buffer)
-                    writer.writerow(['source_task_id', 'target_task_id'])
+                    writer.writerow(["source_task_id", "target_task_id"])
                     for source_id, targets in snapshot.task_dependency_graph.items():
                         for target_id in targets:
                             writer.writerow([source_id, target_id])
-                    zip_file.writestr('task_dependencies.csv', csv_buffer.getvalue())
+                    zip_file.writestr("task_dependencies.csv", csv_buffer.getvalue())
 
                 # 5. Export agent_communications.csv
                 if snapshot.agent_communication_graph:
                     csv_buffer = io.StringIO()
                     writer = csv.writer(csv_buffer)
-                    writer.writerow(['from_agent_id', 'to_agent_id', 'message_count'])
+                    writer.writerow(["from_agent_id", "to_agent_id", "message_count"])
 
                     # Count messages between agents
                     comm_counts: Dict[tuple[str, str], int] = {}
@@ -653,24 +731,38 @@ async def export_snapshot(
 
                     for (from_id, to_id), count in comm_counts.items():
                         writer.writerow([from_id, to_id, count])
-                    zip_file.writestr('agent_communications.csv', csv_buffer.getvalue())
+                    zip_file.writestr("agent_communications.csv", csv_buffer.getvalue())
 
                 # 6. Export timeline_events.csv
                 if snapshot.timeline_events:
                     csv_buffer = io.StringIO()
                     writer = csv.writer(csv_buffer)
-                    writer.writerow([
-                        'id', 'timestamp', 'event_type', 'agent_id', 'agent_name',
-                        'task_id', 'task_name', 'data'
-                    ])
+                    writer.writerow(
+                        [
+                            "id",
+                            "timestamp",
+                            "event_type",
+                            "agent_id",
+                            "agent_name",
+                            "task_id",
+                            "task_name",
+                            "data",
+                        ]
+                    )
                     for event in snapshot.timeline_events:
-                        writer.writerow([
-                            event.id, event.timestamp, event.event_type,
-                            event.agent_id or '', event.agent_name or '',
-                            event.task_id or '', event.task_name or '',
-                            json.dumps(event.data) if event.data else ''
-                        ])
-                    zip_file.writestr('timeline_events.csv', csv_buffer.getvalue())
+                        writer.writerow(
+                            [
+                                event.id,
+                                event.timestamp,
+                                event.event_type,
+                                event.agent_id or "",
+                                event.agent_name or "",
+                                event.task_id or "",
+                                event.task_name or "",
+                                json.dumps(event.data) if event.data else "",
+                            ]
+                        )
+                    zip_file.writestr("timeline_events.csv", csv_buffer.getvalue())
 
             # Reset buffer position
             zip_buffer.seek(0)
@@ -680,9 +772,7 @@ async def export_snapshot(
             return Response(
                 content=zip_buffer.getvalue(),
                 media_type="application/zip",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{filename}"'
-                }
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
 
         else:
@@ -690,9 +780,7 @@ async def export_snapshot(
 
     except Exception as e:
         logger.error(f"Error creating export: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"Error creating export: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error creating export: {str(e)}")
 
 
 # ============================================================================
@@ -710,6 +798,7 @@ try:
     if marcus_root:
         sys.path.insert(0, str(marcus_root))
         from src.core.project_registry import ProjectRegistry
+
         project_registry = ProjectRegistry()
         logger.info("✅ Project registry loaded for historical filtering")
 except Exception as e:
@@ -731,7 +820,9 @@ async def get_artifact_content(artifact_id: str) -> Dict[str, Any]:
         artifact = aggregator.get_artifact_by_id(artifact_id)
 
         if not artifact:
-            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Artifact {artifact_id} not found"
+            )
 
         # Security: Validate path is safe
         artifact_path = Path(artifact.absolute_path)
@@ -740,31 +831,28 @@ async def get_artifact_content(artifact_id: str) -> Dict[str, Any]:
         if not artifact_path.exists():
             raise HTTPException(
                 status_code=404,
-                detail=f"Artifact file not found: {artifact.absolute_path}"
+                detail=f"Artifact file not found: {artifact.absolute_path}",
             )
 
         # Check if it's actually a file (not a directory)
         if not artifact_path.is_file():
-            raise HTTPException(
-                status_code=400,
-                detail="Artifact path is not a file"
-            )
+            raise HTTPException(status_code=400, detail="Artifact path is not a file")
 
         # Check file size (limit to 10MB for preview)
         file_size = artifact_path.stat().st_size
         if file_size > 10 * 1024 * 1024:  # 10MB
             raise HTTPException(
-                status_code=413,
-                detail="File too large for preview (>10MB)"
+                status_code=413, detail="File too large for preview (>10MB)"
             )
 
         # Read file content
         try:
-            content = artifact_path.read_text(encoding='utf-8')
+            content = artifact_path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             # Binary file, return base64 encoded
             import base64
-            content = base64.b64encode(artifact_path.read_bytes()).decode('ascii')
+
+            content = base64.b64encode(artifact_path.read_bytes()).decode("ascii")
             return {
                 "success": True,
                 "artifact_id": artifact_id,
@@ -772,7 +860,7 @@ async def get_artifact_content(artifact_id: str) -> Dict[str, Any]:
                 "artifact_type": artifact.artifact_type,
                 "content": content,
                 "encoding": "base64",
-                "size_bytes": file_size
+                "size_bytes": file_size,
             }
 
         return {
@@ -782,13 +870,183 @@ async def get_artifact_content(artifact_id: str) -> Dict[str, Any]:
             "artifact_type": artifact.artifact_type,
             "content": content,
             "encoding": "utf-8",
-            "size_bytes": file_size
+            "size_bytes": file_size,
         }
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error loading artifact content: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/tasks/{task_id}/conversation")  # type: ignore[misc]
+async def get_task_conversation(task_id: str) -> Dict[str, Any]:
+    """Get the full conversation timeline for a specific task.
+
+    Returns a unified chronological timeline merging:
+    - Assignment and instructions
+    - Kanban comments (progress, blockers, decisions)
+    - Events (from marcus.db)
+    - Task outcome (completion data)
+
+    Parameters
+    ----------
+    task_id : str
+        The task ID (UUID from kanban.db or Planka numeric ID)
+
+    Returns
+    -------
+    dict
+        Task metadata and chronological timeline of all interactions.
+    """
+    import sqlite3
+
+    try:
+        marcus_root = aggregator.marcus_root
+        timeline: List[Dict[str, Any]] = []
+
+        # 1. Task metadata from marcus.db
+        task_meta: Dict[str, Any] = {}
+        marcus_db = marcus_root / "data" / "marcus.db"
+        if marcus_db.exists():
+            conn = sqlite3.connect(str(marcus_db))
+
+            # Task metadata
+            row = conn.execute(
+                "SELECT data FROM persistence "
+                "WHERE collection = 'task_metadata' AND key = ?",
+                (task_id,),
+            ).fetchone()
+            if row:
+                task_meta = json.loads(row[0])
+
+            # Events for this task
+            rows = conn.execute(
+                "SELECT data FROM persistence "
+                "WHERE collection = 'events' "
+                "AND data LIKE ?",
+                (f"%{task_id}%",),
+            ).fetchall()
+            for r in rows:
+                try:
+                    event = json.loads(r[0])
+                    event_type = event.get("event_type", "event")
+                    timestamp = event.get(
+                        "timestamp",
+                        event.get("created_at", ""),
+                    )
+                    timeline.append(
+                        {
+                            "type": event_type,
+                            "at": timestamp,
+                            "data": event.get("data", {}),
+                        }
+                    )
+                except json.JSONDecodeError:
+                    pass
+
+            # Task outcome
+            rows = conn.execute(
+                "SELECT data FROM persistence "
+                "WHERE collection = 'task_outcomes' "
+                "AND data LIKE ?",
+                (f"%{task_id}%",),
+            ).fetchall()
+            for r in rows:
+                try:
+                    outcome = json.loads(r[0])
+                    if outcome.get("task_id") == task_id:
+                        timeline.append(
+                            {
+                                "type": "completed",
+                                "at": outcome.get("completed_at", ""),
+                                "data": {
+                                    "agent_id": outcome.get("agent_id"),
+                                    "actual_hours": outcome.get("actual_hours", 0),
+                                    "success": outcome.get("success"),
+                                    "started_at": outcome.get("started_at"),
+                                    "completed_at": outcome.get("completed_at"),
+                                },
+                            }
+                        )
+                except json.JSONDecodeError:
+                    pass
+
+            conn.close()
+
+        # 2. Kanban comments (progress, blockers, decisions)
+        kanban_db = marcus_root / "data" / "kanban.db"
+        if kanban_db.exists():
+            conn = sqlite3.connect(str(kanban_db))
+            rows = conn.execute(
+                "SELECT content, author, created_at "
+                "FROM comments WHERE task_id = ? "
+                "ORDER BY created_at",
+                (task_id,),
+            ).fetchall()
+            for r in rows:
+                content = r[0]
+                # Classify comment type by emoji prefix
+                if "assigned" in content.lower():
+                    ctype = "assigned"
+                elif "BLOCKER" in content:
+                    ctype = "blocker"
+                elif "Progress:" in content:
+                    ctype = "progress"
+                elif "ARCHITECTURAL DECISION" in content:
+                    ctype = "decision"
+                elif "RECOVERY" in content:
+                    ctype = "recovery"
+                else:
+                    ctype = "comment"
+
+                timeline.append(
+                    {
+                        "type": ctype,
+                        "at": r[2],
+                        "content": content,
+                        "author": r[1],
+                    }
+                )
+
+            # Also get task status from kanban.db
+            task_row = conn.execute(
+                "SELECT name, status, assigned_to, priority, "
+                "estimated_hours, description "
+                "FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if task_row:
+                task_meta.update(
+                    {
+                        "name": task_row[0],
+                        "status": task_row[1],
+                        "assigned_to": task_row[2],
+                        "priority": task_row[3],
+                        "estimated_hours": task_row[4],
+                        "description": task_row[5],
+                    }
+                )
+
+            conn.close()
+
+        # 3. Sort timeline chronologically
+        timeline.sort(key=lambda x: x.get("at", "") or "")
+
+        return {
+            "task_id": task_id,
+            "task_name": task_meta.get("name", task_meta.get("task_name", "Unknown")),
+            "assigned_to": task_meta.get("assigned_to"),
+            "status": task_meta.get("status", "unknown"),
+            "priority": task_meta.get("priority"),
+            "estimated_hours": task_meta.get("estimated_hours"),
+            "description": task_meta.get("description", ""),
+            "timeline": timeline,
+        }
+
+    except Exception as e:
+        logger.error(f"Error loading task conversation: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -825,7 +1083,7 @@ async def list_historical_projects():
     if not HISTORICAL_MODE_AVAILABLE:
         raise HTTPException(
             status_code=503,
-            detail="Historical analysis mode not available (missing dependencies)"
+            detail="Historical analysis mode not available (missing dependencies)",
         )
 
     try:
@@ -862,7 +1120,9 @@ async def list_historical_projects():
                     project_dir = history_dir / project_id
                     if project_dir.exists() and project_dir.is_dir():
                         try:
-                            summary = await history_query.get_project_summary(project_id)
+                            summary = await history_query.get_project_summary(
+                                project_id
+                            )
                             summary["is_active"] = True
                             active_projects_data.append(summary)
                         except Exception as e:
@@ -878,7 +1138,9 @@ async def list_historical_projects():
                     if project_dir.is_dir():
                         project_id = project_dir.name
                         try:
-                            summary = await history_query.get_project_summary(project_id)
+                            summary = await history_query.get_project_summary(
+                                project_id
+                            )
                             summary["is_active"] = True
                             active_projects_data.append(summary)
                         except Exception as e:
@@ -886,9 +1148,7 @@ async def list_historical_projects():
         else:
             logger.warning(f"Project history directory not found: {history_dir}")
 
-        logger.info(
-            f"Returning {len(active_projects_data)} active projects"
-        )
+        logger.info(f"Returning {len(active_projects_data)} active projects")
         return {
             "projects": active_projects_data,
             "count": len(active_projects_data),
@@ -898,8 +1158,7 @@ async def list_historical_projects():
     except Exception as e:
         logger.error(f"Error listing historical projects: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Error listing historical projects: {str(e)}"
+            status_code=500, detail=f"Error listing historical projects: {str(e)}"
         )
 
 
@@ -948,7 +1207,7 @@ async def list_all_historical_projects(
     if not HISTORICAL_MODE_AVAILABLE:
         raise HTTPException(
             status_code=503,
-            detail="Historical analysis mode not available (missing dependencies)"
+            detail="Historical analysis mode not available (missing dependencies)",
         )
 
     try:
@@ -963,9 +1222,7 @@ async def list_all_historical_projects(
                     f"Found {len(active_project_ids)} active projects in registry"
                 )
             except Exception as e:
-                logger.warning(
-                    f"Could not load project registry: {e}"
-                )
+                logger.warning(f"Could not load project registry: {e}")
 
         # Find all historical projects
         if marcus_root:
@@ -1018,8 +1275,7 @@ async def list_all_historical_projects(
     except Exception as e:
         logger.error(f"Error listing all historical projects: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Error listing all historical projects: {str(e)}"
+            status_code=500, detail=f"Error listing all historical projects: {str(e)}"
         )
 
 
@@ -1034,7 +1290,7 @@ async def stream_historical_projects_list() -> StreamingResponse:
     if not HISTORICAL_MODE_AVAILABLE:
         raise HTTPException(
             status_code=503,
-            detail="Historical analysis mode not available (missing dependencies)"
+            detail="Historical analysis mode not available (missing dependencies)",
         )
 
     async def event_generator():
@@ -1042,7 +1298,7 @@ async def stream_historical_projects_list() -> StreamingResponse:
         try:
             # Step 1: Scan for project directories
             event_data = json.dumps(
-                {'type': 'log', 'message': '📁 Scanning for historical projects...'}
+                {"type": "log", "message": "📁 Scanning for historical projects..."}
             )
             yield f"data: {event_data}\n\n"
             await asyncio.sleep(0.1)
@@ -1050,11 +1306,16 @@ async def stream_historical_projects_list() -> StreamingResponse:
             if marcus_root:
                 history_dir = marcus_root / "data" / "project_history"
             else:
-                history_dir = Path.home() / "dev" / "marcus" / "data" / "project_history"
+                history_dir = (
+                    Path.home() / "dev" / "marcus" / "data" / "project_history"
+                )
 
             if not history_dir.exists():
                 event_data = json.dumps(
-                    {'type': 'error', 'message': f'Project history directory not found: {history_dir}'}
+                    {
+                        "type": "error",
+                        "message": f"Project history directory not found: {history_dir}",
+                    }
                 )
                 yield f"data: {event_data}\n\n"
                 return
@@ -1064,7 +1325,10 @@ async def stream_historical_projects_list() -> StreamingResponse:
             total_projects = len(project_dirs)
 
             event_data = json.dumps(
-                {'type': 'log', 'message': f'✓ Found {total_projects} project directories'}
+                {
+                    "type": "log",
+                    "message": f"✓ Found {total_projects} project directories",
+                }
             )
             yield f"data: {event_data}\n\n"
             await asyncio.sleep(0.1)
@@ -1075,12 +1339,14 @@ async def stream_historical_projects_list() -> StreamingResponse:
                 project_id = project_dir.name
 
                 # Show progress
-                event_data = json.dumps({
-                    'type': 'progress',
-                    'message': f'Loading project {idx} of {total_projects}...',
-                    'current': idx,
-                    'total': total_projects
-                })
+                event_data = json.dumps(
+                    {
+                        "type": "progress",
+                        "message": f"Loading project {idx} of {total_projects}...",
+                        "current": idx,
+                        "total": total_projects,
+                    }
+                )
                 yield f"data: {event_data}\n\n"
                 await asyncio.sleep(0.05)
 
@@ -1090,36 +1356,38 @@ async def stream_historical_projects_list() -> StreamingResponse:
 
                     # Show success for this project
                     project_name = summary.get("project_name", project_id[:8])
-                    event_data = json.dumps({
-                        'type': 'log',
-                        'message': f'  ✓ Loaded: {project_name}'
-                    })
+                    event_data = json.dumps(
+                        {"type": "log", "message": f"  ✓ Loaded: {project_name}"}
+                    )
                     yield f"data: {event_data}\n\n"
                     await asyncio.sleep(0.05)
 
                 except Exception as e:
                     logger.warning(f"Error loading project {project_id}: {e}")
-                    event_data = json.dumps({
-                        'type': 'log',
-                        'message': f'  ⚠️  Skipped: {project_id[:8]} (error)'
-                    })
+                    event_data = json.dumps(
+                        {
+                            "type": "log",
+                            "message": f"  ⚠️  Skipped: {project_id[:8]} (error)",
+                        }
+                    )
                     yield f"data: {event_data}\n\n"
                     await asyncio.sleep(0.05)
 
             # Step 3: Send completion with data
-            event_data = json.dumps({
-                'type': 'complete',
-                'message': f'✓ Loaded {len(projects)} projects',
-                'data': {'projects': projects}
-            })
+            event_data = json.dumps(
+                {
+                    "type": "complete",
+                    "message": f"✓ Loaded {len(projects)} projects",
+                    "data": {"projects": projects},
+                }
+            )
             yield f"data: {event_data}\n\n"
 
         except Exception as e:
             logger.error(f"Error streaming historical projects: {e}", exc_info=True)
-            event_data = json.dumps({
-                'type': 'error',
-                'message': f'Error loading projects: {str(e)}'
-            })
+            event_data = json.dumps(
+                {"type": "error", "message": f"Error loading projects: {str(e)}"}
+            )
             yield f"data: {event_data}\n\n"
 
     return StreamingResponse(
@@ -1141,8 +1409,7 @@ async def get_project_history(project_id: str):
     """
     if not HISTORICAL_MODE_AVAILABLE:
         raise HTTPException(
-            status_code=503,
-            detail="Historical analysis mode not available"
+            status_code=503, detail="Historical analysis mode not available"
         )
 
     try:
@@ -1161,8 +1428,7 @@ async def get_project_history(project_id: str):
     except Exception as e:
         logger.error(f"Error loading project history: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Error loading project history: {str(e)}"
+            status_code=500, detail=f"Error loading project history: {str(e)}"
         )
 
 
@@ -1176,8 +1442,7 @@ async def get_project_analysis(project_id: str):
     """
     if not HISTORICAL_MODE_AVAILABLE:
         raise HTTPException(
-            status_code=503,
-            detail="Historical analysis mode not available"
+            status_code=503, detail="Historical analysis mode not available"
         )
 
     try:
@@ -1224,356 +1489,9 @@ async def get_project_analysis(project_id: str):
 
         # Add Phase 2 data if analysis succeeded
         if phase2_success and analysis:
-            result.update({
-                # Phase 2 analysis results
-                "analysis_timestamp": analysis.analysis_timestamp.isoformat(),
-                "summary": analysis.summary,
-                "requirement_divergences": [
+            result.update(
                 {
-                    "task_id": rd.task_id,
-                    "fidelity_score": rd.fidelity_score,
-                    "divergences": [
-                        {
-                            "requirement": d.requirement,
-                            "implementation": d.implementation,
-                            "severity": d.severity,
-                            "impact": d.impact,
-                            "citation": d.citation,
-                        }
-                        for d in rd.divergences
-                    ],
-                    "recommendations": rd.recommendations,
-                }
-                for rd in analysis.requirement_divergences
-            ],
-            "decision_impacts": [
-                {
-                    "decision_id": di.decision_id,
-                    "impact_chains": [
-                        {
-                            "decision_summary": ic.decision_summary,
-                            "direct_impacts": ic.direct_impacts,
-                            "indirect_impacts": ic.indirect_impacts,
-                            "depth": ic.depth,
-                            "citation": ic.citation,
-                        }
-                        for ic in di.impact_chains
-                    ],
-                    "unexpected_impacts": [
-                        {
-                            "affected_task": ui.affected_task_name,
-                            "anticipated": ui.anticipated,
-                            "actual_impact": ui.actual_impact,
-                            "severity": ui.severity,
-                        }
-                        for ui in di.unexpected_impacts
-                    ],
-                    "recommendations": di.recommendations,
-                }
-                for di in analysis.decision_impacts
-            ],
-            "instruction_quality_issues": [
-                {
-                    "task_id": iq.task_id,
-                    "quality_scores": {
-                        "clarity": iq.quality_scores.clarity,
-                        "completeness": iq.quality_scores.completeness,
-                        "specificity": iq.quality_scores.specificity,
-                        "overall": iq.quality_scores.overall,
-                    },
-                    "ambiguity_issues": [
-                        {
-                            "aspect": ai.ambiguous_aspect,
-                            "evidence": ai.evidence,
-                            "consequence": ai.consequence,
-                            "severity": ai.severity,
-                        }
-                        for ai in iq.ambiguity_issues
-                    ],
-                    "recommendations": iq.recommendations,
-                }
-                for iq in analysis.instruction_quality_issues
-            ],
-            "failure_diagnoses": [
-                {
-                    "task_id": fd.task_id,
-                    "failure_causes": [
-                        {
-                            "category": fc.category,
-                            "root_cause": fc.root_cause,
-                            "contributing_factors": fc.contributing_factors,
-                            "evidence": fc.evidence,
-                        }
-                        for fc in fd.failure_causes
-                    ],
-                    "prevention_strategies": [
-                        {
-                            "strategy": ps.strategy,
-                            "rationale": ps.rationale,
-                            "effort": ps.effort,
-                            "priority": ps.priority,
-                        }
-                        for ps in fd.prevention_strategies
-                    ],
-                    "lessons_learned": fd.lessons_learned,
-                }
-                for fd in analysis.failure_diagnoses
-            ],
-            "task_redundancy": {
-                "project_id": analysis.task_redundancy.project_id,
-                "redundant_pairs": [
-                    {
-                        "task_1_id": rp.task_1_id,
-                        "task_1_name": rp.task_1_name,
-                        "task_2_id": rp.task_2_id,
-                        "task_2_name": rp.task_2_name,
-                        "overlap_score": rp.overlap_score,
-                        "evidence": rp.evidence,
-                        "time_wasted": rp.time_wasted,
-                    }
-                    for rp in analysis.task_redundancy.redundant_pairs
-                ],
-                "redundancy_score": analysis.task_redundancy.redundancy_score,
-                "total_time_wasted": analysis.task_redundancy.total_time_wasted,
-                "over_decomposition_detected": analysis.task_redundancy.over_decomposition_detected,
-                "recommended_complexity": analysis.task_redundancy.recommended_complexity,
-                "raw_data": analysis.task_redundancy.raw_data,
-                "llm_interpretation": analysis.task_redundancy.llm_interpretation,
-                "recommendations": analysis.task_redundancy.recommendations,
-            } if analysis.task_redundancy else None,
-            "metadata": analysis.metadata,
-            })
-        else:
-            # Phase 2 analysis failed - add error info
-            result.update({
-                "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
-                "summary": None,
-                "phase2_error": phase2_error,
-                "requirement_divergences": [],
-                "decision_impacts": [],
-                "instruction_quality_issues": [],
-                "failure_diagnoses": [],
-                "task_redundancy": None,
-                "metadata": {"phase2_available": False, "error": phase2_error},
-            })
-
-        return result
-
-    except Exception as e:
-        logger.error(f"Error analyzing project: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error analyzing project: {str(e)}"
-        )
-
-
-@app.get("/api/historical/projects/{project_id}/analysis/stream")
-async def stream_historical_analysis(project_id: str) -> StreamingResponse:
-    """
-    Stream analysis progress to frontend using Server-Sent Events.
-
-    Returns real-time progress updates as analysis is performed, showing
-    each step with counts and status messages.
-    """
-    if not HISTORICAL_MODE_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail="Historical analysis mode not available"
-        )
-
-    async def event_generator():
-        """Generate SSE events for analysis progress."""
-        try:
-            # Step 1: Load project data
-            event_data = json.dumps(
-                {'type': 'log', 'message': '📂 Loading project data...'}
-            )
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0.1)  # Allow UI to update
-
-            summary = await history_query.get_project_summary(project_id)
-            project_name = summary["project_name"]
-
-            event_data = json.dumps(
-                {'type': 'log', 'message': f'✓ Loaded project: {project_name}'}
-            )
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0.1)
-
-            # Step 2: Load project history (tasks, decisions, artifacts)
-            event_data = json.dumps(
-                {'type': 'log', 'message': '📋 Loading project history...'}
-            )
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0.1)
-
-            history = await history_query.get_project_history(project_id)
-
-            # Step 3: Report counts
-            task_count = len(history.tasks)
-            decision_count = len(history.decisions)
-            artifact_count = len(history.artifacts)
-
-            event_data = json.dumps(
-                {'type': 'log', 'message': f'✓ Found {task_count} tasks'}
-            )
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0.1)
-
-            event_data = json.dumps(
-                {'type': 'log', 'message': f'✓ Found {decision_count} decisions'}
-            )
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0.1)
-
-            event_data = json.dumps(
-                {'type': 'log', 'message': f'✓ Found {artifact_count} artifacts'}
-            )
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0.1)
-
-            # Step 4: Phase 1 summary
-            event_data = json.dumps(
-                {'type': 'log', 'message': '📊 Calculating Phase 1 metrics...'}
-            )
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0.1)
-
-            completion_rate = summary["completion_rate"]
-            event_data = json.dumps(
-                {'type': 'log', 'message': f'✓ Completion rate: {completion_rate:.1f}%'}
-            )
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0.1)
-
-            # Step 5: Run Phase 2 analysis with real-time progress
-            event_data = json.dumps(
-                {'type': 'log', 'message': '🔍 Starting Phase 2 AI analysis...'}
-            )
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0.1)
-
-            phase2_success = False
-            analysis = None
-            phase2_error = None
-
-            try:
-                # Create a queue for passing progress events from callback to generator
-                progress_queue: asyncio.Queue = asyncio.Queue()
-
-                async def run_analysis_with_progress():
-                    """Run analysis and put progress events in queue."""
-                    nonlocal analysis, phase2_success
-
-                    async def progress_callback(event):
-                        """Progress callback that puts events in queue."""
-                        if event.total and event.current > 0:
-                            pct = (event.current / event.total) * 100
-                            msg = f"  ⟳ {event.message} ({event.current}/{event.total} - {pct:.0f}%)"
-                        else:
-                            msg = f"  ⟳ {event.message}"
-
-                        # Put formatted message in queue
-                        await progress_queue.put(msg)
-
-                    analyzer = PostProjectAnalyzer()
-                    analysis = await analyzer.analyze_project(
-                        project_id=project_id,
-                        tasks=history.tasks,
-                        decisions=history.decisions,
-                        progress_callback=progress_callback,
-                    )
-                    phase2_success = True
-                    # Signal completion
-                    await progress_queue.put(None)
-
-                # Start analysis task
-                analysis_task = asyncio.create_task(run_analysis_with_progress())
-
-                # Yield progress events as they arrive in the queue
-                # Track time since last message to send keep-alive updates
-                import time
-                last_message_time = time.time()
-                keepalive_interval = 3.0  # Send keep-alive every 3 seconds
-
-                while True:
-                    try:
-                        # Wait for progress event with timeout
-                        msg = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
-                        if msg is None:  # Completion signal
-                            break
-                        # Yield progress event
-                        progress_data = json.dumps({'type': 'log', 'message': msg})
-                        yield f"data: {progress_data}\n\n"
-                        last_message_time = time.time()
-                        await asyncio.sleep(0.05)
-                    except asyncio.TimeoutError:
-                        # No progress event yet - check if we need a keep-alive
-                        current_time = time.time()
-                        time_since_last = current_time - last_message_time
-
-                        if time_since_last >= keepalive_interval:
-                            # Send keep-alive message
-                            keepalive_data = json.dumps({
-                                'type': 'log',
-                                'message': '  ⟳ Processing...'
-                            })
-                            yield f"data: {keepalive_data}\n\n"
-                            last_message_time = current_time
-                            await asyncio.sleep(0.05)
-
-                        # Check if task is done
-                        if analysis_task.done():
-                            # Task completed, check for any remaining events
-                            while not progress_queue.empty():
-                                msg = await progress_queue.get()
-                                if msg is not None:
-                                    progress_data = json.dumps({'type': 'log', 'message': msg})
-                                    yield f"data: {progress_data}\n\n"
-                                    await asyncio.sleep(0.05)
-                            break
-                        continue
-
-                # Wait for analysis to complete (should already be done)
-                await analysis_task
-
-                event_data = json.dumps(
-                    {'type': 'log', 'message': '✓ Phase 2 analysis complete'}
-                )
-                yield f"data: {event_data}\n\n"
-                await asyncio.sleep(0.1)
-
-            except Exception as e:
-                logger.warning(f"Phase 2 analysis failed: {e}")
-                phase2_error = str(e)
-                event_data = json.dumps(
-                    {'type': 'log', 'message': f'⚠️  Phase 2 analysis failed: {phase2_error}'}
-                )
-                yield f"data: {event_data}\n\n"
-                await asyncio.sleep(0.1)
-
-            # Step 6: Build result
-            event_data = json.dumps(
-                {'type': 'log', 'message': '📦 Assembling results...'}
-            )
-            yield f"data: {event_data}\n\n"
-            await asyncio.sleep(0.1)
-
-            result = {
-                "project_id": project_id,
-                "project_name": summary["project_name"],
-                "total_tasks": summary["total_tasks"],
-                "completed_tasks": summary["completed_tasks"],
-                "completion_rate": summary["completion_rate"],
-                "blocked_tasks": summary["blocked_tasks"],
-                "total_decisions": summary["total_decisions"],
-                "total_artifacts": summary.get("total_artifacts", 0),
-                "active_agents": summary.get("active_agents", 0),
-                "project_duration_hours": summary["project_duration_hours"],
-            }
-
-            if phase2_success and analysis:
-                result.update({
+                    # Phase 2 analysis results
                     "analysis_timestamp": analysis.analysis_timestamp.isoformat(),
                     "summary": analysis.summary,
                     "requirement_divergences": [
@@ -1631,15 +1549,12 @@ async def stream_historical_analysis(project_id: str) -> StreamingResponse:
                             },
                             "ambiguity_issues": [
                                 {
-                                    "task_id": issue.task_id,
-                                    "task_name": issue.task_name,
-                                    "ambiguous_aspect": issue.ambiguous_aspect,
-                                    "evidence": issue.evidence,
-                                    "consequence": issue.consequence,
-                                    "severity": issue.severity,
-                                    "citation": issue.citation,
+                                    "aspect": ai.ambiguous_aspect,
+                                    "evidence": ai.evidence,
+                                    "consequence": ai.consequence,
+                                    "severity": ai.severity,
                                 }
-                                for issue in iq.ambiguity_issues
+                                for ai in iq.ambiguity_issues
                             ],
                             "recommendations": iq.recommendations,
                         }
@@ -1648,45 +1563,407 @@ async def stream_historical_analysis(project_id: str) -> StreamingResponse:
                     "failure_diagnoses": [
                         {
                             "task_id": fd.task_id,
-                            "root_causes": [
+                            "failure_causes": [
                                 {
-                                    "category": rc.category,
-                                    "description": rc.description,
-                                    "evidence": rc.evidence,
-                                    "likelihood": rc.likelihood,
+                                    "category": fc.category,
+                                    "root_cause": fc.root_cause,
+                                    "contributing_factors": fc.contributing_factors,
+                                    "evidence": fc.evidence,
                                 }
-                                for rc in fd.root_causes
+                                for fc in fd.failure_causes
                             ],
-                            "recommendations": fd.recommendations,
+                            "prevention_strategies": [
+                                {
+                                    "strategy": ps.strategy,
+                                    "rationale": ps.rationale,
+                                    "effort": ps.effort,
+                                    "priority": ps.priority,
+                                }
+                                for ps in fd.prevention_strategies
+                            ],
+                            "lessons_learned": fd.lessons_learned,
                         }
                         for fd in analysis.failure_diagnoses
                     ],
-                    "metadata": {
-                        "phase2_available": True,
-                    },
-                })
-            else:
-                result.update({
+                    "task_redundancy": (
+                        {
+                            "project_id": analysis.task_redundancy.project_id,
+                            "redundant_pairs": [
+                                {
+                                    "task_1_id": rp.task_1_id,
+                                    "task_1_name": rp.task_1_name,
+                                    "task_2_id": rp.task_2_id,
+                                    "task_2_name": rp.task_2_name,
+                                    "overlap_score": rp.overlap_score,
+                                    "evidence": rp.evidence,
+                                    "time_wasted": rp.time_wasted,
+                                }
+                                for rp in analysis.task_redundancy.redundant_pairs
+                            ],
+                            "redundancy_score": analysis.task_redundancy.redundancy_score,
+                            "total_time_wasted": analysis.task_redundancy.total_time_wasted,
+                            "over_decomposition_detected": analysis.task_redundancy.over_decomposition_detected,
+                            "recommended_complexity": analysis.task_redundancy.recommended_complexity,
+                            "raw_data": analysis.task_redundancy.raw_data,
+                            "llm_interpretation": analysis.task_redundancy.llm_interpretation,
+                            "recommendations": analysis.task_redundancy.recommendations,
+                        }
+                        if analysis.task_redundancy
+                        else None
+                    ),
+                    "metadata": analysis.metadata,
+                }
+            )
+        else:
+            # Phase 2 analysis failed - add error info
+            result.update(
+                {
+                    "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
                     "summary": None,
                     "phase2_error": phase2_error,
                     "requirement_divergences": [],
                     "decision_impacts": [],
                     "instruction_quality_issues": [],
                     "failure_diagnoses": [],
-                    "metadata": {
-                        "phase2_available": False,
-                        "error": phase2_error
-                    },
-                })
+                    "task_redundancy": None,
+                    "metadata": {"phase2_available": False, "error": phase2_error},
+                }
+            )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error analyzing project: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Error analyzing project: {str(e)}"
+        )
+
+
+@app.get("/api/historical/projects/{project_id}/analysis/stream")
+async def stream_historical_analysis(project_id: str) -> StreamingResponse:
+    """
+    Stream analysis progress to frontend using Server-Sent Events.
+
+    Returns real-time progress updates as analysis is performed, showing
+    each step with counts and status messages.
+    """
+    if not HISTORICAL_MODE_AVAILABLE:
+        raise HTTPException(
+            status_code=503, detail="Historical analysis mode not available"
+        )
+
+    async def event_generator():
+        """Generate SSE events for analysis progress."""
+        try:
+            # Step 1: Load project data
+            event_data = json.dumps(
+                {"type": "log", "message": "📂 Loading project data..."}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)  # Allow UI to update
+
+            summary = await history_query.get_project_summary(project_id)
+            project_name = summary["project_name"]
+
+            event_data = json.dumps(
+                {"type": "log", "message": f"✓ Loaded project: {project_name}"}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            # Step 2: Load project history (tasks, decisions, artifacts)
+            event_data = json.dumps(
+                {"type": "log", "message": "📋 Loading project history..."}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            history = await history_query.get_project_history(project_id)
+
+            # Step 3: Report counts
+            task_count = len(history.tasks)
+            decision_count = len(history.decisions)
+            artifact_count = len(history.artifacts)
+
+            event_data = json.dumps(
+                {"type": "log", "message": f"✓ Found {task_count} tasks"}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            event_data = json.dumps(
+                {"type": "log", "message": f"✓ Found {decision_count} decisions"}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            event_data = json.dumps(
+                {"type": "log", "message": f"✓ Found {artifact_count} artifacts"}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            # Step 4: Phase 1 summary
+            event_data = json.dumps(
+                {"type": "log", "message": "📊 Calculating Phase 1 metrics..."}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            completion_rate = summary["completion_rate"]
+            event_data = json.dumps(
+                {"type": "log", "message": f"✓ Completion rate: {completion_rate:.1f}%"}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            # Step 5: Run Phase 2 analysis with real-time progress
+            event_data = json.dumps(
+                {"type": "log", "message": "🔍 Starting Phase 2 AI analysis..."}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            phase2_success = False
+            analysis = None
+            phase2_error = None
+
+            try:
+                # Create a queue for passing progress events from callback to generator
+                progress_queue: asyncio.Queue = asyncio.Queue()
+
+                async def run_analysis_with_progress():
+                    """Run analysis and put progress events in queue."""
+                    nonlocal analysis, phase2_success
+
+                    async def progress_callback(event):
+                        """Progress callback that puts events in queue."""
+                        if event.total and event.current > 0:
+                            pct = (event.current / event.total) * 100
+                            msg = f"  ⟳ {event.message} ({event.current}/{event.total} - {pct:.0f}%)"
+                        else:
+                            msg = f"  ⟳ {event.message}"
+
+                        # Put formatted message in queue
+                        await progress_queue.put(msg)
+
+                    analyzer = PostProjectAnalyzer()
+                    analysis = await analyzer.analyze_project(
+                        project_id=project_id,
+                        tasks=history.tasks,
+                        decisions=history.decisions,
+                        progress_callback=progress_callback,
+                    )
+                    phase2_success = True
+                    # Signal completion
+                    await progress_queue.put(None)
+
+                # Start analysis task
+                analysis_task = asyncio.create_task(run_analysis_with_progress())
+
+                # Yield progress events as they arrive in the queue
+                # Track time since last message to send keep-alive updates
+                import time
+
+                last_message_time = time.time()
+                keepalive_interval = 3.0  # Send keep-alive every 3 seconds
+
+                while True:
+                    try:
+                        # Wait for progress event with timeout
+                        msg = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
+                        if msg is None:  # Completion signal
+                            break
+                        # Yield progress event
+                        progress_data = json.dumps({"type": "log", "message": msg})
+                        yield f"data: {progress_data}\n\n"
+                        last_message_time = time.time()
+                        await asyncio.sleep(0.05)
+                    except asyncio.TimeoutError:
+                        # No progress event yet - check if we need a keep-alive
+                        current_time = time.time()
+                        time_since_last = current_time - last_message_time
+
+                        if time_since_last >= keepalive_interval:
+                            # Send keep-alive message
+                            keepalive_data = json.dumps(
+                                {"type": "log", "message": "  ⟳ Processing..."}
+                            )
+                            yield f"data: {keepalive_data}\n\n"
+                            last_message_time = current_time
+                            await asyncio.sleep(0.05)
+
+                        # Check if task is done
+                        if analysis_task.done():
+                            # Task completed, check for any remaining events
+                            while not progress_queue.empty():
+                                msg = await progress_queue.get()
+                                if msg is not None:
+                                    progress_data = json.dumps(
+                                        {"type": "log", "message": msg}
+                                    )
+                                    yield f"data: {progress_data}\n\n"
+                                    await asyncio.sleep(0.05)
+                            break
+                        continue
+
+                # Wait for analysis to complete (should already be done)
+                await analysis_task
+
+                event_data = json.dumps(
+                    {"type": "log", "message": "✓ Phase 2 analysis complete"}
+                )
+                yield f"data: {event_data}\n\n"
+                await asyncio.sleep(0.1)
+
+            except Exception as e:
+                logger.warning(f"Phase 2 analysis failed: {e}")
+                phase2_error = str(e)
+                event_data = json.dumps(
+                    {
+                        "type": "log",
+                        "message": f"⚠️  Phase 2 analysis failed: {phase2_error}",
+                    }
+                )
+                yield f"data: {event_data}\n\n"
+                await asyncio.sleep(0.1)
+
+            # Step 6: Build result
+            event_data = json.dumps(
+                {"type": "log", "message": "📦 Assembling results..."}
+            )
+            yield f"data: {event_data}\n\n"
+            await asyncio.sleep(0.1)
+
+            result = {
+                "project_id": project_id,
+                "project_name": summary["project_name"],
+                "total_tasks": summary["total_tasks"],
+                "completed_tasks": summary["completed_tasks"],
+                "completion_rate": summary["completion_rate"],
+                "blocked_tasks": summary["blocked_tasks"],
+                "total_decisions": summary["total_decisions"],
+                "total_artifacts": summary.get("total_artifacts", 0),
+                "active_agents": summary.get("active_agents", 0),
+                "project_duration_hours": summary["project_duration_hours"],
+            }
+
+            if phase2_success and analysis:
+                result.update(
+                    {
+                        "analysis_timestamp": analysis.analysis_timestamp.isoformat(),
+                        "summary": analysis.summary,
+                        "requirement_divergences": [
+                            {
+                                "task_id": rd.task_id,
+                                "fidelity_score": rd.fidelity_score,
+                                "divergences": [
+                                    {
+                                        "requirement": d.requirement,
+                                        "implementation": d.implementation,
+                                        "severity": d.severity,
+                                        "impact": d.impact,
+                                        "citation": d.citation,
+                                    }
+                                    for d in rd.divergences
+                                ],
+                                "recommendations": rd.recommendations,
+                            }
+                            for rd in analysis.requirement_divergences
+                        ],
+                        "decision_impacts": [
+                            {
+                                "decision_id": di.decision_id,
+                                "impact_chains": [
+                                    {
+                                        "decision_summary": ic.decision_summary,
+                                        "direct_impacts": ic.direct_impacts,
+                                        "indirect_impacts": ic.indirect_impacts,
+                                        "depth": ic.depth,
+                                        "citation": ic.citation,
+                                    }
+                                    for ic in di.impact_chains
+                                ],
+                                "unexpected_impacts": [
+                                    {
+                                        "affected_task": ui.affected_task_name,
+                                        "anticipated": ui.anticipated,
+                                        "actual_impact": ui.actual_impact,
+                                        "severity": ui.severity,
+                                    }
+                                    for ui in di.unexpected_impacts
+                                ],
+                                "recommendations": di.recommendations,
+                            }
+                            for di in analysis.decision_impacts
+                        ],
+                        "instruction_quality_issues": [
+                            {
+                                "task_id": iq.task_id,
+                                "quality_scores": {
+                                    "clarity": iq.quality_scores.clarity,
+                                    "completeness": iq.quality_scores.completeness,
+                                    "specificity": iq.quality_scores.specificity,
+                                    "overall": iq.quality_scores.overall,
+                                },
+                                "ambiguity_issues": [
+                                    {
+                                        "task_id": issue.task_id,
+                                        "task_name": issue.task_name,
+                                        "ambiguous_aspect": issue.ambiguous_aspect,
+                                        "evidence": issue.evidence,
+                                        "consequence": issue.consequence,
+                                        "severity": issue.severity,
+                                        "citation": issue.citation,
+                                    }
+                                    for issue in iq.ambiguity_issues
+                                ],
+                                "recommendations": iq.recommendations,
+                            }
+                            for iq in analysis.instruction_quality_issues
+                        ],
+                        "failure_diagnoses": [
+                            {
+                                "task_id": fd.task_id,
+                                "root_causes": [
+                                    {
+                                        "category": rc.category,
+                                        "description": rc.description,
+                                        "evidence": rc.evidence,
+                                        "likelihood": rc.likelihood,
+                                    }
+                                    for rc in fd.root_causes
+                                ],
+                                "recommendations": fd.recommendations,
+                            }
+                            for fd in analysis.failure_diagnoses
+                        ],
+                        "metadata": {
+                            "phase2_available": True,
+                        },
+                    }
+                )
+            else:
+                result.update(
+                    {
+                        "summary": None,
+                        "phase2_error": phase2_error,
+                        "requirement_divergences": [],
+                        "decision_impacts": [],
+                        "instruction_quality_issues": [],
+                        "failure_diagnoses": [],
+                        "metadata": {"phase2_available": False, "error": phase2_error},
+                    }
+                )
 
             # Step 7: Complete
-            event_data = json.dumps({'type': 'complete', 'data': result})
+            event_data = json.dumps({"type": "complete", "data": result})
             yield f"data: {event_data}\n\n"
 
         except Exception as e:
             logger.error(f"Error during streaming analysis: {e}", exc_info=True)
             error_msg = str(e)
-            event_data = json.dumps({'type': 'error', 'message': f'Error: {error_msg}'})
+            event_data = json.dumps({"type": "error", "message": f"Error: {error_msg}"})
             yield f"data: {event_data}\n\n"
 
     return StreamingResponse(
@@ -1696,7 +1973,7 @@ async def stream_historical_analysis(project_id: str) -> StreamingResponse:
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # Disable nginx buffering
-        }
+        },
     )
 
 

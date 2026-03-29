@@ -4,6 +4,8 @@ import remarkGfm from 'remark-gfm';
 import mermaid from 'mermaid';
 import './ArtifactPreviewModal.css';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4301';
+
 interface ArtifactPreviewModalProps {
   artifactId: string;
   filename: string;
@@ -42,7 +44,8 @@ const MermaidDiagram = ({ code }: { code: string }) => {
         setSvg(svg);
       } catch (err) {
         console.error('Mermaid rendering error:', err);
-        setSvg(`<pre>Failed to render diagram:\n${code}</pre>`);
+        const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        setSvg(`<pre>Failed to render diagram:\n${escaped}</pre>`);
       }
     };
     renderDiagram();
@@ -61,7 +64,7 @@ const ArtifactPreviewModal = ({ artifactId, filename, artifactType, onClose }: A
     const fetchContent = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:4301/api/artifacts/${artifactId}/content`);
+        const response = await fetch(`${API_BASE_URL}/api/artifacts/${artifactId}/content`);
 
         if (!response.ok) {
           throw new Error(`Failed to load artifact: ${response.statusText}`);
@@ -105,7 +108,7 @@ const ArtifactPreviewModal = ({ artifactId, filename, artifactType, onClose }: A
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
-              code({ inline, className, children, ...props }) {
+              code({ node, inline, className, children, ...props }: any) {
                 const match = /language-(\w+)/.exec(className || '');
                 const language = match ? match[1] : '';
 

@@ -36,6 +36,7 @@ Thumbs.db
 
 # Data (optional - uncomment if you don't want to track data)
 # data/marcus_state/
+data
 
 # Build
 *.egg-info/
