@@ -537,6 +537,12 @@ class Aggregator:
                     # Generate slug: task_{feature}_{type}
                     marcus_slug = f"task_{feature_slug}_{task_type}"
                     slug_to_id[marcus_slug] = task_id
+                    # Also underscore variant (Marcus uses both)
+                    underscore_slug = f"task_{feature_slug.replace('-', '_')}_{task_type}"
+                    slug_to_id[underscore_slug] = task_id
+                    # Compact variant (no separators in feature)
+                    compact_slug = f"task_{feature_part.lower().replace(' ', '')}_{task_type}"
+                    slug_to_id[compact_slug] = task_id
                     logger.debug(f"Generated Marcus slug '{marcus_slug}' for task '{task_name}'")
 
                     # Also generate NFR slug variant for tasks that look like NFRs
@@ -583,6 +589,7 @@ class Aggregator:
 
             # Update task with resolved dependencies
             task["dependencies"] = resolved_deps
+            task["dependency_ids"] = resolved_deps
 
         logger.info(f"Resolved {resolutions} slug-based dependencies to task IDs")
         return tasks
@@ -799,6 +806,10 @@ class Aggregator:
                                     f"Fallback filtering: {len(filtered_tasks)}/{len(all_tasks)} tasks "
                                     f"(match_ids={match_ids})"
                                 )
+                                if filtered_tasks:
+                                    filtered_tasks = self._resolve_slug_dependencies(
+                                        filtered_tasks
+                                    )
                                 return filtered_tasks if filtered_tasks else []
 
                             # Get project creation time for timestamp-based filtering
@@ -990,6 +1001,7 @@ class Aggregator:
                             f"{len(matched)}/{len(all_tasks)} tasks "
                             f"(match_ids={match_ids})"
                         )
+                        matched = self._resolve_slug_dependencies(matched)
                         return matched
 
                     # Project specified, no match — return empty
