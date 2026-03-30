@@ -2,20 +2,24 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["cato_src*", "backend*"]
+exclude = ["tests*", "dashboard*"]
+
 [project]
 name = "cato"
 version = "0.2.0"
 description = "Multi-agent parallelization visualization dashboard for Marcus"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Marcus Team", email = "team@marcus.ai"},
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
