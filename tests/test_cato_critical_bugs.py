@@ -31,7 +31,7 @@ def mock_persistence_dir(tmp_path):
             "provider": "planka",
             "provider_config": {
                 "project_id": "1234567890123456789",
-                "board_id": "1234567890123456800"
+                "board_id": "1234567890123456800",
             },
             "created_at": "2025-11-09T10:00:00Z",
         }
@@ -129,18 +129,17 @@ class TestBug1_NoTasksWithoutSubtasks:
         loaded_tasks = aggregator._load_tasks(project_id="test_project_123")
 
         # Should load ALL 3 tasks even though none have parent_task_id
-        assert len(loaded_tasks) == 3, \
-            f"Expected 3 tasks, got {len(loaded_tasks)}. " \
+        assert len(loaded_tasks) == 3, (
+            f"Expected 3 tasks, got {len(loaded_tasks)}. "
             f"Bug: Tasks without parent_task_id are being filtered out!"
+        )
 
         task_names = {t["name"] for t in loaded_tasks}
         assert "Design Authentication" in task_names
         assert "Implement Login" in task_names
         assert "Write Tests" in task_names
 
-    def test_bundled_design_tasks_loaded(
-        self, tmp_path, mock_persistence_dir
-    ):
+    def test_bundled_design_tasks_loaded(self, tmp_path, mock_persistence_dir):
         """
         Test that bundled design tasks (no parent) are loaded.
 
@@ -168,8 +167,7 @@ class TestBug1_NoTasksWithoutSubtasks:
         aggregator = Aggregator(marcus_root=tmp_path)
         loaded_tasks = aggregator._load_tasks(project_id="test_project_123")
 
-        assert len(loaded_tasks) == 1, \
-            "Bundled design task should be loaded"
+        assert len(loaded_tasks) == 1, "Bundled design task should be loaded"
         assert loaded_tasks[0]["name"] == "Design Authentication"
 
 
@@ -199,12 +197,12 @@ class TestBug2_NoTasksUnlessCompleted:
 
         # Create full snapshot (this goes through entire pipeline)
         snapshot = aggregator.create_snapshot(
-            project_id="test_project_123",
-            view_mode="subtasks"
+            project_id="test_project_123", view_mode="subtasks"
         )
 
-        assert len(snapshot.tasks) > 0, \
-            "Tasks should be visible even when none are completed!"
+        assert (
+            len(snapshot.tasks) > 0
+        ), "Tasks should be visible even when none are completed!"
 
     def test_in_progress_tasks_are_shown(
         self, tmp_path, mock_persistence_dir, tasks_no_subtasks
@@ -221,20 +219,16 @@ class TestBug2_NoTasksUnlessCompleted:
 
         aggregator = Aggregator(marcus_root=tmp_path)
         snapshot = aggregator.create_snapshot(
-            project_id="test_project_123",
-            view_mode="subtasks"
+            project_id="test_project_123", view_mode="subtasks"
         )
 
-        assert len(snapshot.tasks) > 0, \
-            "In-progress tasks should be visible!"
+        assert len(snapshot.tasks) > 0, "In-progress tasks should be visible!"
 
 
 class TestBug3_WrongTaskOrdering:
     """Bug #3: Task ordering is wrong (unit tests at top instead of logical order)."""
 
-    def test_tasks_ordered_by_dependency_chain(
-        self, tmp_path, mock_persistence_dir
-    ):
+    def test_tasks_ordered_by_dependency_chain(self, tmp_path, mock_persistence_dir):
         """
         Test that tasks are ordered by dependency chain, not randomly.
 
@@ -267,7 +261,9 @@ class TestBug3_WrongTaskOrdering:
                     "id": "1234567890123456803",
                     "name": "Test Login",
                     "parent_task_id": None,
-                    "dependency_ids": ["1234567890123456802"],  # Depends on implementation
+                    "dependency_ids": [
+                        "1234567890123456802"
+                    ],  # Depends on implementation
                     "status": "pending",
                     "created_at": "2025-11-09T10:02:00Z",
                 },
@@ -279,8 +275,7 @@ class TestBug3_WrongTaskOrdering:
 
         aggregator = Aggregator(marcus_root=tmp_path)
         snapshot = aggregator.create_snapshot(
-            project_id="test_project_123",
-            view_mode="subtasks"
+            project_id="test_project_123", view_mode="subtasks"
         )
 
         # Check that tasks exist
@@ -295,9 +290,7 @@ class TestBug3_WrongTaskOrdering:
         assert "Implement Login" in task_names
         assert "Test Login" in task_names
 
-    def test_dependency_graph_respects_task_types(
-        self, tmp_path, mock_persistence_dir
-    ):
+    def test_dependency_graph_respects_task_types(self, tmp_path, mock_persistence_dir):
         """
         Test that dependency graph respects task types.
 

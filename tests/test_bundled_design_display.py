@@ -141,16 +141,20 @@ def test_filter_tasks_includes_bundled_design_tasks(
 
     filtered_ids = {t["id"] for t in filtered}
 
-    assert "design_authentication" in filtered_ids, \
-        "Bundled design task 'design_authentication' should be visible"
-    assert "design_shopping" in filtered_ids, \
-        "Bundled design task 'design_shopping' should be visible"
+    assert (
+        "design_authentication" in filtered_ids
+    ), "Bundled design task 'design_authentication' should be visible"
+    assert (
+        "design_shopping" in filtered_ids
+    ), "Bundled design task 'design_shopping' should be visible"
     assert "task_api_001" in filtered_ids, "Subtask should be visible"
     assert "task_db_001" in filtered_ids, "Subtask should be visible"
-    assert "task_standalone" in filtered_ids, \
-        "Standalone parent without children should be visible"
-    assert "epic_backend" not in filtered_ids, \
-        "Parent with children should NOT be visible in subtasks mode"
+    assert (
+        "task_standalone" in filtered_ids
+    ), "Standalone parent without children should be visible"
+    assert (
+        "epic_backend" not in filtered_ids
+    ), "Parent with children should NOT be visible in subtasks mode"
 
 
 def test_filter_tasks_includes_parents_without_children(sample_regular_tasks):
@@ -165,18 +169,22 @@ def test_filter_tasks_includes_parents_without_children(sample_regular_tasks):
 
     aggregator = Aggregator()
 
-    filtered = aggregator._filter_tasks_by_view(sample_regular_tasks, view_mode="subtasks")
+    filtered = aggregator._filter_tasks_by_view(
+        sample_regular_tasks, view_mode="subtasks"
+    )
     filtered_ids = {t["id"] for t in filtered}
 
-    assert "task_standalone" in filtered_ids, \
-        "Parent task without children should be visible"
+    assert (
+        "task_standalone" in filtered_ids
+    ), "Parent task without children should be visible"
     assert "task_api_001" in filtered_ids, "Subtask should be visible"
-    assert "epic_backend" not in filtered_ids, \
-        "Parent with children should NOT be visible"
+    assert (
+        "epic_backend" not in filtered_ids
+    ), "Parent with children should NOT be visible"
 
 
 def test_filter_tasks_includes_design_tasks_in_dependency_chain(
-    sample_bundled_design_tasks
+    sample_bundled_design_tasks,
 ):
     """
     Test that design tasks appear when referenced in dependency chains.
@@ -204,10 +212,12 @@ def test_filter_tasks_includes_design_tasks_in_dependency_chain(
     filtered = aggregator._filter_tasks_by_view(tasks, view_mode="subtasks")
     filtered_ids = {t["id"] for t in filtered}
 
-    assert "design_authentication" in filtered_ids, \
-        "Design task should be visible (in dependency chain)"
-    assert "feature_user_login" in filtered_ids, \
-        "Task depending on design should be visible"
+    assert (
+        "design_authentication" in filtered_ids
+    ), "Design task should be visible (in dependency chain)"
+    assert (
+        "feature_user_login" in filtered_ids
+    ), "Task depending on design should be visible"
 
 
 def test_all_view_mode_shows_everything():
@@ -219,7 +229,12 @@ def test_all_view_mode_shows_everything():
     tasks = [
         {"id": "task1", "is_subtask": True, "parent_task_id": "parent1"},
         {"id": "parent1", "is_subtask": False, "parent_task_id": None},
-        {"id": "design_auth", "is_subtask": False, "parent_task_id": None, "type": "design"},
+        {
+            "id": "design_auth",
+            "is_subtask": False,
+            "parent_task_id": None,
+            "type": "design",
+        },
     ]
 
     filtered = aggregator._filter_tasks_by_view(tasks, view_mode="all")
@@ -236,7 +251,12 @@ def test_parents_view_mode_excludes_subtasks():
     tasks = [
         {"id": "task1", "is_subtask": True, "parent_task_id": "parent1"},
         {"id": "parent1", "is_subtask": False, "parent_task_id": None},
-        {"id": "design_auth", "is_subtask": False, "parent_task_id": None, "type": "design"},
+        {
+            "id": "design_auth",
+            "is_subtask": False,
+            "parent_task_id": None,
+            "type": "design",
+        },
     ]
 
     filtered = aggregator._filter_tasks_by_view(tasks, view_mode="parents")
