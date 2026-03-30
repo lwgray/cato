@@ -100,21 +100,6 @@ tracking across the Marcus + Cato stack.
 - Python 3.11+
 - Node.js 18+
 
-### Option A: Docker (Recommended)
-
-```bash
-cd /path/to/marcus
-
-# Start Marcus infrastructure + Cato visualization
-docker-compose --profile viz up
-```
-
-Access the dashboard at **http://localhost:5173**.
-
-See [Docker Guide](docs/DOCKER.md) for details.
-
-### Option B: Local Install
-
 #### Step 1: Install
 
 ```bash
@@ -209,7 +194,6 @@ No coupling, no callbacks, no shared process.
 | **State** | Zustand |
 | **Animation** | Framer Motion |
 | **Testing** | pytest, Vitest |
-| **Infrastructure** | Docker, Nginx (production) |
 
 ---
 
@@ -236,7 +220,7 @@ Full interactive docs: **http://localhost:4301/docs**
 |---------|------|------------|
 | **0.2.0** | 2026-03-16 | Board view, health check dashboard, historical analysis API, artifact preview, export functionality, CI/CD with pre-commit hooks |
 | **0.1.1** | 2026-03-09 | Decisions/artifacts support, data export, project filtering with fuzzy matching, live-only mode (removed mock data) |
-| **0.1.0** | 2026-03-01 | Initial release — network graph, swim lanes, conversation view, metrics panel, timeline playback, Docker integration |
+| **0.1.0** | 2026-03-01 | Initial release — network graph, swim lanes, conversation view, metrics panel, timeline playback |
 
 See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
@@ -283,8 +267,6 @@ See [Installation Guide](docs/INSTALLATION.md) for more.
 
 ## Documentation
 
-- **[Docker Setup Guide](docs/DOCKER_SETUP.md)** — Step-by-step Docker integration
-- **[Docker Reference](docs/DOCKER.md)** — Complete Docker documentation
 - **[Installation Guide](docs/INSTALLATION.md)** — Local installation for development
 - **[Quick Reference](docs/QUICKSTART.md)** — Commands and basic usage
 - **[Dashboard Guide](docs/DASHBOARD.md)** — Features and architecture
@@ -293,19 +275,22 @@ See [Installation Guide](docs/INSTALLATION.md) for more.
 
 ## Contributing
 
-```bash
-# Fork and clone
-git clone https://github.com/YOUR_USERNAME/cato.git
-cd cato
-pip install -e ".[dev]"
-cd dashboard && npm install && cd ..
-pytest
-```
-
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes
-4. Push and open a Pull Request
+2. Clone your fork:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/cato.git
+   cd cato
+   pip install -e ".[dev]"
+   pre-commit install
+   cd dashboard && npm install && cd ..
+   ```
+3. Create a feature branch off `develop`:
+   ```bash
+   git checkout develop
+   git checkout -b feature/amazing-feature
+   ```
+4. Make your changes and run tests: `pytest`
+5. Push to your fork and open a Pull Request **targeting `develop`**
 
 ---
 
