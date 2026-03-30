@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/lwgray/cato"><img src="https://img.shields.io/github/stars/lwgray/cato?style=social" alt="GitHub Stars"></a>
-  <img src="https://img.shields.io/badge/version-0.2.0-blue.svg" alt="Version 0.2.0">
+  <img src="https://img.shields.io/badge/version-0.2.1-blue.svg" alt="Version 0.2.1">
   <img src="https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/node-18+-green?logo=node.js&logoColor=white" alt="Node.js 18+">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
