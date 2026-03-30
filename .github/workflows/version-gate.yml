@@ -1,0 +1,56 @@
+name: Version & Changelog Gate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check version bump
+        id: version
+        run: |
+          BASE_VERSION=$(git show origin/main:pyproject.toml | grep -m1 'version' | sed 's/.*"\(.*\)".*/\1/')
+          PR_VERSION=$(grep -m1 'version' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+          if [ "$BASE_VERSION" = "$PR_VERSION" ]; then
+            echo "bump_needed=true" >> $GITHUB_OUTPUT
+          else
+            echo "bump_needed=false" >> $GITHUB_OUTPUT
+          fi
+          echo "Base: $BASE_VERSION, PR: $PR_VERSION"
+
+      - name: Check CHANGELOG updated
+        id: changelog
+        run: |
+          if git diff origin/main...HEAD --name-only | grep -q "CHANGELOG.md"; then
+            echo "updated=true" >> $GITHUB_OUTPUT
+          else
+            echo "updated=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post checklist comment
+        if: steps.version.outputs.bump_needed == 'true' || steps.changelog.outputs.updated != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const checks = [];
+            if ('${{ steps.version.outputs.bump_needed }}' === 'true') {
+              checks.push('- [ ] Version bump required in `pyproject.toml`');
+            }
+            if ('${{ steps.changelog.outputs.updated }}' !== 'true') {
+              checks.push('- [ ] `CHANGELOG.md` must be updated');
+            }
+            if (checks.length > 0) {
+              github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `## Pre-merge Checklist\n\n${checks.join('\n')}\n\nPlease address the above items before merging.`
+              });
+              core.setFailed('Version or changelog check failed');
+            }

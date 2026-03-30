@@ -22,7 +22,7 @@ import logging
 import sqlite3
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
 
@@ -236,7 +236,10 @@ class Aggregator:
             if to_agent:
                 project_agent_ids.add(to_agent)
 
-        logger.info(f"Identified {len(project_agent_ids)} project agents from tasks and messages")
+        logger.info(
+            f"Identified {len(project_agent_ids)} project agents"
+            " from tasks and messages"
+        )
 
         # PASS 2: Include all messages involving project agents
         filtered_messages = []
@@ -246,18 +249,22 @@ class Aggregator:
             to_agent = msg.get("to_agent_id")
 
             # Include if: (1) related to project task, OR (2) involves project agents
-            if (task_id and task_id in task_ids_set) or \
-               (from_agent in project_agent_ids) or \
-               (to_agent in project_agent_ids):
+            if (
+                (task_id and task_id in task_ids_set)
+                or (from_agent in project_agent_ids)
+                or (to_agent in project_agent_ids)
+            ):
                 filtered_messages.append(msg)
 
-        logger.info(f"Pre-filtered messages: {len(filtered_messages)}/{len(raw_messages)} related to project")
+        logger.info(
+            f"Pre-filtered messages: {len(filtered_messages)}"
+            f"/{len(raw_messages)} related to project"
+        )
 
         # Step 4: Build lookup tables for denormalization
         projects_by_id = {p["id"]: p for p in projects_data if "id" in p}
         # Use ALL tasks for lookup (including parents) so subtasks can find parent names
         all_tasks_by_id = {t["id"]: t for t in raw_tasks}
-        tasks_by_id = {t["id"]: t for t in filtered_tasks}
         agents_by_id = self._infer_agents(filtered_tasks, filtered_messages)
 
         # Step 5: Enrich tasks with started_at and completed_at from messages
@@ -293,13 +300,19 @@ class Aggregator:
         )
 
         # Step 9: Build denormalized events
-        events = self._build_events(raw_events, final_task_ids_set, all_tasks_by_id, agents_by_id)
+        events = self._build_events(
+            raw_events, final_task_ids_set, all_tasks_by_id, agents_by_id
+        )
 
         # Step 9a: Build denormalized decisions
-        decisions = self._build_decisions(raw_decisions, final_task_ids_set, all_tasks_by_id, agents_by_id)
+        decisions = self._build_decisions(
+            raw_decisions, final_task_ids_set, all_tasks_by_id, agents_by_id
+        )
 
         # Step 9b: Build denormalized artifacts
-        artifacts = self._build_artifacts(raw_artifacts, final_task_ids_set, all_tasks_by_id, agents_by_id)
+        artifacts = self._build_artifacts(
+            raw_artifacts, final_task_ids_set, all_tasks_by_id, agents_by_id
+        )
 
         # Step 8a: Generate diagnostic events for timeline
         diagnostic_events = self._build_diagnostic_events(
@@ -367,7 +380,8 @@ class Aggregator:
         if (
             self._projects_cache is not None
             and self._projects_cache_time is not None
-            and (now - self._projects_cache_time).total_seconds() < self._projects_cache_ttl
+            and (now - self._projects_cache_time).total_seconds()
+            < self._projects_cache_ttl
         ):
             return self._projects_cache
 
@@ -414,7 +428,7 @@ class Aggregator:
             with open(projects_file, "r") as f:
                 data = json.load(f)
                 active_project = data.get("active_project", {})
-                return active_project.get("project_id")
+                return active_project.get("project_id")  # type: ignore[no-any-return]
         except Exception as e:
             logger.error(f"Error loading active project: {e}")
             return None
@@ -425,9 +439,10 @@ class Aggregator:
         """
         Query conversation logs (events) to find parent task IDs for a project.
 
-        Parent tasks are logged in the events collection with project_id and board_id context.
-        This method queries the marcus.db events to find all parent tasks (tasks without '_sub_' in ID)
-        associated with the given project.
+        Parent tasks are logged in the events collection with
+        project_id and board_id context. This method queries the
+        marcus.db events to find all parent tasks (tasks without
+        '_sub_' in ID) associated with the given project.
 
         Parameters
         ----------
@@ -441,7 +456,7 @@ class Aggregator:
         set[str]
             Set of parent task IDs associated with this project
         """
-        parent_task_ids = set()
+        parent_task_ids: set[str] = set()
 
         db_path = self.marcus_root / "data" / "marcus.db"
         if not db_path.exists():
@@ -452,14 +467,12 @@ class Aggregator:
             with sqlite3.connect(str(db_path)) as conn:
                 cursor = conn.cursor()
 
-                # Query events that contain task_assignment or task_request with project context
-                cursor.execute(
-                    """
+                # Query events with task_assignment or task_request
+                cursor.execute("""
                     SELECT data
                     FROM persistence
                     WHERE collection = 'events'
-                    """
-                )
+                    """)
 
                 for (event_data_str,) in cursor.fetchall():
                     try:
@@ -473,17 +486,17 @@ class Aggregator:
                         event_board_id = event_payload.get("board_id")
 
                         if event_project_id == project_id or event_board_id == board_id:
-                            # Extract task_id if present and it's a parent task (no _sub_)
+                            # Extract task_id if it's a parent task
                             task_id = event_payload.get("task_id")
                             if task_id and "_sub_" not in str(task_id):
                                 parent_task_ids.add(str(task_id))
 
-                    except (json.JSONDecodeError, KeyError) as e:
+                    except (json.JSONDecodeError, KeyError):
                         continue
 
                 logger.info(
-                    f"Found {len(parent_task_ids)} parent task IDs from conversation logs "
-                    f"for project {project_id}"
+                    f"Found {len(parent_task_ids)} parent task IDs"
+                    f" from conversation logs for project {project_id}"
                 )
 
         except Exception as e:
@@ -530,27 +543,39 @@ class Aggregator:
 
                 # Try to extract feature name by removing task type prefix from name
                 if task_type and task_name.lower().startswith(task_type):
-                    # Remove task type prefix (e.g., "Implement Pomodoro Timer" → "Pomodoro Timer")
-                    feature_part = task_name[len(task_type):].strip()
+                    # Remove task type prefix
+                    # e.g., "Implement Pomodoro Timer" -> "Pomodoro Timer"
+                    feature_part = task_name[len(task_type) :].strip()
                     feature_slug = feature_part.lower().replace(" ", "-")
 
                     # Generate slug: task_{feature}_{type}
                     marcus_slug = f"task_{feature_slug}_{task_type}"
                     slug_to_id[marcus_slug] = task_id
                     # Also underscore variant (Marcus uses both)
-                    underscore_slug = f"task_{feature_slug.replace('-', '_')}_{task_type}"
+                    underscore_slug = (
+                        f"task_{feature_slug.replace('-', '_')}_{task_type}"
+                    )
                     slug_to_id[underscore_slug] = task_id
                     # Compact variant (no separators in feature)
-                    compact_slug = f"task_{feature_part.lower().replace(' ', '')}_{task_type}"
+                    compact_slug = (
+                        f"task_{feature_part.lower().replace(' ', '')}_{task_type}"
+                    )
                     slug_to_id[compact_slug] = task_id
-                    logger.debug(f"Generated Marcus slug '{marcus_slug}' for task '{task_name}'")
+                    logger.debug(
+                        f"Generated Marcus slug '{marcus_slug}' for task '{task_name}'"
+                    )
 
                     # Also generate NFR slug variant for tasks that look like NFRs
                     # (e.g., "Implement Usability" → "nfr_task_nfr-usability")
-                    if feature_part and not any(keyword in feature_part.lower() for keyword in ['timer', 'pomodoro', 'session', 'control']):
+                    if feature_part and not any(
+                        keyword in feature_part.lower()
+                        for keyword in ["timer", "pomodoro", "session", "control"]
+                    ):
                         nfr_slug = f"nfr_task_nfr-{feature_slug}"
                         slug_to_id[nfr_slug] = task_id
-                        logger.debug(f"Generated NFR slug '{nfr_slug}' for task '{task_name}'")
+                        logger.debug(
+                            f"Generated NFR slug '{nfr_slug}' for task '{task_name}'"
+                        )
 
         logger.info(f"Built slug-to-ID mapping with {len(slug_to_id)} entries")
 
@@ -647,7 +672,8 @@ class Aggregator:
         Inherit parent dependencies to ONLY the first subtask for clean visualization.
 
         The first subtask is identified as the one with no inter-subtask dependencies.
-        This creates a clean dependency flow: Parent Dependencies → First Subtask → Other Subtasks.
+        This creates a clean dependency flow:
+        Parent Dependencies -> First Subtask -> Other Subtasks.
 
         Parameters
         ----------
@@ -660,9 +686,7 @@ class Aggregator:
             Tasks with updated dependencies
         """
         # Build mapping of parent_id → parent task
-        parent_tasks = {
-            str(t["id"]): t for t in tasks if not t.get("parent_task_id")
-        }
+        parent_tasks = {str(t["id"]): t for t in tasks if not t.get("parent_task_id")}
 
         # Group subtasks by their parent
         subtasks_by_parent: dict[str, list[dict[str, Any]]] = {}
@@ -688,9 +712,7 @@ class Aggregator:
 
             # Find the "first" subtask - the one with NO dependencies
             # This is the subtask that can start immediately after parent deps
-            first_subtasks = [
-                t for t in subtasks if not t.get("dependencies", [])
-            ]
+            first_subtasks = [t for t in subtasks if not t.get("dependencies", [])]
 
             if not first_subtasks:
                 # No subtask with empty dependencies, skip
@@ -712,14 +734,15 @@ class Aggregator:
             first_subtask["dependencies"] = subtask_deps
 
         logger.info(
-            f"Inherited parent dependencies to {len([s for s in subtasks_by_parent.values() if s])} "
+            "Inherited parent dependencies to "
+            f"{len([s for s in subtasks_by_parent.values() if s])} "
             f"first subtasks ({inherited_count} dependencies added)"
         )
         return tasks
 
     def _load_tasks(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Load tasks from both subtasks.json and marcus.db, optionally filtered by project.
+        Load tasks from subtasks.json and marcus.db, optionally filtered by project.
 
         Parent tasks are stored in marcus.db (task_metadata collection).
         Subtasks are stored in subtasks.json.
@@ -760,259 +783,288 @@ class Aggregator:
 
         try:
 
-                # Enrich tasks with actual timing data from marcus.db before filtering
-                all_tasks = self.enrich_tasks_with_timing(all_tasks)
+            # Enrich tasks with actual timing data from marcus.db before filtering
+            all_tasks = self.enrich_tasks_with_timing(all_tasks)
 
-                # Filter by project using fuzzy matching (±20 range)
-                # Planka creates task IDs that are offset from board IDs
-                if project_id:
-                    # Load projects to get Planka board/project ID mapping (uses cache)
-                    projects_data = self._load_projects()
-                    project_info = next(
-                        (p for p in projects_data if p.get("id") == project_id), None
+            # Filter by project using fuzzy matching (±20 range)
+            # Planka creates task IDs that are offset from board IDs
+            if project_id:
+                # Load projects to get Planka board/project ID mapping (uses cache)
+                projects_data = self._load_projects()
+                project_info = next(
+                    (p for p in projects_data if p.get("id") == project_id), None
+                )
+
+                if project_info and "provider_config" in project_info:
+                    planka_project_id = project_info["provider_config"].get(
+                        "project_id", ""
+                    )
+                    planka_board_id = project_info["provider_config"].get(
+                        "board_id", ""
                     )
 
-                    if project_info and "provider_config" in project_info:
-                        planka_project_id = project_info["provider_config"].get(
-                            "project_id", ""
-                        )
-                        planka_board_id = project_info["provider_config"].get("board_id", "")
-
-                        if planka_project_id or planka_board_id:
-                            # Pre-compute target prefixes for efficient comparison
-                            target_prefixes = []
-                            for id_to_check in [planka_board_id, planka_project_id]:
-                                if id_to_check and len(id_to_check) >= 8:
-                                    try:
-                                        target_prefixes.append(int(id_to_check[:8]))
-                                    except ValueError:
-                                        pass
-
-                            if not target_prefixes:
-                                logger.warning(
-                                    f"No valid Planka ID prefixes for project {project_id} - "
-                                    f"using fallback project_id field matching"
-                                )
-                                # Fallback: filter by task's project_id field
-                                # Match Marcus registry ID or provider-level ID
-                                match_ids = {project_id}
-                                if planka_project_id:
-                                    match_ids.add(planka_project_id)
-                                filtered_tasks = [
-                                    t for t in all_tasks
-                                    if t.get("project_id") in match_ids
-                                ]
-                                logger.info(
-                                    f"Fallback filtering: {len(filtered_tasks)}/{len(all_tasks)} tasks "
-                                    f"(match_ids={match_ids})"
-                                )
-                                if filtered_tasks:
-                                    filtered_tasks = self._resolve_slug_dependencies(
-                                        filtered_tasks
-                                    )
-                                return filtered_tasks if filtered_tasks else []
-
-                            # Get project creation time for timestamp-based filtering
-                            from datetime import datetime, timezone, timedelta
-                            project_created_at = None
-                            if project_info and "created_at" in project_info:
+                    if planka_project_id or planka_board_id:
+                        # Pre-compute target prefixes for efficient comparison
+                        target_prefixes = []
+                        for id_to_check in [planka_board_id, planka_project_id]:
+                            if id_to_check and len(id_to_check) >= 8:
                                 try:
-                                    project_created_at = datetime.fromisoformat(
-                                        project_info["created_at"].replace("Z", "+00:00")
-                                    )
-                                except Exception:
+                                    target_prefixes.append(int(id_to_check[:8]))
+                                except ValueError:
                                     pass
 
-                            # First pass: Filter subtasks using Planka fuzzy ID matching
-                            # and collect their parent IDs
-                            filtered_tasks = []
-                            parent_ids_to_include = set()
-
-                            for task in all_tasks:
-                                parent_task_id = task.get("parent_task_id")
-                                is_parent_task = parent_task_id is None and not task.get("is_subtask", False)
-
-                                # Check if this parent task has subtasks
-                                has_subtasks = False
-                                if is_parent_task:
-                                    task_id = str(task.get("id", ""))
-                                    has_subtasks = any(
-                                        str(t.get("parent_task_id")) == task_id
-                                        for t in all_tasks
-                                    )
-
-                                # Skip parent tasks WITH subtasks in first pass
-                                # (their subtasks will represent them)
-                                # But include parent tasks WITHOUT subtasks via ID matching
-                                if is_parent_task and has_subtasks:
-                                    continue
-
-                                # Check the task's own ID for matching
-                                id_to_check = str(task.get("id", ""))
-
-                                # Early exit: Skip non-Planka IDs
-                                if not id_to_check or len(id_to_check) < 8 or not id_to_check[0].isdigit():
-                                    continue
-
-                                try:
-                                    id_prefix = int(id_to_check[:8])
-
-                                    # Check distance to any target prefix
-                                    for target_prefix in target_prefixes:
-                                        distance = abs(id_prefix - target_prefix)
-                                        if distance <= 20:
-                                            filtered_tasks.append(task)
-                                            logger.debug(
-                                                f"Matched task {id_to_check} (distance={distance} "
-                                                f"from {target_prefix}): {task.get('name', 'Unknown')}"
-                                            )
-                                            # Extract parent ID from subtask ID (format: {parent_id}_sub_{index})
-                                            task_id_str = str(task.get("id", ""))
-                                            if "_sub_" in task_id_str:
-                                                parent_id = task_id_str.split("_sub_")[0]
-                                                parent_ids_to_include.add(parent_id)
-                                            break  # Found match, no need to check other prefixes
-                                except ValueError:
-                                    # Fallback: try string prefix match
-                                    for planka_id in [planka_board_id, planka_project_id]:
-                                        if planka_id and id_to_check.startswith(planka_id[:8]):
-                                            filtered_tasks.append(task)
-                                            # Extract parent ID from subtask ID
-                                            task_id_str = str(task.get("id", ""))
-                                            if "_sub_" in task_id_str:
-                                                parent_id = task_id_str.split("_sub_")[0]
-                                                parent_ids_to_include.add(parent_id)
-                                            break
-
-                            # Collect dependency IDs from matched tasks to find bundled design tasks
-                            dependency_ids_to_include = set()
-                            for task in filtered_tasks:
-                                # Check both 'dependencies' and 'dependency_ids' keys
-                                deps = task.get("dependencies", []) or task.get("dependency_ids", [])
-                                if deps:
-                                    dependency_ids_to_include.update(str(d) for d in deps)
-                                    logger.info(
-                                        f"Task '{task.get('name')}' has dependencies: {deps}"
-                                    )
-
+                        if not target_prefixes:
+                            logger.warning(
+                                "No valid Planka ID prefixes for "
+                                f"project {project_id} - "
+                                "using fallback project_id field matching"
+                            )
+                            # Fallback: filter by task's project_id field
+                            # Match Marcus registry ID or provider-level ID
+                            match_ids = {project_id}
+                            if planka_project_id:
+                                match_ids.add(planka_project_id)
+                            filtered_tasks = [
+                                t for t in all_tasks if t.get("project_id") in match_ids
+                            ]
                             logger.info(
-                                f"Collected {len(dependency_ids_to_include)} dependency IDs: "
-                                f"{list(dependency_ids_to_include)[:10]}"  # Show first 10
+                                f"Fallback filtering: "
+                                f"{len(filtered_tasks)}"
+                                f"/{len(all_tasks)} tasks "
+                                f"(match_ids={match_ids})"
+                            )
+                            if filtered_tasks:
+                                filtered_tasks = self._resolve_slug_dependencies(
+                                    filtered_tasks
+                                )
+                            return filtered_tasks if filtered_tasks else []
+
+                        # Get project creation time for filtering
+                        if project_info and "created_at" in project_info:
+                            try:
+                                datetime.fromisoformat(
+                                    project_info["created_at"].replace("Z", "+00:00")
+                                )
+                            except Exception:
+                                pass
+
+                        # First pass: Filter subtasks using Planka fuzzy ID matching
+                        # and collect their parent IDs
+                        filtered_tasks = []
+                        parent_ids_to_include = set()
+
+                        for task in all_tasks:
+                            parent_task_id = task.get("parent_task_id")
+                            is_parent_task = parent_task_id is None and not task.get(
+                                "is_subtask", False
                             )
 
-                            # Get parent task IDs from conversation logs
-                            # This is the authoritative source for project→parent task mapping
-                            conversation_parent_ids = self.get_parent_task_ids_from_conversations(
-                                project_id=project_id,
-                                board_id=planka_board_id
-                            )
+                            # Check if this parent task has subtasks
+                            has_subtasks = False
+                            if is_parent_task:
+                                task_id = str(task.get("id", ""))
+                                has_subtasks = any(
+                                    str(t.get("parent_task_id")) == task_id
+                                    for t in all_tasks
+                                )
 
-                            logger.info(
-                                f"Collected {len(parent_ids_to_include)} parent IDs from subtasks, "
-                                f"{len(dependency_ids_to_include)} from dependencies, "
-                                f"{len(conversation_parent_ids)} from conversation logs"
-                            )
+                            # Skip parent tasks WITH subtasks in first pass
+                            # (their subtasks will represent them)
+                            # But include parent tasks WITHOUT subtasks via ID matching
+                            if is_parent_task and has_subtasks:
+                                continue
 
-                            # Second pass: Include parent tasks whose IDs were referenced
-                            # Priority: conversation logs (authoritative) > subtasks > dependencies
-                            # Build set of already included task IDs to avoid duplicates
-                            already_included_ids = {str(t.get("id", "")) for t in filtered_tasks}
+                            # Check the task's own ID for matching
+                            id_to_check = str(task.get("id", ""))
 
-                            parent_tasks_added = []
-                            for task in all_tasks:
-                                parent_task_id = task.get("parent_task_id")
-                                is_parent_task = parent_task_id is None and not task.get("is_subtask", False)
+                            # Early exit: Skip non-Planka IDs
+                            if (
+                                not id_to_check
+                                or len(id_to_check) < 8
+                                or not id_to_check[0].isdigit()
+                            ):
+                                continue
 
-                                if is_parent_task:
-                                    task_id = str(task.get("id", ""))
-                                    task_name = task.get("name", "Unknown")
+                            try:
+                                id_prefix = int(id_to_check[:8])
 
-                                    # Skip if already included in first pass
-                                    if task_id in already_included_ids:
-                                        continue
-
-                                    # Include if referenced by conversation logs, subtasks, or dependencies
-                                    if (task_id in conversation_parent_ids or
-                                        task_id in parent_ids_to_include or
-                                        task_id in dependency_ids_to_include):
+                                # Check distance to any target prefix
+                                for target_prefix in target_prefixes:
+                                    distance = abs(id_prefix - target_prefix)
+                                    if distance <= 20:
                                         filtered_tasks.append(task)
-                                        source = []
-                                        if task_id in conversation_parent_ids:
-                                            source.append("conversations")
-                                        if task_id in parent_ids_to_include:
-                                            source.append("subtasks")
-                                        if task_id in dependency_ids_to_include:
-                                            source.append("dependencies")
-                                        parent_tasks_added.append((task_name, task_id, source))
-                                        logger.info(
-                                            f"✓ Including parent task '{task_name}' ({task_id}) "
-                                            f"via {', '.join(source)}"
-                                        )
-                                    else:
                                         logger.debug(
-                                            f"✗ Skipping parent task '{task_name}' ({task_id}) "
-                                            f"- not in any inclusion set"
+                                            f"Matched task {id_to_check} "
+                                            f"(distance={distance} "
+                                            f"from {target_prefix}): "
+                                            f"{task.get('name', 'Unknown')}"
                                         )
+                                        # Extract parent ID from subtask ID
+                                        task_id_str = str(task.get("id", ""))
+                                        if "_sub_" in task_id_str:
+                                            parent_id = task_id_str.split("_sub_")[0]
+                                            parent_ids_to_include.add(parent_id)
+                                        break  # Found match
+                            except ValueError:
+                                # Fallback: try string prefix match
+                                for planka_id in [planka_board_id, planka_project_id]:
+                                    if planka_id and id_to_check.startswith(
+                                        planka_id[:8]
+                                    ):
+                                        filtered_tasks.append(task)
+                                        # Extract parent ID from subtask ID
+                                        task_id_str = str(task.get("id", ""))
+                                        if "_sub_" in task_id_str:
+                                            parent_id = task_id_str.split("_sub_")[0]
+                                            parent_ids_to_include.add(parent_id)
+                                        break
 
-                            logger.info(f"Added {len(parent_tasks_added)} parent tasks to filtered list")
+                        # Collect dependency IDs from matched tasks
+                        dependency_ids_to_include: set[str] = set()
+                        for task in filtered_tasks:
+                            # Check both 'dependencies' and 'dependency_ids' keys
+                            deps = task.get("dependencies", []) or task.get(
+                                "dependency_ids", []
+                            )
+                            if deps:
+                                dependency_ids_to_include.update(str(d) for d in deps)
+                                logger.info(
+                                    "Task '%s' has dependencies: %s"
+                                    % (task.get("name"), deps)
+                                )
 
-                            logger.info(
-                                f"Filtered {len(filtered_tasks)}/{len(all_tasks)} tasks "
-                                f"for project {project_id} (Planka ID: {planka_project_id})"
+                        logger.info(
+                            f"Collected {len(dependency_ids_to_include)}"
+                            " dependency IDs: "
+                            # Show first 10
+                            f"{list(dependency_ids_to_include)[:10]}"
+                        )
+
+                        # Get parent task IDs from conversation logs
+                        # Authoritative source for project->parent mapping
+                        conversation_parent_ids = (
+                            self.get_parent_task_ids_from_conversations(
+                                project_id=project_id, board_id=planka_board_id
+                            )
+                        )
+
+                        logger.info(
+                            f"Collected {len(parent_ids_to_include)}"
+                            " parent IDs from subtasks, "
+                            f"{len(dependency_ids_to_include)}"
+                            " from dependencies, "
+                            f"{len(conversation_parent_ids)}"
+                            " from conversation logs"
+                        )
+
+                        # Second pass: Include parent tasks whose IDs were referenced
+                        # Priority: conversations > subtasks > deps
+                        # Build set of already included task IDs to avoid duplicates
+                        already_included_ids = {
+                            str(t.get("id", "")) for t in filtered_tasks
+                        }
+
+                        parent_tasks_added = []
+                        for task in all_tasks:
+                            parent_task_id = task.get("parent_task_id")
+                            is_parent_task = parent_task_id is None and not task.get(
+                                "is_subtask", False
                             )
 
-                            # Resolve slug-based dependencies to actual task IDs
-                            filtered_tasks = self._resolve_slug_dependencies(filtered_tasks)
+                            if is_parent_task:
+                                task_id = str(task.get("id", ""))
+                                task_name = task.get("name", "Unknown")
 
-                            return filtered_tasks
-                        else:
-                            logger.info(
-                                f"Project {project_id} has no Planka IDs, "
-                                f"trying project_id field match"
-                            )
+                                # Skip if already included in first pass
+                                if task_id in already_included_ids:
+                                    continue
+
+                                # Include if referenced by logs/subtasks/deps
+                                if (
+                                    task_id in conversation_parent_ids
+                                    or task_id in parent_ids_to_include
+                                    or task_id in dependency_ids_to_include
+                                ):
+                                    filtered_tasks.append(task)
+                                    source = []
+                                    if task_id in conversation_parent_ids:
+                                        source.append("conversations")
+                                    if task_id in parent_ids_to_include:
+                                        source.append("subtasks")
+                                    if task_id in dependency_ids_to_include:
+                                        source.append("dependencies")
+                                    parent_tasks_added.append(
+                                        (task_name, task_id, source)
+                                    )
+                                    logger.info(
+                                        f"Including parent task "
+                                        f"'{task_name}' ({task_id})"
+                                        f" via {', '.join(source)}"
+                                    )
+                                else:
+                                    logger.debug(
+                                        f"Skipping parent task "
+                                        f"'{task_name}' ({task_id})"
+                                        " - not in any inclusion set"
+                                    )
+
+                        logger.info(
+                            f"Added {len(parent_tasks_added)} parent"
+                            " tasks to filtered list"
+                        )
+
+                        logger.info(
+                            f"Filtered {len(filtered_tasks)}/{len(all_tasks)} tasks "
+                            f"for project {project_id} (Planka ID: {planka_project_id})"
+                        )
+
+                        # Resolve slug-based dependencies to actual task IDs
+                        filtered_tasks = self._resolve_slug_dependencies(filtered_tasks)
+
+                        return filtered_tasks
                     else:
                         logger.info(
-                            f"Project {project_id} no provider_config, "
+                            f"Project {project_id} has no Planka IDs, "
                             f"trying project_id field match"
                         )
-
-                # Fallback: match by project_id field on tasks
-                # For SQLite/non-Planka providers, the task's project_id
-                # is the kanban-level ID (from auto_setup_project), not
-                # the Marcus registry ID. Check both.
-                provider_project_id = None
-                if project_info and project_info.get("provider_config"):
-                    provider_project_id = project_info["provider_config"].get(
-                        "project_id"
-                    )
-
-                if project_id:
-                    match_ids = {project_id}
-                    if provider_project_id:
-                        match_ids.add(provider_project_id)
-
-                    matched = [
-                        t for t in all_tasks
-                        if t.get("project_id") in match_ids
-                    ]
-                    if matched:
-                        logger.info(
-                            f"project_id field matched "
-                            f"{len(matched)}/{len(all_tasks)} tasks "
-                            f"(match_ids={match_ids})"
-                        )
-                        matched = self._resolve_slug_dependencies(matched)
-                        return matched
-
-                    # Project specified, no match — return empty
+                else:
                     logger.info(
-                        f"No tasks matched project {project_id} "
-                        f"(also tried provider_id={provider_project_id})"
+                        f"Project {project_id} no provider_config, "
+                        f"trying project_id field match"
                     )
-                    return []
 
-                logger.info(f"Loaded {len(all_tasks)} tasks (all projects)")
-                return all_tasks
+            # Fallback: match by project_id field on tasks
+            # For SQLite/non-Planka providers, the task's project_id
+            # is the kanban-level ID (from auto_setup_project), not
+            # the Marcus registry ID. Check both.
+            provider_project_id = None
+            if project_info and project_info.get("provider_config"):
+                provider_project_id = project_info["provider_config"].get("project_id")
+
+            if project_id:
+                match_ids = {project_id}
+                if provider_project_id:
+                    match_ids.add(provider_project_id)
+
+                matched = [t for t in all_tasks if t.get("project_id") in match_ids]
+                if matched:
+                    logger.info(
+                        f"project_id field matched "
+                        f"{len(matched)}/{len(all_tasks)} tasks "
+                        f"(match_ids={match_ids})"
+                    )
+                    matched = self._resolve_slug_dependencies(matched)
+                    return matched
+
+                # Project specified, no match — return empty
+                logger.info(
+                    f"No tasks matched project {project_id} "
+                    f"(also tried provider_id={provider_project_id})"
+                )
+                return []
+
+            logger.info(f"Loaded {len(all_tasks)} tasks (all projects)")
+            return all_tasks
 
         except Exception as e:
             logger.error(f"Error loading tasks: {e}")
@@ -1086,11 +1138,13 @@ class Aggregator:
         try:
             # Try to import Marcus's persistence layer
             import sys
+
             if str(self.marcus_root) not in sys.path:
                 sys.path.insert(0, str(self.marcus_root))
 
-            from src.core.project_history import ProjectHistoryPersistence
             import asyncio
+
+            from src.core.project_history import ProjectHistoryPersistence
 
             persistence = ProjectHistoryPersistence()
 
@@ -1110,7 +1164,10 @@ class Aggregator:
                                 )
                                 decisions.extend([d.to_dict() for d in proj_decisions])
                             except Exception as e:
-                                logger.debug(f"Could not load decisions for {project_dir.name}: {e}")
+                                logger.debug(
+                                    "Could not load decisions for "
+                                    f"{project_dir.name}: {e}"
+                                )
 
         except (ImportError, RuntimeError, Exception) as e:
             logger.debug(f"Marcus persistence not available or failed: {e}")
@@ -1120,14 +1177,22 @@ class Aggregator:
         if not decisions:
             logger.debug("No decisions from persistence, trying JSON fallback")
             if project_id:
-                json_path = self.marcus_root / "data" / "project_history" / project_id / "decisions.json"
+                json_path = (
+                    self.marcus_root
+                    / "data"
+                    / "project_history"
+                    / project_id
+                    / "decisions.json"
+                )
                 if json_path.exists():
                     try:
                         with open(json_path, "r") as f:
                             data = json.load(f)
                             decisions = data.get("decisions", [])
                     except Exception as json_error:
-                        logger.warning(f"JSON fallback failed for decisions: {json_error}")
+                        logger.warning(
+                            f"JSON fallback failed for decisions: {json_error}"
+                        )
             else:
                 # Load all projects from JSON files
                 project_history_dir = self.marcus_root / "data" / "project_history"
@@ -1141,7 +1206,11 @@ class Aggregator:
                                         data = json.load(f)
                                         decisions.extend(data.get("decisions", []))
                                 except Exception as json_error:
-                                    logger.debug(f"Could not load decisions from {json_path}: {json_error}")
+                                    logger.debug(
+                                        "Could not load decisions"
+                                        f" from {json_path}:"
+                                        f" {json_error}"
+                                    )
 
         logger.info(f"Loaded {len(decisions)} decisions")
         return decisions
@@ -1168,11 +1237,13 @@ class Aggregator:
         try:
             # Try to import Marcus's persistence layer
             import sys
+
             if str(self.marcus_root) not in sys.path:
                 sys.path.insert(0, str(self.marcus_root))
 
-            from src.core.project_history import ProjectHistoryPersistence
             import asyncio
+
+            from src.core.project_history import ProjectHistoryPersistence
 
             persistence = ProjectHistoryPersistence()
 
@@ -1192,7 +1263,10 @@ class Aggregator:
                                 )
                                 artifacts.extend([a.to_dict() for a in proj_artifacts])
                             except Exception as e:
-                                logger.debug(f"Could not load artifacts for {project_dir.name}: {e}")
+                                logger.debug(
+                                    "Could not load artifacts for "
+                                    f"{project_dir.name}: {e}"
+                                )
 
         except (ImportError, RuntimeError, Exception) as e:
             logger.debug(f"Marcus persistence not available or failed: {e}")
@@ -1202,14 +1276,22 @@ class Aggregator:
         if not artifacts:
             logger.debug("No artifacts from persistence, trying JSON fallback")
             if project_id:
-                json_path = self.marcus_root / "data" / "project_history" / project_id / "artifacts.json"
+                json_path = (
+                    self.marcus_root
+                    / "data"
+                    / "project_history"
+                    / project_id
+                    / "artifacts.json"
+                )
                 if json_path.exists():
                     try:
                         with open(json_path, "r") as f:
                             data = json.load(f)
                             artifacts = data.get("artifacts", [])
                     except Exception as json_error:
-                        logger.warning(f"JSON fallback failed for artifacts: {json_error}")
+                        logger.warning(
+                            f"JSON fallback failed for artifacts: {json_error}"
+                        )
             else:
                 # Load all projects from JSON files
                 project_history_dir = self.marcus_root / "data" / "project_history"
@@ -1223,7 +1305,11 @@ class Aggregator:
                                         data = json.load(f)
                                         artifacts.extend(data.get("artifacts", []))
                                 except Exception as json_error:
-                                    logger.debug(f"Could not load artifacts from {json_path}: {json_error}")
+                                    logger.debug(
+                                        "Could not load artifacts"
+                                        f" from {json_path}:"
+                                        f" {json_error}"
+                                    )
 
         logger.info(f"Loaded {len(artifacts)} artifacts")
         return artifacts
@@ -1244,7 +1330,8 @@ class Aggregator:
         # Filter out About cards — they are project descriptors,
         # not work items. Should not appear in DAG or swim lanes.
         tasks = [
-            t for t in tasks
+            t
+            for t in tasks
             if not (
                 t.get("name", "").startswith("About:")
                 or t.get("source_type") == "project_about"
@@ -1254,9 +1341,7 @@ class Aggregator:
         if view_mode == "subtasks":
             # Build set of parent IDs that have subtasks
             parent_ids_with_subtasks = {
-                str(t.get("parent_task_id"))
-                for t in tasks
-                if t.get("parent_task_id")
+                str(t.get("parent_task_id")) for t in tasks if t.get("parent_task_id")
             }
 
             # Return: subtasks + parents WITHOUT subtasks
@@ -1264,7 +1349,8 @@ class Aggregator:
                 t
                 for t in tasks
                 if t.get("parent_task_id")  # Is a subtask
-                or str(t.get("id")) not in parent_ids_with_subtasks  # Parent without subtasks
+                or str(t.get("id"))
+                not in parent_ids_with_subtasks  # Parent without subtasks
             ]
         elif view_mode == "parents":
             # Infer is_subtask from parent_task_id if not explicitly set
@@ -1307,7 +1393,11 @@ class Aggregator:
                 agents[agent_id] = {
                     "id": agent_id,
                     "name": get_agent_name(agent_id),
-                    "role": "system" if agent_id.lower() in ["system", "marcus"] else "agent",
+                    "role": (
+                        "system"
+                        if agent_id.lower() in ["system", "marcus"]
+                        else "agent"
+                    ),
                     "skills": [],
                 }
 
@@ -1319,7 +1409,11 @@ class Aggregator:
                     agents[agent_id] = {
                         "id": agent_id,
                         "name": get_agent_name(agent_id),
-                        "role": "system" if agent_id.lower() in ["system", "marcus"] else "agent",
+                        "role": (
+                            "system"
+                            if agent_id.lower() in ["system", "marcus"]
+                            else "agent"
+                        ),
                         "skills": [],
                     }
 
@@ -1384,12 +1478,10 @@ class Aggregator:
             cursor = conn.cursor()
 
             # Load task_metadata
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT key, data FROM persistence
                 WHERE collection = 'task_metadata'
-                """
-            )
+                """)
 
             task_metadata_map = {}
             for task_id, data_json in cursor.fetchall():
@@ -1400,12 +1492,10 @@ class Aggregator:
                     logger.warning(f"Failed to parse task_metadata for {task_id}: {e}")
 
             # Load task_outcomes to get completion data
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT key, data FROM persistence
                 WHERE collection = 'task_outcomes'
-                """
-            )
+                """)
 
             task_outcomes_map = {}
             for outcome_key, data_json in cursor.fetchall():
@@ -1413,10 +1503,14 @@ class Aggregator:
                     outcome_data = json.loads(data_json)
                     # Outcome keys are like: "task_id_agent_id_timestamp"
                     # Extract the task_id part
-                    actual_task_id = outcome_data.get("task_id", outcome_key.split("_")[0])
+                    actual_task_id = outcome_data.get(
+                        "task_id", outcome_key.split("_")[0]
+                    )
                     task_outcomes_map[actual_task_id] = outcome_data
                 except json.JSONDecodeError as e:
-                    logger.warning(f"Failed to parse task_outcomes for {outcome_key}: {e}")
+                    logger.warning(
+                        f"Failed to parse task_outcomes for {outcome_key}: {e}"
+                    )
 
             conn.close()
 
@@ -1435,8 +1529,10 @@ class Aggregator:
                 outcome = task_outcomes_map.get(actual_task_id, {})
 
                 # Derive status from outcome data
-                # task_outcomes schema: {success: bool, completed_at: str, started_at: str}
-                # Use "done" for completed tasks to match _calculate_progress() expectations
+                # task_outcomes schema:
+                #   {success: bool, completed_at: str, started_at: str}
+                # Use "done" for completed tasks to match
+                # _calculate_progress() expectations
                 if outcome:
                     if outcome.get("completed_at"):
                         derived_status = "done"
@@ -1449,7 +1545,11 @@ class Aggregator:
 
                 # Add/normalize required fields
                 task["status"] = derived_status
-                task["updated_at"] = outcome.get("completed_at") or outcome.get("started_at") or task.get("created_at")
+                task["updated_at"] = (
+                    outcome.get("completed_at")
+                    or outcome.get("started_at")
+                    or task.get("created_at")
+                )
                 task["started_at"] = outcome.get("started_at")
                 task["completed_at"] = outcome.get("completed_at")
                 task["actual_hours"] = outcome.get("actual_hours", 0.0)
@@ -1476,12 +1576,10 @@ class Aggregator:
                 try:
                     kanban_conn = sqlite3.connect(str(kanban_db))
                     kanban_rows = kanban_conn.execute(
-                        "SELECT id, status, assigned_to "
-                        "FROM tasks"
+                        "SELECT id, status, assigned_to " "FROM tasks"
                     ).fetchall()
                     kanban_status = {
-                        r[0]: {"status": r[1], "assigned_to": r[2]}
-                        for r in kanban_rows
+                        r[0]: {"status": r[1], "assigned_to": r[2]} for r in kanban_rows
                     }
                     kanban_conn.close()
 
@@ -1491,20 +1589,18 @@ class Aggregator:
                         if tid and tid in kanban_status:
                             task["status"] = kanban_status[tid]["status"]
                             if kanban_status[tid]["assigned_to"]:
-                                task["assigned_agent_id"] = (
-                                    kanban_status[tid]["assigned_to"]
-                                )
+                                task["assigned_agent_id"] = kanban_status[tid][
+                                    "assigned_to"
+                                ]
                             enriched += 1
 
                     if enriched:
                         logger.info(
-                            f"Enriched {enriched} tasks with "
-                            f"status from kanban.db"
+                            f"Enriched {enriched} tasks with " f"status from kanban.db"
                         )
                 except Exception as e:
                     logger.warning(
-                        f"Could not read kanban.db for "
-                        f"status enrichment: {e}"
+                        f"Could not read kanban.db for " f"status enrichment: {e}"
                     )
 
             logger.info(f"Loaded {len(parent_tasks)} parent tasks from marcus.db")
@@ -1538,12 +1634,10 @@ class Aggregator:
             cursor = conn.cursor()
 
             # Query task_outcomes from persistence table
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT key, data FROM persistence
                 WHERE collection = 'task_outcomes'
-            """
-            )
+            """)
 
             outcomes = {}
             for row in cursor.fetchall():
@@ -1597,13 +1691,11 @@ class Aggregator:
             cursor = conn.cursor()
 
             # Get task_completed events which contain started_at and completed_at
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT data FROM persistence
                 WHERE collection = 'events'
                   AND json_extract(data, '$.event_type') = 'task_completed'
-            """
-            )
+            """)
 
             for row in cursor.fetchall():
                 try:
@@ -1616,7 +1708,8 @@ class Aggregator:
                     task_name = event_data.get("task_name")
 
                     if task_id and started_at and completed_at:
-                        # Ensure timestamps have timezone info for JavaScript compatibility
+                        # Ensure timestamps have timezone info
+                        # for JavaScript compatibility
                         # Marcus events store timestamps without timezone, so add UTC
                         start_with_tz = (
                             started_at
@@ -1657,9 +1750,7 @@ class Aggregator:
                     continue
 
             conn.close()
-            logger.info(
-                f"Loaded timing for {len(timings)} tasks from marcus.db events"
-            )
+            logger.info(f"Loaded timing for {len(timings)} tasks from marcus.db events")
             if timings:
                 # Log first timing for debugging
                 first_task_id = list(timings.keys())[0]
@@ -1757,7 +1848,13 @@ class Aggregator:
 
             # For incomplete tasks (todo, pending, in-progress, blocked),
             # add synthetic timestamps if missing
-            incomplete_statuses = ["todo", "pending", "in-progress", "in_progress", "blocked"]
+            incomplete_statuses = [
+                "todo",
+                "pending",
+                "in-progress",
+                "in_progress",
+                "blocked",
+            ]
             if task_status in incomplete_statuses:
                 # Keep incomplete tasks even without timing data
                 if not created:
@@ -1777,14 +1874,18 @@ class Aggregator:
 
                 try:
                     created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-                    updated_dt = datetime.fromisoformat(task["updated_at"].replace("Z", "+00:00"))
+                    updated_dt = datetime.fromisoformat(
+                        task["updated_at"].replace("Z", "+00:00")
+                    )
                     duration = (updated_dt - created_dt).total_seconds()
 
                     # Keep tasks with any duration OR that have actual_hours tracked
                     if duration >= 0 or task.get("actual_hours", 0.0) > 0:
                         filtered_tasks.append(task)
                 except Exception as e:
-                    logger.debug(f"Skipping task {task.get('id')} due to timestamp error: {e}")
+                    logger.debug(
+                        f"Skipping task {task.get('id')} due to timestamp error: {e}"
+                    )
                     continue
 
         removed_count = len(tasks) - len(filtered_tasks)
@@ -1830,7 +1931,9 @@ class Aggregator:
                                 ts = ts.replace(tzinfo=timezone.utc)
                             timestamps.append(ts)
                     except (ValueError, AttributeError, TypeError) as e:
-                        logger.warning(f"Failed to parse {field}: {task.get(field)}: {e}")
+                        logger.warning(
+                            f"Failed to parse {field}: {task.get(field)}: {e}"
+                        )
                         continue
 
         logger.info(f"Collected {len(timestamps)} timestamps from tasks")
@@ -1846,7 +1949,9 @@ class Aggregator:
         end_time = max(timestamps)
         duration_minutes = int((end_time - start_time).total_seconds() / 60)
 
-        logger.info(f"Timeline: {start_time} to {end_time}, duration={duration_minutes} minutes")
+        logger.info(
+            f"Timeline: {start_time} to {end_time}, duration={duration_minutes} minutes"
+        )
 
         return start_time, end_time, duration_minutes
 
@@ -1888,7 +1993,7 @@ class Aggregator:
             Messages to extract timestamps from
         """
         # Build message index by task_id for faster lookup
-        messages_by_task = {}
+        messages_by_task: dict[str, list[dict[str, Any]]] = {}
         for msg in messages:
             task_id = msg.get("task_id") or msg.get("metadata", {}).get("task_id")
             if task_id:
@@ -1906,8 +2011,7 @@ class Aggregator:
 
             # Find started_at from task_assignment message
             assignment_msgs = [
-                m for m in task_messages
-                if m.get("type") == "task_assignment"
+                m for m in task_messages if m.get("type") == "task_assignment"
             ]
             if assignment_msgs:
                 # Use earliest assignment
@@ -1916,22 +2020,22 @@ class Aggregator:
 
             # Find completed_at from worker progress messages
             progress_msgs = [
-                m for m in task_messages
-                if m.get("conversation_type") == "worker_to_pm"
+                m for m in task_messages if m.get("conversation_type") == "worker_to_pm"
             ]
             for msg in progress_msgs:
                 content = msg.get("message", "")
                 metadata = msg.get("metadata", {})
                 # Check for 100% in message or status=completed in metadata
-                if ("100%" in content or "COMPLETED" in content.upper() or
-                    metadata.get("progress") == 100 or
-                    metadata.get("status") == "completed"):
+                if (
+                    "100%" in content
+                    or "COMPLETED" in content.upper()
+                    or metadata.get("progress") == 100
+                    or metadata.get("status") == "completed"
+                ):
                     task["completed_at"] = msg.get("timestamp")
                     break
 
-    def _calculate_synthetic_start_times(
-        self, tasks: list[dict[str, Any]]
-    ) -> None:
+    def _calculate_synthetic_start_times(self, tasks: list[dict[str, Any]]) -> None:
         """
         Calculate and correct start times for tasks based on dependencies.
 
@@ -1948,8 +2052,6 @@ class Aggregator:
         tasks : list[dict[str, Any]]
             Task dictionaries to enrich (modified in place)
         """
-        from datetime import datetime, timezone
-
         # Build task lookup by ID
         tasks_by_id = {str(t["id"]): t for t in tasks}
 
@@ -2424,7 +2526,7 @@ class Aggregator:
         decisions: List[Decision] = []
 
         for dec_data in raw_decisions:
-            task_id = dec_data.get("task_id")
+            task_id: str = dec_data.get("task_id") or ""
 
             # Filter by all tasks in project, not just view-filtered tasks
             # Decisions on parent tasks should be visible even in subtasks view
@@ -2434,10 +2536,14 @@ class Aggregator:
             try:
                 # Parse timestamp
                 ts_str = dec_data.get("timestamp")
+                ts: Optional[datetime] = None
                 if isinstance(ts_str, str):
                     ts = datetime.fromisoformat(ts_str)
-                else:
+                elif isinstance(ts_str, datetime):
                     ts = ts_str
+
+                if ts is None:
+                    continue
 
                 if ts.tzinfo is None:
                     ts = ts.replace(tzinfo=timezone.utc)
@@ -2499,7 +2605,7 @@ class Aggregator:
         artifacts: List[Artifact] = []
 
         for art_data in raw_artifacts:
-            task_id = art_data.get("task_id")
+            task_id: str = art_data.get("task_id") or ""
 
             # Filter by all tasks in project, not just view-filtered tasks
             # Artifacts from parent tasks should be visible even in subtasks view
@@ -2508,10 +2614,14 @@ class Aggregator:
 
             try:
                 ts_str = art_data.get("timestamp")
+                ts: Optional[datetime] = None
                 if isinstance(ts_str, str):
                     ts = datetime.fromisoformat(ts_str)
-                else:
+                elif isinstance(ts_str, datetime):
                     ts = ts_str
+
+                if ts is None:
+                    continue
 
                 if ts.tzinfo is None:
                     ts = ts.replace(tzinfo=timezone.utc)
@@ -2581,12 +2691,6 @@ class Aggregator:
 
         # Build task lookup for dependency checking
         tasks_by_id = {t.id: t for t in tasks}
-        assigned_task_ids = {
-            t_id
-            for agent in agents
-            for t_id in agent.current_task_ids
-        }
-
         # 1. Detect zombie tasks (IN_PROGRESS with no agent assigned)
         for task in tasks:
             if task.status == "in_progress" and task.assigned_agent_id is None:
@@ -2605,37 +2709,51 @@ class Aggregator:
                         task_name=task.name,
                         data={
                             "severity": "high",
-                            "description": f"Task '{task.name}' is marked IN_PROGRESS but has no assigned agent",
-                            "recommendation": "Reset to TODO status or assign to an available agent",
+                            "description": (
+                                f"Task '{task.name}' is marked "
+                                "IN_PROGRESS but has no "
+                                "assigned agent"
+                            ),
+                            "recommendation": (
+                                "Reset to TODO status or "
+                                "assign to an available agent"
+                            ),
                         },
                     )
                 )
 
         # 2. Detect bottleneck tasks (blocking 3+ other tasks)
-        dependent_count = defaultdict(int)
+        dependent_count: defaultdict[str, int] = defaultdict(int)
         for task in tasks:
             for dep_id in task.dependency_ids:
                 dependent_count[dep_id] += 1
 
         for task_id, count in dependent_count.items():
             if count >= 3:
-                task = tasks_by_id.get(task_id)
-                if task and task.status != "done":
-                    event_time = task.updated_at or timeline_end
+                blocking_task = tasks_by_id.get(task_id)
+                if blocking_task and blocking_task.status != "done":
+                    event_time = blocking_task.updated_at or timeline_end
 
                     diagnostic_events.append(
                         Event(
-                            id=f"diagnostic_bottleneck_{task.id}",
+                            id=f"diagnostic_bottleneck_{blocking_task.id}",
                             timestamp=event_time,
                             event_type="diagnostic:bottleneck",
-                            agent_id=task.assigned_agent_id,
-                            agent_name=task.assigned_agent_name,
-                            task_id=task.id,
-                            task_name=task.name,
+                            agent_id=blocking_task.assigned_agent_id,
+                            agent_name=blocking_task.assigned_agent_name,
+                            task_id=blocking_task.id,
+                            task_name=blocking_task.name,
                             data={
                                 "severity": "medium",
-                                "description": f"Task '{task.name}' is blocking {count} other tasks",
-                                "recommendation": f"Prioritize completing this task to unblock {count} tasks",
+                                "description": (
+                                    f"Task '{blocking_task.name}' is "
+                                    f"blocking {count} other tasks"
+                                ),
+                                "recommendation": (
+                                    "Prioritize completing this"
+                                    f" task to unblock {count}"
+                                    " tasks"
+                                ),
                                 "blocks_count": count,
                             },
                         )
@@ -2684,10 +2802,12 @@ class Aggregator:
             if cycle_tasks:
                 latest_time = max(
                     (t.updated_at for t in cycle_tasks if t.updated_at),
-                    default=timeline_end
+                    default=timeline_end,
                 )
 
-                cycle_names = [tasks_by_id[tid].name for tid in cycle[:3] if tid in tasks_by_id]
+                cycle_names = [
+                    tasks_by_id[tid].name for tid in cycle[:3] if tid in tasks_by_id
+                ]
 
                 diagnostic_events.append(
                     Event(
@@ -2700,8 +2820,14 @@ class Aggregator:
                         task_name=None,
                         data={
                             "severity": "critical",
-                            "description": f"Circular dependency detected: {' → '.join(cycle_names)}...",
-                            "recommendation": "Break the cycle by removing one dependency link",
+                            "description": (
+                                "Circular dependency detected"
+                                f": {' -> '.join(cycle_names)}"
+                                "..."
+                            ),
+                            "recommendation": (
+                                "Break the cycle by removing" " one dependency link"
+                            ),
                             "cycle": cycle,
                             "cycle_length": len(cycle),
                         },
@@ -2748,8 +2874,15 @@ class Aggregator:
                                 task_name=task.name,
                                 data={
                                     "severity": "low",
-                                    "description": f"Task '{task.name}' has redundant dependency on '{redundant_task.name}'",
-                                    "recommendation": "Remove redundant dependency to simplify graph",
+                                    "description": (
+                                        f"Task '{task.name}' has "
+                                        "redundant dependency on "
+                                        f"'{redundant_task.name}'"
+                                    ),
+                                    "recommendation": (
+                                        "Remove redundant dependency"
+                                        " to simplify graph"
+                                    ),
                                     "redundant_dependency_id": redundant_dep,
                                     "redundant_dependency_name": redundant_task.name,
                                 },
@@ -2817,15 +2950,18 @@ class Aggregator:
 
         # Average parallel = total task-time / total duration
         total_duration = events[-1][0] - events[0][0]
-        average_parallel = total_task_time / total_duration if total_duration > 0 else 0.0
+        average_parallel = (
+            total_task_time / total_duration if total_duration > 0 else 0.0
+        )
 
         # Efficiency = (actual parallel work) / (ideal serial time)
         # Ideal serial time = sum of all task durations
         total_task_duration = sum(
-            (task.updated_at.timestamp() - task.created_at.timestamp())
-            for task in tasks
-            if task.created_at and task.updated_at
-            and task.updated_at.timestamp() > task.created_at.timestamp()
+            (t.updated_at.timestamp() - t.created_at.timestamp())
+            for t in tasks
+            if t.created_at is not None
+            and t.updated_at is not None
+            and t.updated_at.timestamp() > t.created_at.timestamp()
         )
 
         # Efficiency = how much we compressed the work through parallelization
@@ -2860,9 +2996,12 @@ class Aggregator:
             if task.updated_at:
                 task_times.append(task.updated_at.timestamp())
 
-            # Calculate individual task durations (use created_at/updated_at, not started_at/completed_at)
+            # Calculate individual task durations
+            # (use created_at/updated_at, not started/completed)
             if task.created_at and task.updated_at:
-                duration_seconds = (task.updated_at.timestamp() - task.created_at.timestamp())
+                duration_seconds = (
+                    task.updated_at.timestamp() - task.created_at.timestamp()
+                )
                 if duration_seconds > 0:
                     duration_minutes = duration_seconds / 60.0  # Convert to minutes
                     completed_task_durations.append(duration_minutes)
@@ -2870,9 +3009,12 @@ class Aggregator:
         # Calculate total project duration
         if task_times:
             total_duration_seconds = max(task_times) - min(task_times)
-        total_duration_minutes = round(total_duration_seconds / 60.0)  # Round to whole number
+        total_duration_minutes = round(
+            total_duration_seconds / 60.0
+        )  # Round to whole number
 
-        # Average task duration in minutes (note: field name says 'hours' but we use minutes for consistency)
+        # Average task duration in minutes
+        # (field name says 'hours' but we use minutes)
         avg_duration_minutes = (
             sum(completed_task_durations) / len(completed_task_durations)
             if completed_task_durations
@@ -2900,7 +3042,8 @@ class Aggregator:
             blocked_tasks=blocked_tasks,
             completion_rate=completion_rate,
             total_duration_minutes=total_duration_minutes,
-            average_task_duration_hours=avg_duration_minutes,  # Actually minutes, field name is misleading
+            # Actually minutes, field name is misleading
+            average_task_duration_hours=avg_duration_minutes,
             peak_parallel_tasks=peak_parallel,
             average_parallel_tasks=average_parallel,
             parallelization_efficiency=parallelization_efficiency,
@@ -2918,15 +3061,12 @@ class Aggregator:
         to avoid visual clutter (they depend on all other tasks,
         creating a fan-in of lines). They still appear as nodes.
         """
-        graph = {}
+        graph: dict[str, list[str]] = {}
         for task in tasks:
             name = task.name if hasattr(task, "name") else ""
-            is_readme = (
-                "README" in name
-                and any(
-                    lbl in (task.labels if hasattr(task, "labels") else [])
-                    for lbl in ["documentation", "docs"]
-                )
+            is_readme = "README" in name and any(
+                lbl in (task.labels if hasattr(task, "labels") else [])
+                for lbl in ["documentation", "docs"]
             )
             if is_readme:
                 # Show node but suppress inbound edge clutter
@@ -2977,7 +3117,8 @@ class Aggregator:
                     artifact_type=art_data.get("artifact_type", ""),
                     description=art_data.get("description", ""),
                     file_size_bytes=art_data.get("file_size_bytes", 0),
-                    timestamp=self._parse_timestamp(art_data.get("timestamp")) or datetime.now(timezone.utc),
+                    timestamp=self._parse_timestamp(art_data.get("timestamp"))
+                    or datetime.now(timezone.utc),
                     # Embedded context
                     task_name=None,
                     agent_name=None,
@@ -2996,7 +3137,8 @@ class Aggregator:
         try:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             if ts.tzinfo is None:
-                # Naive timestamps are treated as UTC (Marcus stores all timestamps in UTC)
+                # Naive timestamps are treated as UTC
+                # (Marcus stores all timestamps in UTC)
                 ts = ts.replace(tzinfo=timezone.utc)
             return ts
         except (ValueError, AttributeError):

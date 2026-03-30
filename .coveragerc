@@ -1,0 +1,24 @@
+[run]
+source = cato_src, backend
+omit =
+    */tests/*
+    */test_*
+    */__pycache__/*
+    */venv/*
+    */dashboard/*
+
+[report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if self\.debug
+    if __name__ == .__main__
+    raise AssertionError
+    raise NotImplementedError
+    if TYPE_CHECKING
+
+[html]
+directory = htmlcov

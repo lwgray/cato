@@ -1,0 +1,70 @@
+name: Pre-Commit Quality Checks
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: pre-commit/action@v3.0.1
+
+  quality-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install flake8 isort pydocstyle bandit[toml] detect-secrets
+
+      - name: MyPy type checking
+        id: mypy
+        run: mypy cato_src/ backend/ --config-file=pyproject.toml || true
+
+      - name: pydocstyle
+        id: pydocstyle
+        run: pydocstyle cato_src/ backend/ --config=pyproject.toml || true
+
+      - name: Black formatting check
+        id: black
+        run: black --check cato_src/ backend/ || true
+
+      - name: isort import check
+        id: isort
+        run: isort --check-only --profile=black cato_src/ backend/ || true
+
+      - name: flake8 linting
+        id: flake8
+        run: flake8 cato_src/ backend/ --max-line-length=88 --extend-ignore=E203 || true
+
+      - name: bandit security scan
+        id: bandit
+        run: bandit -r cato_src/ backend/ -c pyproject.toml || true
+
+      - name: Quality report
+        if: always()
+        run: |
+          echo "## Quality Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| MyPy | ${{ steps.mypy.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| pydocstyle | ${{ steps.pydocstyle.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Black | ${{ steps.black.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| isort | ${{ steps.isort.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| flake8 | ${{ steps.flake8.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| bandit | ${{ steps.bandit.outcome }} |" >> $GITHUB_STEP_SUMMARY

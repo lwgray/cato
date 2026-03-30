@@ -415,7 +415,9 @@ class Decision:
     def __post_init__(self) -> None:
         """Validate timezone-aware timestamp."""
         if self.timestamp.tzinfo is None:
-            raise ValueError(f"Decision {self.decision_id}: timestamp must be timezone-aware")
+            raise ValueError(
+                f"Decision {self.decision_id}: timestamp must be timezone-aware"
+            )
 
 
 @dataclass
@@ -473,7 +475,9 @@ class Artifact:
     def __post_init__(self) -> None:
         """Validate timezone-aware timestamp."""
         if self.timestamp.tzinfo is None:
-            raise ValueError(f"Artifact {self.artifact_id}: timestamp must be timezone-aware")
+            raise ValueError(
+                f"Artifact {self.artifact_id}: timestamp must be timezone-aware"
+            )
 
 
 @dataclass

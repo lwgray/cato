@@ -13,7 +13,7 @@ import logging
 import os
 import sys
 import zipfile
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -22,18 +22,19 @@ cato_root = Path(__file__).parent.parent
 if str(cato_root) not in sys.path:
     sys.path.insert(0, str(cato_root))
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, Response
+from fastapi import FastAPI, HTTPException, Query  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import Response, StreamingResponse  # noqa: E402
 
-from cato_src.core.aggregator import Aggregator
+from cato_src.core.aggregator import Aggregator  # noqa: E402
 
 # Configure logging to show INFO level from all loggers
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 logger = logging.getLogger(__name__)
 
 # Phase 3: Historical analysis imports
-# Marcus is installed as 'marcus-ai' package, allowing clean imports without namespace conflicts.
+# Marcus is installed as 'marcus-ai' package, allowing clean imports
+# without namespace conflicts.
 
 HISTORICAL_MODE_AVAILABLE = False
 marcus_root = None
@@ -69,9 +70,13 @@ try:
     logger.info("Importing Phase 1 & 2 analysis modules from Marcus...")
 
     # Import directly from Marcus's src directory
-    from src.analysis.aggregator import ProjectHistoryAggregator
-    from src.analysis.query_api import ProjectHistoryQuery
-    from src.analysis.post_project_analyzer import PostProjectAnalyzer
+    from src.analysis.aggregator import (  # type: ignore[no-redef]
+        ProjectHistoryAggregator,
+    )
+    from src.analysis.post_project_analyzer import (  # type: ignore[no-redef]
+        PostProjectAnalyzer,
+    )
+    from src.analysis.query_api import ProjectHistoryQuery  # type: ignore[no-redef]
 
     HISTORICAL_MODE_AVAILABLE = True
     logger.info("✅ Historical analysis mode ENABLED")
@@ -208,7 +213,8 @@ def background_cache_refresh() -> None:
 
             if cache_keys_to_refresh:
                 logger.info(
-                    f"Background refresh: refreshing {len(cache_keys_to_refresh)} cached snapshots"
+                    "Background refresh: refreshing "
+                    f"{len(cache_keys_to_refresh)} cached snapshots"
                 )
 
                 for cache_key in cache_keys_to_refresh:
@@ -241,7 +247,7 @@ def background_cache_refresh() -> None:
             time.sleep(15)
 
 
-@app.on_event("startup")
+@app.on_event("startup")  # type: ignore[misc]
 async def startup_event() -> None:
     """Run background tasks on startup."""
     import threading
@@ -413,8 +419,11 @@ async def get_projects() -> Dict[str, Any]:
                 if is_active:
                     active_project_included = True
 
+        active_status = "included" if active_project_included else "not found"
         logger.info(
-            f"Filtered to {len(projects_with_tasks)}/{len(projects_data)} projects (active={'included' if active_project_included else 'not found'})"
+            f"Filtered to {len(projects_with_tasks)}/"
+            f"{len(projects_data)} projects "
+            f"(active={active_status})"
         )
 
         # Sort: active project first, then by creation date (most recent first)
@@ -789,6 +798,8 @@ async def export_snapshot(
 
 # Initialize historical analysis components (if available)
 if HISTORICAL_MODE_AVAILABLE:
+    assert ProjectHistoryAggregator is not None
+    assert ProjectHistoryQuery is not None
     history_aggregator = ProjectHistoryAggregator()
     history_query = ProjectHistoryQuery(history_aggregator)
 
@@ -825,6 +836,10 @@ async def get_artifact_content(artifact_id: str) -> Dict[str, Any]:
             )
 
         # Security: Validate path is safe
+        if not artifact.absolute_path:
+            raise HTTPException(
+                status_code=404, detail=f"Artifact {artifact_id} has no file path"
+            )
         artifact_path = Path(artifact.absolute_path)
 
         # Check if file exists
@@ -1050,8 +1065,8 @@ async def get_task_conversation(task_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/historical/projects")
-async def list_historical_projects():
+@app.get("/api/historical/projects")  # type: ignore[misc]
+async def list_historical_projects() -> Any:
     """
     List historical projects for ACTIVE projects only (default view).
 
@@ -1085,6 +1100,7 @@ async def list_historical_projects():
             status_code=503,
             detail="Historical analysis mode not available (missing dependencies)",
         )
+    assert history_query is not None
 
     try:
         # Get active project IDs from registry
@@ -1162,12 +1178,12 @@ async def list_historical_projects():
         )
 
 
-@app.get("/api/historical/projects/all")
+@app.get("/api/historical/projects/all")  # type: ignore[misc]
 async def list_all_historical_projects(
     search: Optional[str] = Query(
         None, description="Search projects by name (case-insensitive)"
     )
-):
+) -> Any:
     """
     List ALL historical projects including archived ones (archive browser).
 
@@ -1209,6 +1225,7 @@ async def list_all_historical_projects(
             status_code=503,
             detail="Historical analysis mode not available (missing dependencies)",
         )
+    assert history_query is not None
 
     try:
         # Get active project IDs from registry
@@ -1279,7 +1296,7 @@ async def list_all_historical_projects(
         )
 
 
-@app.get("/api/historical/projects/stream")
+@app.get("/api/historical/projects/stream")  # type: ignore[misc]
 async def stream_historical_projects_list() -> StreamingResponse:
     """
     Stream historical projects list with progress updates.
@@ -1292,8 +1309,9 @@ async def stream_historical_projects_list() -> StreamingResponse:
             status_code=503,
             detail="Historical analysis mode not available (missing dependencies)",
         )
+    assert history_query is not None
 
-    async def event_generator():
+    async def event_generator() -> Any:
         """Generate SSE events for project loading progress."""
         try:
             # Step 1: Scan for project directories
@@ -1314,7 +1332,8 @@ async def stream_historical_projects_list() -> StreamingResponse:
                 event_data = json.dumps(
                     {
                         "type": "error",
-                        "message": f"Project history directory not found: {history_dir}",
+                        "message": "Project history directory "
+                        f"not found: {history_dir}",
                     }
                 )
                 yield f"data: {event_data}\n\n"
@@ -1400,8 +1419,8 @@ async def stream_historical_projects_list() -> StreamingResponse:
     )
 
 
-@app.get("/api/historical/projects/{project_id}")
-async def get_project_history(project_id: str):
+@app.get("/api/historical/projects/{project_id}")  # type: ignore[misc]
+async def get_project_history(project_id: str) -> Any:
     """
     Get complete project history (raw data only, no LLM analysis).
 
@@ -1411,6 +1430,7 @@ async def get_project_history(project_id: str):
         raise HTTPException(
             status_code=503, detail="Historical analysis mode not available"
         )
+    assert history_query is not None
 
     try:
         history = await history_query.get_project_history(project_id)
@@ -1432,8 +1452,8 @@ async def get_project_history(project_id: str):
         )
 
 
-@app.get("/api/historical/projects/{project_id}/analysis")
-async def get_project_analysis(project_id: str):
+@app.get("/api/historical/projects/{project_id}/analysis")  # type: ignore[misc]
+async def get_project_analysis(project_id: str) -> Any:
     """
     Run complete LLM-powered post-project analysis.
 
@@ -1444,6 +1464,8 @@ async def get_project_analysis(project_id: str):
         raise HTTPException(
             status_code=503, detail="Historical analysis mode not available"
         )
+    assert history_query is not None
+    assert PostProjectAnalyzer is not None
 
     try:
         logger.info(f"Starting analysis for project {project_id}")
@@ -1600,13 +1622,25 @@ async def get_project_analysis(project_id: str):
                                 }
                                 for rp in analysis.task_redundancy.redundant_pairs
                             ],
-                            "redundancy_score": analysis.task_redundancy.redundancy_score,
-                            "total_time_wasted": analysis.task_redundancy.total_time_wasted,
-                            "over_decomposition_detected": analysis.task_redundancy.over_decomposition_detected,
-                            "recommended_complexity": analysis.task_redundancy.recommended_complexity,
-                            "raw_data": analysis.task_redundancy.raw_data,
-                            "llm_interpretation": analysis.task_redundancy.llm_interpretation,
-                            "recommendations": analysis.task_redundancy.recommendations,
+                            "redundancy_score": (
+                                analysis.task_redundancy.redundancy_score
+                            ),
+                            "total_time_wasted": (
+                                analysis.task_redundancy.total_time_wasted
+                            ),
+                            "over_decomposition_detected": (
+                                analysis.task_redundancy.over_decomposition_detected
+                            ),
+                            "recommended_complexity": (
+                                analysis.task_redundancy.recommended_complexity
+                            ),
+                            "raw_data": (analysis.task_redundancy.raw_data),
+                            "llm_interpretation": (
+                                analysis.task_redundancy.llm_interpretation
+                            ),
+                            "recommendations": (
+                                analysis.task_redundancy.recommendations
+                            ),
                         }
                         if analysis.task_redundancy
                         else None
@@ -1639,7 +1673,7 @@ async def get_project_analysis(project_id: str):
         )
 
 
-@app.get("/api/historical/projects/{project_id}/analysis/stream")
+@app.get("/api/historical/projects/{project_id}/analysis/stream")  # type: ignore[misc]
 async def stream_historical_analysis(project_id: str) -> StreamingResponse:
     """
     Stream analysis progress to frontend using Server-Sent Events.
@@ -1651,8 +1685,10 @@ async def stream_historical_analysis(project_id: str) -> StreamingResponse:
         raise HTTPException(
             status_code=503, detail="Historical analysis mode not available"
         )
+    assert history_query is not None
+    assert PostProjectAnalyzer is not None
 
-    async def event_generator():
+    async def event_generator() -> Any:
         """Generate SSE events for analysis progress."""
         try:
             # Step 1: Load project data
@@ -1732,15 +1768,19 @@ async def stream_historical_analysis(project_id: str) -> StreamingResponse:
                 # Create a queue for passing progress events from callback to generator
                 progress_queue: asyncio.Queue = asyncio.Queue()
 
-                async def run_analysis_with_progress():
+                async def run_analysis_with_progress() -> Any:
                     """Run analysis and put progress events in queue."""
                     nonlocal analysis, phase2_success
 
-                    async def progress_callback(event):
+                    async def progress_callback(event: Any) -> None:
                         """Progress callback that puts events in queue."""
                         if event.total and event.current > 0:
                             pct = (event.current / event.total) * 100
-                            msg = f"  ⟳ {event.message} ({event.current}/{event.total} - {pct:.0f}%)"
+                            msg = (
+                                f"  ⟳ {event.message} "
+                                f"({event.current}/{event.total}"
+                                f" - {pct:.0f}%)"
+                            )
                         else:
                             msg = f"  ⟳ {event.message}"
 
@@ -1982,14 +2022,12 @@ async def stream_historical_analysis(project_id: str) -> StreamingResponse:
 # ============================================================================
 
 if __name__ == "__main__":
-    import json
-    import os
     import uvicorn
 
     # Load port from config.json
-    config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
+    config_path_str = os.path.join(os.path.dirname(__file__), "..", "config.json")
     try:
-        with open(config_path, "r") as f:
+        with open(config_path_str, "r") as f:
             config = json.load(f)
             port = config.get("backend", {}).get("port", 4301)
     except Exception as e:
