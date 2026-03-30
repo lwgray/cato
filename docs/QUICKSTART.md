@@ -4,7 +4,7 @@
 
 ```bash
 ./cato start      # Start dashboard
-./cato stop       # Stop dashboard  
+./cato stop       # Stop dashboard
 ./cato restart    # Restart dashboard
 ./cato status     # Check what's running
 ./cato logs       # View all logs

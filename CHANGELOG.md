@@ -16,6 +16,20 @@ Cato PATCH versions are independent dashboard-only updates.
 ### Fixed
 ### Security
 
+## [0.2.1] - 2026-03-29
+### Added
+- Pre-commit hooks: mypy, black, isort, flake8, pydocstyle, bandit, detect-secrets
+- GitHub Actions CI/CD workflows: quality checks, test suite, Claude code review, version gate
+- Configuration files: `.flake8`, `.coveragerc`, `pytest.ini`, `.secrets.baseline`
+- Expanded dev dependencies (pytest-asyncio, pytest-cov, isort, flake8, bandit, httpx)
+- Custom pre-commit hooks for naive datetime detection and changelog reminders
+
+### Fixed
+- All existing lint, type annotation, and formatting issues across the codebase
+- Setuptools flat-layout package discovery error in CI
+- Deprecated license format in pyproject.toml
+- Historical API integration tests now skip gracefully when Marcus is not installed
+
 ## [0.1.1] - 2026-03-09
 ### Added
 - Decisions/artifacts support in aggregator
@@ -50,6 +64,7 @@ Cato PATCH versions are independent dashboard-only updates.
 - Zustand state management
 - Docker integration with Marcus
 
-[Unreleased]: https://github.com/yourusername/cato/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/yourusername/cato/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/yourusername/cato/releases/tag/v0.1.0
+[Unreleased]: https://github.com/lwgray/cato/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/lwgray/cato/compare/v0.2.0...v0.2.1
+[0.1.1]: https://github.com/lwgray/cato/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/lwgray/cato/releases/tag/v0.1.0

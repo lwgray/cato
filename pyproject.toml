@@ -2,20 +2,24 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["cato_src*", "backend*"]
+exclude = ["tests*", "dashboard*"]
+
 [project]
 name = "cato"
-version = "0.2.0"
+version = "0.2.1"
 description = "Multi-agent parallelization visualization dashboard for Marcus"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Marcus Team", email = "team@marcus.ai"},
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -32,8 +36,18 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
     "mypy>=1.8.0",
+    "pydocstyle>=6.3.0",
     "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "bandit[toml]>=1.7.0",
+    "pre-commit>=3.5.0",
+    "types-aiofiles",
+    "types-requests",
+    "httpx>=0.24.0",
 ]
 
 [project.urls]
@@ -41,6 +55,35 @@ Homepage = "https://github.com/yourusername/cato"
 Documentation = "https://github.com/yourusername/cato/blob/main/docs/"
 Repository = "https://github.com/yourusername/cato"
 Issues = "https://github.com/yourusername/cato/issues"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = true
+strict_equality = true
+ignore_missing_imports = true
+explicit_package_bases = true
+exclude = ["tests/", "docs/"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_decorators = false
+
+[tool.pydocstyle]
+convention = "numpy"
+add-ignore = "D100,D104,D202,D400"
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+known_first_party = ["cato_src", "backend", "tests"]
 
 [tool.black]
 line-length = 88
@@ -59,3 +102,19 @@ extend-exclude = '''
   | dashboard/node_modules
 )/
 '''
+
+[tool.bandit]
+skips = ["B101", "B104", "B110", "B311"]
+
+[tool.coverage.run]
+source = ["cato_src", "backend"]
+omit = ["*/tests/*", "*/test_*.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING",
+]

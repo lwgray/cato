@@ -3,10 +3,24 @@ Integration tests for Cato Historical Analysis API endpoints.
 
 Tests the Phase 3 implementation that integrates Marcus's Phase 1 & 2
 analysis modules into Cato's backend API.
+
+These tests require Marcus to be installed and available.
+They are skipped in CI where Marcus is not present.
 """
 
 import pytest
 from fastapi.testclient import TestClient
+
+# Check if Marcus historical mode is available
+try:
+    from backend.api import HISTORICAL_MODE_AVAILABLE
+except ImportError:
+    HISTORICAL_MODE_AVAILABLE = False
+
+requires_marcus = pytest.mark.skipif(
+    not HISTORICAL_MODE_AVAILABLE,
+    reason="Marcus is not installed - historical mode unavailable",
+)
 
 
 @pytest.fixture
@@ -25,6 +39,7 @@ def client():
     return TestClient(app)
 
 
+@requires_marcus
 class TestHistoricalProjectsEndpoint:
     """Test suite for /api/historical/projects endpoint."""
 
@@ -138,6 +153,7 @@ class TestHistoricalProjectsEndpoint:
             assert 0 <= rate <= 100, f"Invalid completion rate: {rate}"
 
 
+@requires_marcus
 class TestHistoricalModeAvailability:
     """Test suite for historical mode availability flag."""
 
