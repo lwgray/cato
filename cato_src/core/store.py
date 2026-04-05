@@ -125,6 +125,9 @@ class Task:
         Task labels/tags
     metadata : Dict[str, Any]
         Additional task metadata
+    display_role : Literal["work", "structural", "context"]
+        Visualization role: "work" (full display), "structural" (ghost node in DAG),
+        "context" (Project Info drawer only)
     """
 
     # Core fields
@@ -170,6 +173,11 @@ class Task:
     # Labels and metadata
     labels: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # Display role for visualization (computed by aggregator)
+    # "work" = normal task, "structural" = ghost/DAG node
+    # "context" = info drawer only
+    display_role: Literal["work", "structural", "context"] = "work"
 
     def __post_init__(self) -> None:
         """Validate timezone-aware timestamps."""

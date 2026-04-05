@@ -238,3 +238,30 @@
   border: 2px solid #0f172a;
   z-index: 2;
 }
+
+/* Planning lane for design/structural tasks */
+.planning-lane {
+  border-bottom: 1px dashed #475569;
+}
+
+.planning-lane .agent-name {
+  color: #a78bfa;
+}
+
+.planning-lane .agent-role {
+  color: #8b5cf6;
+}
+
+.design-task-bar {
+  background-color: transparent !important;
+  border-width: 2px;
+}
+
+.design-task-bar .task-bar-content {
+  color: #c4b5fd;
+}
+
+.design-task-bar .task-bar-progress {
+  color: #a78bfa;
+  font-style: italic;
+}

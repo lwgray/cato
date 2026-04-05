@@ -31,6 +31,11 @@ const AgentSwimLanesView = () => {
   const totalDuration = endTime - startTime;
   const currentAbsTime = startTime + currentTime;
 
+  // Collect structural (design) tasks for the planning lane
+  const designTasks = snapshot.tasks.filter(
+    (t) => (t.display_role === 'structural')
+  );
+
   // Group tasks by agent and filter out agents with no tasks
   const agentTasks = snapshot.agents
     .map((agent) => {
@@ -118,6 +123,60 @@ const AgentSwimLanesView = () => {
               <div className="time-label">{Math.round(currentTime / 60000)}m</div>
             </div>
           </div>
+
+          {/* Planning lane for design/structural tasks */}
+          {designTasks.length > 0 && (
+            <div className="agent-lane planning-lane">
+              <div className="agent-info">
+                <div className="agent-name">Marcus</div>
+                <div className="agent-meta">
+                  <span className="agent-role">Planning</span>
+                  <span className="agent-autonomy">
+                    Design: {designTasks.filter((t) => t.status === 'done').length}/{designTasks.length}
+                  </span>
+                </div>
+              </div>
+
+              <div className="lane-timeline">
+                {designTasks.map((task) => {
+                  const taskState = getTaskStateAtTime(task, currentAbsTime);
+                  const isActive = taskState.isActive;
+
+                  return (
+                    <div
+                      key={task.id}
+                      className={`task-bar design-task-bar ${isActive ? 'active' : ''}`}
+                      style={{
+                        ...getTaskPosition(task),
+                        backgroundColor: 'transparent',
+                        borderColor: taskState.status === 'done' ? '#10b981' : '#8b5cf6',
+                        borderStyle: 'dashed',
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        selectTask(task.id);
+                        setLifecycleTask(task);
+                      }}
+                      title={task.name}
+                    >
+                      <div className="task-bar-content">
+                        <span className="task-bar-name">{task.name}</span>
+                        <span className="task-bar-progress">
+                          {taskState.status === 'done' ? 'Design' : `${taskState.progress}%`}
+                        </span>
+                      </div>
+
+                      {taskState.progress === 100 && (
+                        <div className="completion-indicator" title="Design complete">
+                          ✓
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Agent lanes */}
           {agentTasks.map(({ agent, tasks }) => (
