@@ -1,11 +1,12 @@
 import { create } from 'zustand';
-import { Snapshot, Task, Agent, Message, Metrics, Project, Decision, Artifact, fetchSnapshot, fetchProjects } from '../services/dataService';
+import { Snapshot, Task, Agent, Message, Metrics, Project, Decision, Artifact, QualityAssessment, fetchSnapshot, fetchProjects } from '../services/dataService';
 
 export type ViewLayer =
   | 'network'
   | 'swimlanes'
   | 'conversations'
   | 'health'
+  | 'quality'
   | 'board'
   | 'retrospective'
   | 'fidelity'
@@ -81,6 +82,7 @@ interface VisualizationState {
   getMetrics: () => Metrics | null;
   getDecisionsUpToCurrentTime: () => Decision[];
   getArtifactsUpToCurrentTime: () => Artifact[];
+  getQualityAssessment: () => QualityAssessment | null;
 }
 
 export const useVisualizationStore = create<VisualizationState>((set, get) => {
@@ -414,6 +416,10 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
         const artifactTime = new Date(artifact.timestamp).getTime();
         return artifactTime <= currentAbsTime;
       });
+    },
+
+    getQualityAssessment: () => {
+      return get().snapshot?.quality_assessment ?? null;
     },
 
     startAutoRefresh: () => {

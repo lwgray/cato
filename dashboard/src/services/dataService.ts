@@ -29,6 +29,9 @@ export interface Snapshot {
   decisions: Decision[];
   artifacts: Artifact[];
 
+  // Quality assessment (Epictetus audit report)
+  quality_assessment?: QualityAssessment;
+
   // Pre-calculated metrics
   metrics: Metrics | null;
 
@@ -204,6 +207,25 @@ export interface Artifact {
   task_name: string | null;
   agent_name: string | null;
   relative_path: string | null;
+}
+
+/**
+ * Epictetus audit report for a project
+ */
+export interface QualityAssessment {
+  project_id: string;
+  audit_date: string;
+  weighted_score: number;
+  weighted_grade: string;
+  scores: Record<string, any>;
+  agent_grades: Array<Record<string, any>>;
+  coordination: Record<string, any>;
+  contribution: Record<string, any>;
+  issues: Record<string, any>;
+  recommendations: Array<Record<string, any>>;
+  smoke_test: Record<string, any>;
+  cohesiveness: Record<string, any>;
+  metadata: Record<string, any>;
 }
 
 /**
