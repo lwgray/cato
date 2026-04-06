@@ -36,10 +36,12 @@ const AgentSwimLanesView = () => {
     (t) => (t.display_role === 'structural')
   );
 
-  // Group tasks by agent and filter out agents with no tasks
+  // Group work tasks by agent — exclude structural (planning lane) and context (info drawer)
   const agentTasks = snapshot.agents
     .map((agent) => {
-      const tasks = snapshot.tasks.filter((t) => t.assigned_agent_id === agent.id);
+      const tasks = snapshot.tasks.filter(
+        (t) => t.assigned_agent_id === agent.id && (t.display_role || 'work') === 'work'
+      );
       return { agent, tasks };
     })
     .filter(({ tasks }) => tasks.length > 0);

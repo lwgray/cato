@@ -1344,12 +1344,8 @@ class Aggregator:
         if task_data.get("type") == "design" or "design" in labels:
             return "structural"
 
-        # Context: project descriptors, auto-completed non-design tasks
-        if (
-            name.startswith("About:")
-            or source_type == "project_about"
-            or "auto_completed" in labels
-        ):
+        # Context: project descriptors and documentation tasks
+        if name.startswith("About:") or source_type == "project_about":
             return "context"
 
         # Context: README/documentation tasks
