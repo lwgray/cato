@@ -1314,6 +1314,46 @@ class Aggregator:
         logger.info(f"Loaded {len(artifacts)} artifacts")
         return artifacts
 
+    def _classify_display_role(
+        self, task_data: Dict[str, Any]
+    ) -> Literal["work", "structural", "context"]:
+        """
+        Classify a task's display role for visualization.
+
+        Returns
+        -------
+        str
+            "context" — project descriptors, README/docs
+                        (shown in Project Info drawer only)
+            "structural" — design tasks that create fan-out topology
+                           (ghost nodes in DAG, not on board)
+            "work" — normal work items (full display everywhere)
+
+        Note: Design tasks are checked BEFORE auto_completed because
+        design tasks often have both labels. They need to be structural
+        (ghost nodes) to preserve the DAG's diamond topology.
+        """
+        name = task_data.get("name", "")
+        labels = task_data.get("labels") or []
+        source_type = task_data.get("source_type", "")
+
+        # Structural: design tasks that create fan-out topology
+        # Must be checked BEFORE auto_completed — design tasks often have
+        # both "design" and "auto_completed" labels, but they need to stay
+        # in the DAG as ghost nodes to preserve the diamond shape.
+        if task_data.get("type") == "design" or "design" in labels:
+            return "structural"
+
+        # Context: project descriptors and documentation tasks
+        if name.startswith("About:") or source_type == "project_about":
+            return "context"
+
+        # Context: README/documentation tasks
+        if "README" in name and any(lbl in labels for lbl in ["documentation", "docs"]):
+            return "context"
+
+        return "work"
+
     def _filter_tasks_by_view(
         self, tasks: List[Dict[str, Any]], view_mode: str
     ) -> List[Dict[str, Any]]:
@@ -1326,18 +1366,9 @@ class Aggregator:
         - Parent tasks WITH subtasks: excluded (their subtasks represent them)
 
         This creates clean parallelization visualization showing task execution flow.
+        Display role classification (work/structural/context) is handled separately
+        in _classify_display_role() and applied during _build_tasks().
         """
-        # Filter out About cards — they are project descriptors,
-        # not work items. Should not appear in DAG or swim lanes.
-        tasks = [
-            t
-            for t in tasks
-            if not (
-                t.get("name", "").startswith("About:")
-                or t.get("source_type") == "project_about"
-            )
-        ]
-
         if view_mode == "subtasks":
             # Build set of parent IDs that have subtasks
             parent_ids_with_subtasks = {
@@ -2218,6 +2249,7 @@ class Aggregator:
                 timeline_scale_exponent=timeline_scale_exponent,
                 labels=task_data.get("labels", []),
                 metadata=task_data.get("metadata", {}),
+                display_role=self._classify_display_role(task_data),
             )
             tasks.append(task)
 
@@ -2977,7 +3009,12 @@ class Aggregator:
     def _calculate_metrics(
         self, tasks: List[Task], agents: List[Agent], messages: List[Message]
     ) -> Metrics:
-        """Calculate all project metrics."""
+        """Calculate all project metrics.
+
+        Only counts work tasks — structural and context tasks are excluded
+        from metrics to avoid inflating completion rates and task counts.
+        """
+        tasks = [t for t in tasks if t.display_role == "work"]
         total_tasks = len(tasks)
         completed_tasks = len([t for t in tasks if t.status == "done"])
         in_progress_tasks = len([t for t in tasks if t.status == "in_progress"])
@@ -3057,22 +3094,16 @@ class Aggregator:
     def _build_dependency_graph(self, tasks: List[Task]) -> Dict[str, List[str]]:
         """Build task dependency graph.
 
-        Documentation/README tasks have their inbound edges removed
-        to avoid visual clutter (they depend on all other tasks,
-        creating a fan-in of lines). They still appear as nodes.
+        Uses display_role to control graph inclusion:
+        - "context" tasks: excluded entirely (no node, no edges)
+        - "structural" tasks: included with full edges (preserves DAG topology)
+        - "work" tasks: included with full edges
         """
         graph: dict[str, list[str]] = {}
         for task in tasks:
-            name = task.name if hasattr(task, "name") else ""
-            is_readme = "README" in name and any(
-                lbl in (task.labels if hasattr(task, "labels") else [])
-                for lbl in ["documentation", "docs"]
-            )
-            if is_readme:
-                # Show node but suppress inbound edge clutter
-                graph[task.id] = []
-            else:
-                graph[task.id] = task.dependency_ids
+            if task.display_role == "context":
+                continue
+            graph[task.id] = task.dependency_ids
         return graph
 
     def _build_communication_graph(

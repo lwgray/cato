@@ -92,6 +92,9 @@ export interface Task {
   // Labels and metadata
   labels: string[];
   metadata: Record<string, any>;
+
+  // Display role for visualization
+  display_role: 'work' | 'structural' | 'context';
 }
 
 /**

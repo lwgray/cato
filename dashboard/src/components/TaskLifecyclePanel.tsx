@@ -21,39 +21,45 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
     artifactType: string;
   } | null>(null);
 
+  // Only show artifacts/decisions/messages that belong to this specific task
+  const relevantTaskIds = useMemo(() => {
+    if (!task) return new Set<string>();
+    return new Set<string>([task.id]);
+  }, [task]);
+
   // Get messages related to this task
   const taskMessages = useMemo(() => {
     if (!task || !snapshot) return [];
     return snapshot.messages
-      .filter(msg => msg.task_id === task.id)
+      .filter(msg => msg.task_id && relevantTaskIds.has(msg.task_id))
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [task, snapshot]);
+  }, [task, snapshot, relevantTaskIds]);
 
   // Get timeline events for this task
   const taskEvents = useMemo(() => {
     if (!task || !snapshot) return [];
     return snapshot.timeline_events
-      .filter(event => event.task_id === task.id)
+      .filter(event => event.task_id && relevantTaskIds.has(event.task_id))
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [task, snapshot]);
+  }, [task, snapshot, relevantTaskIds]);
 
   // Get decisions for this task (filtered by timeline)
   const taskDecisions = useMemo(() => {
     if (!task) return [];
     const decisions = getDecisionsUpToCurrentTime();
     return decisions
-      .filter(decision => decision.task_id === task.id)
+      .filter(decision => relevantTaskIds.has(decision.task_id))
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [task, getDecisionsUpToCurrentTime]);
+  }, [task, relevantTaskIds, getDecisionsUpToCurrentTime]);
 
   // Get artifacts for this task (filtered by timeline)
   const taskArtifacts = useMemo(() => {
     if (!task) return [];
     const artifacts = getArtifactsUpToCurrentTime();
     return artifacts
-      .filter(artifact => artifact.task_id === task.id)
+      .filter(artifact => relevantTaskIds.has(artifact.task_id))
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [task, getArtifactsUpToCurrentTime]);
+  }, [task, relevantTaskIds, getArtifactsUpToCurrentTime]);
 
   // Get dependent tasks
   const dependentTasks = useMemo(() => {

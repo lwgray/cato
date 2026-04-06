@@ -7,12 +7,16 @@ import HealthCheckDashboard from './components/HealthCheckDashboard';
 import BoardView from './components/BoardView';
 import TimelineControls from './components/TimelineControls';
 import MetricsPanel from './components/MetricsPanel';
+import ProjectInfoDrawer from './components/ProjectInfoDrawer';
 import HeaderControls from './components/HeaderControls';
 import './App.css';
 
 function App() {
   const currentLayer = useVisualizationStore((state) => state.currentLayer);
   const setCurrentLayer = useVisualizationStore((state) => state.setCurrentLayer);
+  const isProjectInfoOpen = useVisualizationStore((state) => state.isProjectInfoOpen);
+  const toggleProjectInfo = useVisualizationStore((state) => state.toggleProjectInfo);
+  const contextTasks = useVisualizationStore((state) => state.getContextTasks());
 
   // Actions for initialization
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
@@ -63,6 +67,15 @@ function App() {
           >
             🏥 Health Check
           </button>
+          {contextTasks.length > 0 && (
+            <button
+              className={`project-info-trigger ${isProjectInfoOpen ? 'active' : ''}`}
+              onClick={toggleProjectInfo}
+              title="Project Info"
+            >
+              ℹ Project Info
+            </button>
+          )}
         </div>
       </header>
 
@@ -78,6 +91,9 @@ function App() {
 
         {/* Metrics panel */}
         <MetricsPanel />
+
+        {/* Project Info drawer */}
+        <ProjectInfoDrawer />
       </div>
 
       {/* Timeline controls */}
