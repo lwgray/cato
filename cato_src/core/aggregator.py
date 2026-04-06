@@ -33,6 +33,7 @@ from cato_src.core.store import (
     Event,
     Message,
     Metrics,
+    QualityAssessment,
     Snapshot,
     Task,
 )
@@ -359,6 +360,9 @@ class Aggregator:
             end_time=timeline_end,
             duration_minutes=duration_minutes,
             task_dependency_graph=task_dependency_graph,
+            quality_assessment=(
+                self.load_quality_assessment(project_id) if project_id else None
+            ),
             agent_communication_graph=agent_communication_graph,
             timezone="UTC",
         )
@@ -1640,6 +1644,68 @@ class Aggregator:
         except Exception as e:
             logger.error(f"Error loading parent tasks from database: {e}")
             return []
+
+    def load_quality_assessment(self, project_id: str) -> Optional[QualityAssessment]:
+        """
+        Load Epictetus audit report for a project from marcus.db.
+
+        Parameters
+        ----------
+        project_id : str
+            Project ID to look up.
+
+        Returns
+        -------
+        Optional[QualityAssessment]
+            Quality assessment data, or None if not found.
+        """
+        db_path = self.marcus_root / "data" / "marcus.db"
+        if not db_path.exists():
+            logger.warning(f"marcus.db not found at {db_path}")
+            return None
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT data FROM persistence "
+                "WHERE collection='quality_assessments' "
+                "AND key=?",
+                (project_id,),
+            )
+            row = cursor.fetchone()
+            conn.close()
+
+            if not row:
+                logger.debug(f"No quality assessment found for project {project_id}")
+                return None
+
+            data = json.loads(row[0])
+            # Map Epictetus report field names to QualityAssessment
+            metadata = data.get("metadata", {})
+            scores = data.get("scores", {})
+            weighted = scores.get("weighted_total", {})
+            return QualityAssessment(
+                project_id=metadata.get("project_id", project_id),
+                audit_date=metadata.get("audit_date", ""),
+                weighted_score=float(weighted.get("score", 0.0)),
+                weighted_grade=weighted.get("grade", ""),
+                scores=scores,
+                agent_grades=data.get("agent_grades", []),
+                coordination=data.get("coordination_effectiveness", {}),
+                contribution=data.get("contribution_distribution", {}),
+                issues=data.get("issues", {}),
+                recommendations=data.get("recommendations", []),
+                smoke_test=data.get("runtime_smoke_test", {}),
+                cohesiveness=data.get("authorship_cohesiveness", {}),
+                metadata={
+                    **metadata,
+                    "process_evidence": data.get("process_evidence", {}),
+                },
+            )
+        except Exception as e:
+            logger.error(f"Error loading quality assessment for {project_id}: {e}")
+            return None
 
     def load_task_outcomes_from_db(self) -> Dict[str, Dict[str, Any]]:
         """
