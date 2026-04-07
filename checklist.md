@@ -4,6 +4,7 @@
 
 ### Bugs
 - [ ] [Active tasks not appearing in dashboard due to timing enrichment filter](https://github.com/lwgray/cato/issues/3) (#3)
+- [ ] [SQLite projects with all-digit ID prefixes take wrong filtering path, missing tasks on DAG](https://github.com/lwgray/cato/issues/21) (#21)
 
 ### Technical Debt
 - [ ] [Remove remaining historical analysis code from visualizationStore](https://github.com/lwgray/cato/issues/6) (#6)
@@ -27,4 +28,4 @@
 - [x] Fix: Active project not appearing in dashboard when it has no enriched tasks (#2)
 
 ---
-*Last updated: 2025-12-06*
+*Last updated: 2026-04-07*
