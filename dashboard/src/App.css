@@ -174,4 +174,8 @@
   background-color: #0f172a;
 }
 
+.visualization-container.full-width {
+  padding: 0;
+}
+
 /* Metrics panel will be styled in its own component */

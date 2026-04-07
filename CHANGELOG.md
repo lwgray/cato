@@ -5,16 +5,33 @@ All notable changes to Cato will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-**Version Alignment:** Cato MAJOR.MINOR versions track compatible Marcus versions.
-Cato PATCH versions are independent dashboard-only updates.
+**Compatibility:** Cato versions independently from Marcus. See README for
+minimum compatible Marcus version.
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-04-07
+
+**The Quality & Observability release.** Adds Epictetus quality dashboard,
+display_role task classification, design phase visibility in Swim Lanes,
+and Project Info drawer. Requires Marcus >= 0.3.0 for quality_assessments.
+
 ### Added
+- **Quality dashboard tab** — visualizes Epictetus code audit reports with sub-tabs: Agents (default, effectiveness bars, root cause attributions), Scores (dimension bars, smoke tests, coordination), Issues (ghost code, cross-agent, findings), Recommendations (instruction quality, project/global scope filtering)
+- **Display role system** — three-tier task classification (work/structural/context) computed by the aggregator, controlling which tasks appear in each visualization view
+- **Design phase in Swim Lane** — dedicated "Marcus / Planning" lane with dashed ghost-node styling
+- **Ghost nodes in DAG** — design/structural tasks rendered as hollow rings with dashed stroke
+- **Project Info drawer** — context tasks surfaced in a dedicated drawer
+- **QualityAssessment dataclass** and aggregator method to load audit reports from marcus.db
+
 ### Changed
-### Deprecated
-### Removed
+- Quality tab hides metrics sidebar and timeline scrubber for full viewport width
+- Metrics exclude structural and context tasks from completion counts
+- Dependency graph excludes context tasks; structural tasks preserve DAG topology
+
 ### Fixed
-### Security
+- `auto_completed` label no longer misclassifies work tasks as context
+- Context tasks filtered from agent swim lanes
 
 ## [0.2.1] - 2026-03-29
 ### Added

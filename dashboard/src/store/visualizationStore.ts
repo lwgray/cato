@@ -1,11 +1,12 @@
 import { create } from 'zustand';
-import { Snapshot, Task, Agent, Message, Metrics, Project, Decision, Artifact, fetchSnapshot, fetchProjects } from '../services/dataService';
+import { Snapshot, Task, Agent, Message, Metrics, Project, Decision, Artifact, QualityAssessment, fetchSnapshot, fetchProjects } from '../services/dataService';
 
 export type ViewLayer =
   | 'network'
   | 'swimlanes'
   | 'conversations'
   | 'health'
+  | 'quality'
   | 'board'
   | 'retrospective'
   | 'fidelity'
@@ -44,6 +45,9 @@ interface VisualizationState {
   showBlockedTasks: boolean;
   filteredAgentIds: string[];
 
+  // Project Info drawer state
+  isProjectInfoOpen: boolean;
+
   // Auto-refresh state
   autoRefreshIntervalId: number | null;
   autoRefreshInterval: number; // milliseconds
@@ -67,14 +71,18 @@ interface VisualizationState {
   refreshData: () => Promise<void>;
   startAutoRefresh: () => void;
   stopAutoRefresh: () => void;
+  toggleProjectInfo: () => void;
 
   // Derived getters
   getVisibleTasks: () => Task[];
+  getContextTasks: () => Task[];
+  getDagTasks: () => Task[];
   getMessagesUpToCurrentTime: () => Message[];
   getActiveAgentsAtCurrentTime: () => Agent[];
   getMetrics: () => Metrics | null;
   getDecisionsUpToCurrentTime: () => Decision[];
   getArtifactsUpToCurrentTime: () => Artifact[];
+  getQualityAssessment: () => QualityAssessment | null;
 }
 
 export const useVisualizationStore = create<VisualizationState>((set, get) => {
@@ -96,6 +104,7 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     showCompletedTasks: true,
     showBlockedTasks: true,
     filteredAgentIds: [],
+    isProjectInfoOpen: false,
     autoRefreshIntervalId: null,
     autoRefreshInterval: 60000, // 60 seconds
 
@@ -289,17 +298,19 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       });
     },
 
+    toggleProjectInfo: () => {
+      set((state) => ({ isProjectInfoOpen: !state.isProjectInfoOpen }));
+    },
+
     getVisibleTasks: () => {
       const state = get();
       const snapshot = state.snapshot;
 
       if (!snapshot) return [];
 
-      let tasks = snapshot.tasks;
-
-      // Note: Project filtering is handled by the backend when loading the snapshot
-      // The snapshot already contains only tasks for the selected project
-      // No need to filter again on the client side
+      // Only show work tasks on the board — structural/context tasks
+      // are handled by getDagTasks() and getContextTasks() respectively
+      let tasks = snapshot.tasks.filter((t) => (t.display_role || 'work') === 'work');
 
       if (!state.showCompletedTasks) {
         tasks = tasks.filter((t) => t.status !== 'done');
@@ -316,6 +327,18 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       }
 
       return tasks;
+    },
+
+    getContextTasks: () => {
+      const snapshot = get().snapshot;
+      if (!snapshot) return [];
+      return snapshot.tasks.filter((t) => t.display_role === 'context');
+    },
+
+    getDagTasks: () => {
+      const snapshot = get().snapshot;
+      if (!snapshot) return [];
+      return snapshot.tasks.filter((t) => (t.display_role || 'work') !== 'context');
     },
 
     getMessagesUpToCurrentTime: () => {
@@ -393,6 +416,10 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
         const artifactTime = new Date(artifact.timestamp).getTime();
         return artifactTime <= currentAbsTime;
       });
+    },
+
+    getQualityAssessment: () => {
+      return get().snapshot?.quality_assessment ?? null;
     },
 
     startAutoRefresh: () => {

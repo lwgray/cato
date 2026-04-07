@@ -4,15 +4,21 @@ import NetworkGraphView from './components/NetworkGraphView';
 import AgentSwimLanesView from './components/AgentSwimLanesView';
 import ConversationView from './components/ConversationView';
 import HealthCheckDashboard from './components/HealthCheckDashboard';
+import QualityDashboard from './components/QualityDashboard';
 import BoardView from './components/BoardView';
 import TimelineControls from './components/TimelineControls';
 import MetricsPanel from './components/MetricsPanel';
+import ProjectInfoDrawer from './components/ProjectInfoDrawer';
 import HeaderControls from './components/HeaderControls';
 import './App.css';
 
 function App() {
   const currentLayer = useVisualizationStore((state) => state.currentLayer);
   const setCurrentLayer = useVisualizationStore((state) => state.setCurrentLayer);
+  const isProjectInfoOpen = useVisualizationStore((state) => state.isProjectInfoOpen);
+  const toggleProjectInfo = useVisualizationStore((state) => state.toggleProjectInfo);
+  const contextTasks = useVisualizationStore((state) => state.getContextTasks());
+  const snapshot = useVisualizationStore((state) => state.snapshot);
 
   // Actions for initialization
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
@@ -63,25 +69,46 @@ function App() {
           >
             🏥 Health Check
           </button>
+          {snapshot?.quality_assessment && (
+            <button
+              className={currentLayer === 'quality' ? 'active' : ''}
+              onClick={() => setCurrentLayer('quality')}
+            >
+              Quality
+            </button>
+          )}
+          {contextTasks.length > 0 && (
+            <button
+              className={`project-info-trigger ${isProjectInfoOpen ? 'active' : ''}`}
+              onClick={toggleProjectInfo}
+              title="Project Info"
+            >
+              ℹ Project Info
+            </button>
+          )}
         </div>
       </header>
 
       <div className="app-content">
-        <div className="visualization-container">
+        <div className={`visualization-container ${currentLayer === 'quality' ? 'full-width' : ''}`}>
           {/* Live mode views */}
           {currentLayer === 'network' && <NetworkGraphView />}
           {currentLayer === 'swimlanes' && <AgentSwimLanesView />}
           {currentLayer === 'conversations' && <ConversationView />}
           {currentLayer === 'board' && <BoardView />}
           {currentLayer === 'health' && <HealthCheckDashboard />}
+          {currentLayer === 'quality' && <QualityDashboard />}
         </div>
 
-        {/* Metrics panel */}
-        <MetricsPanel />
+        {/* Metrics panel — hidden on Quality tab */}
+        {currentLayer !== 'quality' && <MetricsPanel />}
+
+        {/* Project Info drawer */}
+        <ProjectInfoDrawer />
       </div>
 
-      {/* Timeline controls */}
-      <TimelineControls />
+      {/* Timeline controls — hidden on Quality tab */}
+      {currentLayer !== 'quality' && <TimelineControls />}
     </div>
   );
 }

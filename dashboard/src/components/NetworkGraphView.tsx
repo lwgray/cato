@@ -16,6 +16,7 @@ interface GraphNode extends d3.SimulationNodeDatum {
   isActive: boolean;
   isZombie: boolean;
   isBottleneck: boolean;
+  isGhost: boolean;
 }
 
 interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
@@ -29,7 +30,7 @@ const NetworkGraphView = () => {
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   const nodesRef = useRef<GraphNode[]>([]);
 
-  const tasks = useVisualizationStore((state) => state.getVisibleTasks());
+  const tasks = useVisualizationStore((state) => state.getDagTasks());
   const currentTime = useVisualizationStore((state) => state.currentTime);
   const selectTask = useVisualizationStore((state) => state.selectTask);
   const selectedTaskId = useVisualizationStore((state) => state.selectedTaskId);
@@ -61,9 +62,24 @@ const NetworkGraphView = () => {
     const startTime = new Date(snapshot.start_time).getTime();
     const currentAbsTime = startTime + currentTime;
 
-    // Detect zombies and bottlenecks
+    // Detect zombies, bottlenecks, and ghost nodes
     const nodes: GraphNode[] = tasks.map(task => {
+      const isGhost = task.display_role === 'structural';
       const state = getTaskStateAtTime(task, currentAbsTime);
+
+      // Ghost nodes always show as done — they don't animate
+      if (isGhost) {
+        return {
+          id: task.id,
+          task,
+          status: 'done' as TaskStatus,
+          progress: 100,
+          isActive: false,
+          isZombie: false,
+          isBottleneck: false,
+          isGhost: true,
+        };
+      }
 
       // Zombie: IN_PROGRESS but no agent assigned
       const isZombie = state.status === 'in_progress' && !task.assigned_agent_id;
@@ -79,6 +95,7 @@ const NetworkGraphView = () => {
         isActive: state.isActive,
         isZombie,
         isBottleneck,
+        isGhost: false,
       };
     });
 
@@ -283,22 +300,26 @@ const NetworkGraphView = () => {
       .attr('cursor', 'pointer')
       .attr('class', d => `node-${d.id}`);
 
-    // Node circles
+    // Node circles — ghost nodes use hollow ring treatment (same size, different fill)
+    // Solid fill = active work, hollow ring with dashed stroke = structural scaffolding
     node.append('circle')
       .attr('class', 'node-circle')
       .attr('r', 20)
-      .attr('fill', d => statusColor(d.status, d.isActive))
+      .attr('fill', d => d.isGhost ? 'transparent' : statusColor(d.status, d.isActive))
       .attr('stroke', d => {
+        if (d.isGhost) return '#64748b';
         if (d.id === selectedTaskId) return '#f59e0b';
         if (d.isZombie) return '#ef4444'; // Red for zombie
         if (d.isBottleneck) return '#f97316'; // Orange for bottleneck
         return '#1e293b';
       })
       .attr('stroke-width', d => {
+        if (d.isGhost) return 2;
         if (d.id === selectedTaskId) return 4;
         if (d.isZombie || d.isBottleneck) return 3;
         return 2;
       })
+      .attr('stroke-dasharray', d => d.isGhost ? '4,3' : 'none')
       .on('click', (_, d) => {
         selectTask(d.id);
         setLifecycleTask(d.task); // Show lifecycle panel
@@ -314,18 +335,20 @@ const NetworkGraphView = () => {
       .attr('fill', '#e2e8f0')
       .attr('font-size', '11px')
       .attr('font-weight', '500')
+      .attr('opacity', d => d.isGhost ? 0.7 : 1.0)
       .style('pointer-events', 'none');
 
-    // Progress text
+    // Progress text — ghost nodes show type label instead of percentage
     node.append('text')
       .attr('class', 'node-progress')
-      .text(d => `${d.progress}%`)
+      .text(d => d.isGhost ? 'Design' : `${d.progress}%`)
       .attr('x', 0)
       .attr('y', 5)
       .attr('text-anchor', 'middle')
-      .attr('fill', 'white')
-      .attr('font-size', '10px')
-      .attr('font-weight', '700')
+      .attr('fill', d => d.isGhost ? '#94a3b8' : 'white')
+      .attr('font-size', d => d.isGhost ? '9px' : '10px')
+      .attr('font-weight', d => d.isGhost ? '600' : '700')
+      .attr('font-style', d => d.isGhost ? 'italic' : 'normal')
       .style('pointer-events', 'none');
 
     // Positions are already set explicitly in hierarchical layout
@@ -369,6 +392,9 @@ const NetworkGraphView = () => {
 
     // Update each node's visual state
     nodesRef.current.forEach(node => {
+      // Ghost nodes are always frozen as "done" — skip state calculation
+      if (node.isGhost) return;
+
       const state = getTaskStateAtTime(node.task, currentAbsTime);
       node.status = state.status;
       node.progress = state.progress;
@@ -398,24 +424,26 @@ const NetworkGraphView = () => {
     // Update circle colors and diagnostic borders
     svg.selectAll('.node-circle')
       .data(nodesRef.current)
-      .attr('fill', d => statusColor(d.status, d.isActive))
+      .attr('fill', d => d.isGhost ? 'transparent' : statusColor(d.status, d.isActive))
       .attr('stroke', d => {
+        if (d.isGhost) return '#64748b';
         if (d.id === selectedTaskId) return '#f59e0b';
         if (d.isZombie) return '#ef4444'; // Red for zombie
         if (d.isBottleneck) return '#f97316'; // Orange for bottleneck
         return '#1e293b';
       })
       .attr('stroke-width', d => {
+        if (d.isGhost) return 2;
         if (d.id === selectedTaskId) return 4;
         if (d.isZombie || d.isBottleneck) return 3;
         return 2;
       })
-      .attr('class', d => `node-circle ${d.isActive ? 'pulsing-node' : ''}`);
+      .attr('class', d => `node-circle ${!d.isGhost && d.isActive ? 'pulsing-node' : ''}`);
 
-    // Update progress text
+    // Update progress text — ghost nodes show type label
     svg.selectAll('.node-progress')
       .data(nodesRef.current)
-      .text(d => `${d.progress}%`);
+      .text(d => d.isGhost ? 'Design' : `${d.progress}%`);
 
   }, [currentTime, selectedTaskId]); // Re-run when time or selection changes
 
@@ -440,6 +468,13 @@ const NetworkGraphView = () => {
           <div className="legend-item">
             <div className="legend-color" style={{ backgroundColor: '#ef4444' }}></div>
             <span>Blocked</span>
+          </div>
+        </div>
+        <div className="legend-section">
+          <div className="legend-title">Node Types</div>
+          <div className="legend-item">
+            <div className="legend-border" style={{ borderColor: '#64748b', borderStyle: 'dashed', opacity: 0.5 }}></div>
+            <span>Design / Structural</span>
           </div>
         </div>
         <div className="legend-section">
