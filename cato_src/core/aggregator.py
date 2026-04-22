@@ -1669,8 +1669,8 @@ class Aggregator:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT data FROM persistence "
-                "WHERE collection='quality_assessments' "
-                "AND key=?",
+                "WHERE collection IN ('quality_assessments', 'epictetus_audits') "
+                "AND key=? ORDER BY rowid DESC LIMIT 1",
                 (project_id,),
             )
             row = cursor.fetchone()
