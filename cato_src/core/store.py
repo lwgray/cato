@@ -125,6 +125,9 @@ class Task:
         Task labels/tags
     metadata : Dict[str, Any]
         Additional task metadata
+    display_role : Literal["work", "structural", "context"]
+        Visualization role: "work" (full display), "structural" (ghost node in DAG),
+        "context" (Project Info drawer only)
     """
 
     # Core fields
@@ -170,6 +173,11 @@ class Task:
     # Labels and metadata
     labels: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # Display role for visualization (computed by aggregator)
+    # "work" = normal task, "structural" = ghost/DAG node
+    # "context" = info drawer only
+    display_role: Literal["work", "structural", "context"] = "work"
 
     def __post_init__(self) -> None:
         """Validate timezone-aware timestamps."""
@@ -481,6 +489,25 @@ class Artifact:
 
 
 @dataclass
+class QualityAssessment:
+    """Epictetus audit report for a project."""
+
+    project_id: str
+    audit_date: str
+    weighted_score: float
+    weighted_grade: str
+    scores: Dict[str, Any]  # per-dimension scores
+    agent_grades: List[Dict[str, Any]]
+    coordination: Dict[str, Any]
+    contribution: Dict[str, Any]
+    issues: Dict[str, Any]
+    recommendations: List[Dict[str, Any]]
+    smoke_test: Dict[str, Any]
+    cohesiveness: Dict[str, Any]
+    metadata: Dict[str, Any]
+
+
+@dataclass
 class Snapshot:
     """
     Immutable snapshot of entire Marcus state for visualization.
@@ -547,6 +574,9 @@ class Snapshot:
     timeline_events: List[Event] = field(default_factory=list)
     decisions: List[Decision] = field(default_factory=list)
     artifacts: List[Artifact] = field(default_factory=list)
+
+    # Quality assessment (Epictetus audit report)
+    quality_assessment: Optional[QualityAssessment] = None
 
     # Pre-calculated metrics (no recalculation needed)
     metrics: Optional[Metrics] = None
@@ -640,6 +670,9 @@ class Snapshot:
                 }
                 for artifact in self.artifacts
             ],
+            "quality_assessment": (
+                vars(self.quality_assessment) if self.quality_assessment else None
+            ),
             "metrics": vars(self.metrics) if self.metrics else None,
             "start_time": serialize_datetime(self.start_time),
             "end_time": serialize_datetime(self.end_time),
