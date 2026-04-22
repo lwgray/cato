@@ -62,49 +62,42 @@ const NetworkGraphView = () => {
     const startTime = new Date(snapshot.start_time).getTime();
     const currentAbsTime = startTime + currentTime;
 
-    // Detect zombies, bottlenecks, and ghost nodes
-    const nodes: GraphNode[] = tasks.map(task => {
-      const isGhost = task.display_role === 'structural';
+    // Ghost (structural) nodes are filtered from display — their lineage is preserved via rawDepMap
+    const visibleTasks = tasks.filter(task => task.display_role !== 'structural');
+    const ghostIds = new Set(tasks.filter(t => t.display_role === 'structural').map(t => t.id));
+
+    const nodes: GraphNode[] = visibleTasks.map(task => {
       const state = getTaskStateAtTime(task, currentAbsTime);
-
-      // Ghost nodes always show as done — they don't animate
-      if (isGhost) {
-        return {
-          id: task.id,
-          task,
-          status: 'done' as TaskStatus,
-          progress: 100,
-          isActive: false,
-          isZombie: false,
-          isBottleneck: false,
-          isGhost: true,
-        };
-      }
-
-      // Zombie: IN_PROGRESS but no agent assigned
-      const isZombie = state.status === 'in_progress' && !task.assigned_agent_id;
-
-      // Bottleneck: Many tasks depend on this (threshold: 3+)
-      const isBottleneck = (task.dependent_task_ids?.length || 0) >= 3;
-
       return {
-        id: task.id,
-        task,
-        status: state.status,
-        progress: state.progress,
-        isActive: state.isActive,
-        isZombie,
-        isBottleneck,
+        id: task.id, task,
+        status: state.status, progress: state.progress, isActive: state.isActive,
+        isZombie: state.status === 'in_progress' && !task.assigned_agent_id,
+        isBottleneck: (task.dependent_task_ids?.length || 0) >= 3,
         isGhost: false,
       };
     });
 
-    nodesRef.current = nodes;
+    const rawDepMap = new Map<string, Set<string>>();
+    tasks.forEach(task => rawDepMap.set(task.id, new Set(task.dependency_ids || [])));
 
-    // Build dependency map for transitive reduction
+    // Bridge through ghost deps so visible tasks retain correct dependency structure
+    const resolveGhostDeps = (depIds: string[], visited = new Set<string>()): Set<string> => {
+      const resolved = new Set<string>();
+      depIds.forEach(depId => {
+        if (visited.has(depId)) return;
+        visited.add(depId);
+        if (ghostIds.has(depId)) {
+          resolveGhostDeps(Array.from(rawDepMap.get(depId) || []), visited).forEach(id => resolved.add(id));
+        } else {
+          resolved.add(depId);
+        }
+      });
+      return resolved;
+    };
+
     const depMap = new Map<string, Set<string>>();
-    tasks.forEach(task => {
-      depMap.set(task.id, new Set(task.dependency_ids || []));
+    visibleTasks.forEach(task => {
+      depMap.set(task.id, resolveGhostDeps(Array.from(rawDepMap.get(task.id) || [])));
     });
 
     // Get all reachable nodes from a given task (including direct deps)
@@ -124,9 +117,9 @@ const NetworkGraphView = () => {
       return allReachable;
     };
 
-    // Compute reduced dependencies for each task
+    // Compute reduced dependencies for each task (ghosts included)
     const reducedDeps = new Map<string, Set<string>>();
-    tasks.forEach(task => {
+    visibleTasks.forEach(task => {
       const directDeps = depMap.get(task.id) || new Set();
       const reduced = new Set<string>();
 
@@ -156,7 +149,7 @@ const NetworkGraphView = () => {
     // Create links using reduced dependencies only (hide redundant/transitive dependencies)
     const links: GraphLink[] = [];
 
-    tasks.forEach(task => {
+    visibleTasks.forEach(task => {
       const reducedDepsForTask = reducedDeps.get(task.id) || new Set();
 
       reducedDepsForTask.forEach(depId => {
@@ -171,7 +164,12 @@ const NetworkGraphView = () => {
       });
     });
 
-    // Use only the reduced links (no redundant links)
+    // Drop orphaned nodes (no edges after ghost removal — e.g. planning artifacts)
+    const connectedIds = new Set<string>();
+    links.forEach(l => { connectedIds.add(l.source as string); connectedIds.add(l.target as string); });
+    const visibleNodes = nodes.filter(n => connectedIds.has(n.id));
+    nodesRef.current = visibleNodes;
+
     const allLinks = links;
 
     // Color scale
@@ -186,59 +184,80 @@ const NetworkGraphView = () => {
       }
     };
 
-    // Calculate hierarchical layout based on dependencies
-    // This prevents line overlaps by organizing tasks in layers
+    // Depth: Y position — how far from a root
     const calculateDepth = (nodeId: string, depthMap: Map<string, number>): number => {
-      if (depthMap.has(nodeId)) {
-        return depthMap.get(nodeId)!;
-      }
-
-      const node = nodes.find(n => n.id === nodeId);
-      const deps = node?.task.dependency_ids || [];
-      if (!node || deps.length === 0) {
-        depthMap.set(nodeId, 0);
-        return 0;
-      }
-
-      const maxDepDep = Math.max(
-        ...deps.map(depId => calculateDepth(depId, depthMap))
-      );
-      const depth = maxDepDep + 1;
+      if (depthMap.has(nodeId)) return depthMap.get(nodeId)!;
+      const deps = Array.from(depMap.get(nodeId) || []);
+      if (deps.length === 0) { depthMap.set(nodeId, 0); return 0; }
+      const depth = Math.max(...deps.map(d => calculateDepth(d, depthMap))) + 1;
       depthMap.set(nodeId, depth);
       return depth;
     };
 
     const depthMap = new Map<string, number>();
-    nodes.forEach(node => calculateDepth(node.id, depthMap));
+    visibleNodes.forEach(n => calculateDepth(n.id, depthMap));
+    const maxDepth = Math.max(...Array.from(depthMap.values()));
 
-    // Group nodes by depth (layer)
-    const layers = new Map<number, GraphNode[]>();
-    nodes.forEach(node => {
-      const depth = depthMap.get(node.id)!;
-      if (!layers.has(depth)) {
-        layers.set(depth, []);
-      }
-      layers.get(depth)!.push(node);
+    // Group nodes by which ghost task they originally depended on.
+    // Ghost tasks encode the design stream each impl task came from —
+    // they're filtered from the display but their lineage is still in rawDepMap.
+    const nodeGhostGroup = new Map<string, string>(); // nodeId -> ghostId
+    visibleNodes.forEach(node => {
+      const originalDeps = Array.from(rawDepMap.get(node.id) || []);
+      const ghostDep = originalDeps.find(depId => ghostIds.has(depId));
+      if (ghostDep) nodeGhostGroup.set(node.id, ghostDep);
     });
 
-    // Position nodes in hierarchical layout
-    const maxDepth = Math.max(...Array.from(depthMap.values()));
-    const verticalSpacing = (height - 100) / (maxDepth || 1);
-    const padding = 50;
+    const ghostGroupIds = Array.from(new Set(nodeGhostGroup.values()));
+    const numGroups = ghostGroupIds.length;
 
-    layers.forEach((layerNodes, depth) => {
-      const horizontalSpacing = (width - padding * 2) / (layerNodes.length + 1);
-      layerNodes.forEach((node, index) => {
-        node.x = padding + horizontalSpacing * (index + 1);
-        node.y = padding + depth * verticalSpacing;
-        node.fx = node.x; // Fix position
-        node.fy = node.y;
-      });
+    const padding = 50;
+    const verticalSpacing = (height - 100) / (maxDepth + 1);
+
+    // Group all visible nodes by depth
+    const byDepth = new Map<number, GraphNode[]>();
+    visibleNodes.forEach(n => {
+      const d = depthMap.get(n.id)!;
+      if (!byDepth.has(d)) byDepth.set(d, []);
+      byDepth.get(d)!.push(n);
+    });
+
+    byDepth.forEach((layerNodes, depth) => {
+      const grouped = layerNodes.filter(n => nodeGhostGroup.has(n.id));
+      const ungrouped = layerNodes.filter(n => !nodeGhostGroup.has(n.id));
+
+      // Ungrouped nodes (roots, shared parents, convergence): center across full width
+      if (ungrouped.length > 0) {
+        const hSpacing = (width - padding * 2) / (ungrouped.length + 1);
+        ungrouped.forEach((node, i) => {
+          node.x = padding + hSpacing * (i + 1);
+          node.y = padding + depth * verticalSpacing;
+          node.fx = node.x;
+          node.fy = node.y;
+        });
+      }
+
+      // Grouped nodes: each ghost stream gets its own column slice
+      if (grouped.length > 0 && numGroups > 0) {
+        const groupWidth = (width - padding * 2) / numGroups;
+        ghostGroupIds.forEach((ghostId, gIdx) => {
+          const groupNodes = grouped.filter(n => nodeGhostGroup.get(n.id) === ghostId);
+          if (groupNodes.length === 0) return;
+          const colLeft = padding + gIdx * groupWidth;
+          const hSpacing = groupWidth / (groupNodes.length + 1);
+          groupNodes.forEach((node, i) => {
+            node.x = colLeft + hSpacing * (i + 1);
+            node.y = padding + depth * verticalSpacing;
+            node.fx = node.x;
+            node.fy = node.y;
+          });
+        });
+      }
     });
 
     // Create node lookup map for link resolution
     const nodeMap = new Map<string, GraphNode>();
-    nodes.forEach(n => nodeMap.set(n.id, n));
+    visibleNodes.forEach(n => nodeMap.set(n.id, n));
 
     // Resolve link references from IDs to actual node objects
     allLinks.forEach(link => {
@@ -251,8 +270,9 @@ const NetworkGraphView = () => {
     });
 
     // No need for force simulation - we have explicit positions
-    const simulation = d3.forceSimulation(nodes);
+    const simulation = d3.forceSimulation(visibleNodes);
     simulationRef.current = simulation;
+
 
     // Draw links
     const link = g.append('g')
@@ -295,13 +315,11 @@ const NetworkGraphView = () => {
     // Draw nodes
     const node = g.append('g')
       .selectAll('g')
-      .data(nodes)
+      .data(visibleNodes)
       .enter().append('g')
       .attr('cursor', 'pointer')
       .attr('class', d => `node-${d.id}`);
 
-    // Node circles — ghost nodes use hollow ring treatment (same size, different fill)
-    // Solid fill = active work, hollow ring with dashed stroke = structural scaffolding
     node.append('circle')
       .attr('class', 'node-circle')
       .attr('r', 20)
@@ -309,45 +327,38 @@ const NetworkGraphView = () => {
       .attr('stroke', d => {
         if (d.isGhost) return '#64748b';
         if (d.id === selectedTaskId) return '#f59e0b';
-        if (d.isZombie) return '#ef4444'; // Red for zombie
-        if (d.isBottleneck) return '#f97316'; // Orange for bottleneck
+        if (d.isZombie) return '#ef4444';
+        if (d.isBottleneck) return '#f97316';
         return '#1e293b';
       })
-      .attr('stroke-width', d => {
-        if (d.isGhost) return 2;
-        if (d.id === selectedTaskId) return 4;
-        if (d.isZombie || d.isBottleneck) return 3;
-        return 2;
-      })
+      .attr('stroke-width', d => (d.isGhost || d.id === selectedTaskId) ? 2 : (d.isZombie || d.isBottleneck) ? 3 : 2)
       .attr('stroke-dasharray', d => d.isGhost ? '4,3' : 'none')
+      .attr('opacity', d => d.isGhost ? 0.6 : 1)
       .on('click', (_, d) => {
-        selectTask(d.id);
-        setLifecycleTask(d.task); // Show lifecycle panel
+        if (!d.isGhost) { selectTask(d.id); setLifecycleTask(d.task); }
       });
 
-    // Node labels
     node.append('text')
       .attr('class', 'node-label')
       .text(d => d.task.name.length > 20 ? d.task.name.substring(0, 20) + '...' : d.task.name)
       .attr('x', 0)
       .attr('y', 35)
       .attr('text-anchor', 'middle')
-      .attr('fill', '#e2e8f0')
+      .attr('fill', d => d.isGhost ? '#64748b' : '#e2e8f0')
       .attr('font-size', '11px')
       .attr('font-weight', '500')
-      .attr('opacity', d => d.isGhost ? 0.7 : 1.0)
+      .attr('opacity', d => d.isGhost ? 0.6 : 1)
       .style('pointer-events', 'none');
 
-    // Progress text — ghost nodes show type label instead of percentage
     node.append('text')
       .attr('class', 'node-progress')
       .text(d => d.isGhost ? 'Design' : `${d.progress}%`)
       .attr('x', 0)
       .attr('y', 5)
       .attr('text-anchor', 'middle')
-      .attr('fill', d => d.isGhost ? '#94a3b8' : 'white')
-      .attr('font-size', d => d.isGhost ? '9px' : '10px')
-      .attr('font-weight', d => d.isGhost ? '600' : '700')
+      .attr('fill', d => d.isGhost ? '#64748b' : 'white')
+      .attr('font-size', '10px')
+      .attr('font-weight', d => d.isGhost ? '500' : '700')
       .attr('font-style', d => d.isGhost ? 'italic' : 'normal')
       .style('pointer-events', 'none');
 
@@ -390,24 +401,14 @@ const NetworkGraphView = () => {
 
     const svg = d3.select(svgRef.current);
 
-    // Update each node's visual state
     nodesRef.current.forEach(node => {
-      // Ghost nodes are always frozen as "done" — skip state calculation
       if (node.isGhost) return;
-
       const state = getTaskStateAtTime(node.task, currentAbsTime);
       node.status = state.status;
       node.progress = state.progress;
       node.isActive = state.isActive;
-
-      // Update diagnostic flags
       node.isZombie = state.status === 'in_progress' && !node.task.assigned_agent_id;
       node.isBottleneck = (node.task.dependent_task_ids?.length || 0) >= 3;
-
-      // Debug: log first node
-      if (node.id === nodesRef.current[0].id) {
-        console.log(`Time: ${(currentTime/60000).toFixed(1)}m, Node: ${node.task.name.substring(0, 20)}, Progress: ${node.progress}%, Status: ${node.status}, Active: ${node.isActive}`);
-      }
     });
 
     const statusColor = (status: TaskStatus, isActive: boolean) => {
@@ -421,26 +422,23 @@ const NetworkGraphView = () => {
       }
     };
 
-    // Update circle colors and diagnostic borders
     svg.selectAll('.node-circle')
       .data(nodesRef.current)
       .attr('fill', d => d.isGhost ? 'transparent' : statusColor(d.status, d.isActive))
       .attr('stroke', d => {
         if (d.isGhost) return '#64748b';
         if (d.id === selectedTaskId) return '#f59e0b';
-        if (d.isZombie) return '#ef4444'; // Red for zombie
-        if (d.isBottleneck) return '#f97316'; // Orange for bottleneck
+        if (d.isZombie) return '#ef4444';
+        if (d.isBottleneck) return '#f97316';
         return '#1e293b';
       })
       .attr('stroke-width', d => {
-        if (d.isGhost) return 2;
         if (d.id === selectedTaskId) return 4;
         if (d.isZombie || d.isBottleneck) return 3;
         return 2;
       })
       .attr('class', d => `node-circle ${!d.isGhost && d.isActive ? 'pulsing-node' : ''}`);
 
-    // Update progress text — ghost nodes show type label
     svg.selectAll('.node-progress')
       .data(nodesRef.current)
       .text(d => d.isGhost ? 'Design' : `${d.progress}%`);
@@ -473,8 +471,8 @@ const NetworkGraphView = () => {
         <div className="legend-section">
           <div className="legend-title">Node Types</div>
           <div className="legend-item">
-            <div className="legend-border" style={{ borderColor: '#64748b', borderStyle: 'dashed', opacity: 0.5 }}></div>
-            <span>Design / Structural</span>
+            <div className="legend-border" style={{ borderColor: '#64748b', borderStyle: 'dashed', opacity: 0.6 }}></div>
+            <span>Design origin</span>
           </div>
         </div>
         <div className="legend-section">
