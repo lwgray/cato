@@ -252,6 +252,76 @@
   color: #8b5cf6;
 }
 
+/* ---- Parent context lanes ---- */
+
+.parent-context-section {
+  margin-top: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #334155;
+}
+
+.parent-context-lane {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 0;
+}
+
+.parent-context-info {
+  width: 200px;
+  padding-right: 1rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.parent-context-name {
+  font-size: 0.7rem;
+  color: #60a5fa;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.parent-context-badge {
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 0.0625rem 0.3rem;
+  background-color: #1e3a5f;
+  color: #60a5fa;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid #3b82f644;
+}
+
+.parent-context-badge.all-done {
+  background-color: #14532d;
+  color: #4ade80;
+  border-color: #16a34a44;
+}
+
+.parent-context-timeline {
+  flex: 1;
+  position: relative;
+  height: 20px;
+}
+
+.parent-context-bar {
+  position: absolute;
+  height: 6px;
+  top: 7px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #1e40af 0%, #3b82f6 100%);
+  opacity: 0.5;
+  min-width: 4px;
+}
+
+/* ---- Design task bars ---- */
+
 .design-task-bar {
   background-color: transparent !important;
   border-width: 2px;

@@ -4,9 +4,6 @@ import { Task } from '../services/dataService';
 import { getTaskStateAtTime } from '../utils/timelineUtils';
 import './BoardView.css';
 
-/**
- * Column configuration for the kanban board.
- */
 const COLUMNS: { key: Task['status']; label: string; color: string; icon: string }[] = [
   { key: 'todo', label: 'Backlog', color: '#eab308', icon: '📋' },
   { key: 'in_progress', label: 'In Progress', color: '#3b82f6', icon: '⚡' },
@@ -14,9 +11,6 @@ const COLUMNS: { key: Task['status']; label: string; color: string; icon: string
   { key: 'done', label: 'Done', color: '#10b981', icon: '✓' },
 ];
 
-/**
- * Priority badge styling.
- */
 const PRIORITY_COLORS: Record<string, string> = {
   urgent: '#ef4444',
   high: '#f97316',
@@ -29,13 +23,14 @@ const BoardView = () => {
   const currentTime = useVisualizationStore((state) => state.currentTime);
   const messages = useVisualizationStore((state) => state.getMessagesUpToCurrentTime());
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
+  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set());
 
-  // Group tasks by time-aware status
-  const { grouped, metrics } = useMemo(() => {
+  const { grouped, metrics, parentProgress } = useMemo(() => {
     if (!snapshot || !snapshot.start_time) {
       return {
         grouped: { todo: [], in_progress: [], blocked: [], done: [] } as Record<Task['status'], Task[]>,
         metrics: { total: 0, done: 0, blocked: 0, pct: 0, agents: 0 },
+        parentProgress: new Map<string, { name: string; done: number; total: number }>(),
       };
     }
 
@@ -49,7 +44,11 @@ const BoardView = () => {
       done: [],
     };
 
-    for (const task of snapshot.tasks) {
+    const workTasks = snapshot.tasks.filter(
+      (t) => (t.display_role || 'work') === 'work'
+    );
+
+    for (const task of workTasks) {
       const state = getTaskStateAtTime(task, currentAbsTime);
       const status = state.status as Task['status'];
       if (g[status]) {
@@ -57,7 +56,7 @@ const BoardView = () => {
       }
     }
 
-    const total = snapshot.tasks.length;
+    const total = workTasks.length;
     const done = g.done.length;
     const blocked = g.blocked.length;
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -67,13 +66,31 @@ const BoardView = () => {
         .filter(Boolean)
     ).size;
 
+    // Build cross-column parent progress map (done/total across ALL statuses)
+    const parentProgress = new Map<string, { name: string; done: number; total: number }>();
+    for (const task of workTasks) {
+      if (!task.parent_task_id) continue;
+      const state = getTaskStateAtTime(task, currentAbsTime);
+      const pid = task.parent_task_id;
+      if (!parentProgress.has(pid)) {
+        parentProgress.set(pid, {
+          name: task.parent_task_name || 'Parent Task',
+          done: 0,
+          total: 0,
+        });
+      }
+      const entry = parentProgress.get(pid)!;
+      entry.total++;
+      if (state.status === 'done') entry.done++;
+    }
+
     return {
       grouped: g,
       metrics: { total, done, blocked, pct, agents },
+      parentProgress,
     };
   }, [snapshot, currentTime]);
 
-  // Get the selected task and its messages
   const selectedTask = useMemo(() => {
     if (!selectedCard || !snapshot) return null;
     return snapshot.tasks.find((t) => t.id === selectedCard) || null;
@@ -84,7 +101,6 @@ const BoardView = () => {
     return messages.filter((m) => m.task_id === selectedCard);
   }, [selectedCard, messages]);
 
-  // Get subtasks for the selected task
   const subtasks = useMemo(() => {
     if (!selectedCard || !snapshot) return [];
     return snapshot.tasks.filter((t) => t.parent_task_id === selectedCard);
@@ -109,12 +125,99 @@ const BoardView = () => {
     return `${hours}h${mins > 0 ? ` ${mins}m` : ''}`;
   };
 
+  const toggleParent = (parentId: string) => {
+    setCollapsedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
+  };
+
+  const renderCard = (task: Task, col: typeof COLUMNS[number]) => (
+    <div
+      key={task.id}
+      className={`board-card ${selectedCard === task.id ? 'selected' : ''}`}
+      style={{
+        borderLeftColor:
+          task.assigned_agent_id
+            ? agentColor(task.assigned_agent_id, snapshot.agents)
+            : col.color,
+      }}
+      onClick={() =>
+        setSelectedCard(selectedCard === task.id ? null : task.id)
+      }
+    >
+      <div className="card-header">
+        <span className="card-id">#{task.id.substring(0, 8)}</span>
+        <span
+          className="card-priority"
+          style={{ color: PRIORITY_COLORS[task.priority] || '#64748b' }}
+        >
+          {task.priority === 'urgent' || task.priority === 'high'
+            ? task.priority.toUpperCase()
+            : ''}
+        </span>
+      </div>
+      <div className="card-name">{task.name}</div>
+      {task.description && (
+        <div className="card-desc">
+          {task.description.split('\n')[0].replace(/^[#*]+\s*/, '').slice(0, 80)}
+          {task.description.split('\n')[0].length > 80 ? '…' : ''}
+        </div>
+      )}
+      <div className="card-meta">
+        {task.assigned_agent_name && (
+          <span className="card-agent">{task.assigned_agent_name}</span>
+        )}
+        {task.estimated_hours > 0 && (
+          <span className="card-hours">
+            {Math.round(task.estimated_hours * 60)}m
+          </span>
+        )}
+      </div>
+      {task.progress_percent > 0 && task.progress_percent < 100 && (
+        <div className="card-progress-bar">
+          <div
+            className="card-progress-fill"
+            style={{
+              width: `${task.progress_percent}%`,
+              backgroundColor: col.color,
+            }}
+          />
+        </div>
+      )}
+      {task.labels.length > 0 && (
+        <div className="card-labels">
+          {task.labels.slice(0, 3).map((lbl) => (
+            <span key={lbl} className="card-label">{lbl}</span>
+          ))}
+          {task.labels.length > 3 && (
+            <span className="card-label card-label-more">
+              +{task.labels.length - 3}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className={`board-view ${selectedTask ? 'with-detail' : ''}`}>
       {/* Board columns */}
       <div className="board-columns">
         {COLUMNS.map((col) => {
           const tasks = grouped[col.key];
+
+          const standalone = tasks.filter((t) => !t.parent_task_id);
+          const byParent = new Map<string, Task[]>();
+          for (const t of tasks) {
+            if (!t.parent_task_id) continue;
+            const pid = t.parent_task_id;
+            if (!byParent.has(pid)) byParent.set(pid, []);
+            byParent.get(pid)!.push(t);
+          }
+
           return (
             <div key={col.key} className="board-column">
               <div
@@ -135,84 +238,50 @@ const BoardView = () => {
                 {tasks.length === 0 && (
                   <div className="card-empty">No tasks</div>
                 )}
-                {tasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className={`board-card ${selectedCard === task.id ? 'selected' : ''}`}
-                    style={{
-                      borderLeftColor:
-                        task.assigned_agent_id
-                          ? agentColor(task.assigned_agent_id, snapshot.agents)
-                          : col.color,
-                    }}
-                    onClick={() =>
-                      setSelectedCard(
-                        selectedCard === task.id ? null : task.id
-                      )
-                    }
-                  >
-                    <div className="card-header">
-                      <span className="card-id">
-                        #{task.id.substring(0, 8)}
-                      </span>
-                      <span
-                        className="card-priority"
-                        style={{
-                          color: PRIORITY_COLORS[task.priority] || '#64748b',
-                        }}
+
+                {/* Standalone tasks (no parent) */}
+                {standalone.map((task) => renderCard(task, col))}
+
+                {/* Subtask groups */}
+                {Array.from(byParent.entries()).map(([parentId, ptasks]) => {
+                  const prog = parentProgress.get(parentId);
+                  const name =
+                    prog?.name ?? ptasks[0]?.parent_task_name ?? 'Parent Task';
+                  const done = prog?.done ?? 0;
+                  const total = prog?.total ?? ptasks.length;
+                  const pct = total > 0 ? (done / total) * 100 : 0;
+                  const isCollapsed = collapsedParents.has(parentId);
+
+                  return (
+                    <div key={parentId} className="parent-group">
+                      <div
+                        className="parent-group-header"
+                        onClick={() => toggleParent(parentId)}
                       >
-                        {task.priority === 'urgent' || task.priority === 'high'
-                          ? task.priority.toUpperCase()
-                          : ''}
-                      </span>
-                    </div>
-                    <div className="card-name">{task.name}</div>
-                    {task.description && (
-                      <div className="card-desc">
-                        {task.description.split('\n')[0].replace(/^[#*]+\s*/, '').slice(0, 80)}
-                        {task.description.split('\n')[0].length > 80 ? '…' : ''}
+                        <span className="parent-group-chevron">
+                          {isCollapsed ? '▸' : '▾'}
+                        </span>
+                        <span className="parent-group-name">{name}</span>
+                        <span
+                          className={`parent-group-badge ${done === total ? 'all-done' : ''}`}
+                        >
+                          {done}/{total} ✓
+                        </span>
                       </div>
-                    )}
-                    <div className="card-meta">
-                      {task.assigned_agent_name && (
-                        <span className="card-agent">
-                          {task.assigned_agent_name}
-                        </span>
-                      )}
-                      {task.estimated_hours > 0 && (
-                        <span className="card-hours">
-                          {Math.round(task.estimated_hours * 60)}m
-                        </span>
-                      )}
-                    </div>
-                    {task.progress_percent > 0 &&
-                      task.progress_percent < 100 && (
-                        <div className="card-progress-bar">
-                          <div
-                            className="card-progress-fill"
-                            style={{
-                              width: `${task.progress_percent}%`,
-                              backgroundColor: col.color,
-                            }}
-                          />
+                      <div className="parent-group-pbar">
+                        <div
+                          className="parent-group-pbar-fill"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      {!isCollapsed && (
+                        <div className="parent-group-cards">
+                          {ptasks.map((task) => renderCard(task, col))}
                         </div>
                       )}
-                    {task.labels.length > 0 && (
-                      <div className="card-labels">
-                        {task.labels.slice(0, 3).map((lbl) => (
-                          <span key={lbl} className="card-label">
-                            {lbl}
-                          </span>
-                        ))}
-                        {task.labels.length > 3 && (
-                          <span className="card-label card-label-more">
-                            +{task.labels.length - 3}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );
@@ -441,41 +510,25 @@ const BoardView = () => {
   );
 };
 
-/**
- * Assign a consistent color to an agent based on their position in the agents list.
- */
 const AGENT_COLORS = [
   '#3b82f6', '#8b5cf6', '#06b6d4', '#f97316', '#10b981',
   '#ec4899', '#eab308', '#14b8a6', '#f43f5e', '#6366f1',
 ];
 
-function agentColor(
-  agentId: string,
-  agents: { id: string }[]
-): string {
+function agentColor(agentId: string, agents: { id: string }[]): string {
   const idx = agents.findIndex((a) => a.id === agentId);
   return AGENT_COLORS[idx >= 0 ? idx % AGENT_COLORS.length : 0];
 }
 
-/**
- * Map message type to an icon for the coordination trail.
- */
 function messageIcon(type: string): string {
   switch (type) {
-    case 'task_assignment':
-      return '📋';
-    case 'status_update':
-      return '📊';
-    case 'blocker':
-      return '🚫';
-    case 'question':
-      return '❓';
-    case 'answer':
-      return '💬';
-    case 'instruction':
-      return '📝';
-    default:
-      return '•';
+    case 'task_assignment': return '📋';
+    case 'status_update': return '📊';
+    case 'blocker': return '🚫';
+    case 'question': return '❓';
+    case 'answer': return '💬';
+    case 'instruction': return '📝';
+    default: return '•';
   }
 }
 

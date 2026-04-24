@@ -13,7 +13,6 @@ const AgentSwimLanesView = () => {
   const selectAgent = useVisualizationStore((state) => state.selectAgent);
   const selectTask = useVisualizationStore((state) => state.selectTask);
 
-  // Local state for lifecycle panel
   const [lifecycleTask, setLifecycleTask] = useState<SnapshotTask | null>(null);
 
   if (!snapshot || !snapshot.start_time || !snapshot.end_time) {
@@ -31,12 +30,10 @@ const AgentSwimLanesView = () => {
   const totalDuration = endTime - startTime;
   const currentAbsTime = startTime + currentTime;
 
-  // Collect structural (design) tasks for the planning lane
   const designTasks = snapshot.tasks.filter(
-    (t) => (t.display_role === 'structural')
+    (t) => t.display_role === 'structural'
   );
 
-  // Group work tasks by agent — exclude structural (planning lane) and context (info drawer)
   const agentTasks = snapshot.agents
     .map((agent) => {
       const tasks = snapshot.tasks.filter(
@@ -47,19 +44,14 @@ const AgentSwimLanesView = () => {
     .filter(({ tasks }) => tasks.length > 0);
 
   const getTaskPosition = (task: SnapshotTask) => {
-    // Use started_at if available (when task actually began execution),
-    // otherwise fall back to created_at (when task was created/planned)
-    // This matches the logic in getTaskStateAtTime to ensure alignment
     const taskStart = task.started_at
       ? new Date(task.started_at).getTime()
       : new Date(task.created_at).getTime();
     const taskEnd = new Date(task.updated_at).getTime();
 
-    // Convert to relative time from start
     const taskStartRelative = taskStart - startTime;
     const taskEndRelative = taskEnd - startTime;
 
-    // Apply logarithmic scale
     const taskStartLog = timeToLogScale(taskStartRelative, totalDuration);
     const taskEndLog = timeToLogScale(taskEndRelative, totalDuration);
 
@@ -68,33 +60,85 @@ const AgentSwimLanesView = () => {
 
     return {
       left: `${startPercent}%`,
-      width: `${Math.max(durationPercent, 0.5)}%`, // Minimum width for visibility
+      width: `${Math.max(durationPercent, 0.5)}%`,
     };
   };
 
   const getTaskColor = (status: TaskStatus) => {
     switch (status) {
-      case 'todo':
-        return '#64748b';
-      case 'in_progress':
-        return '#3b82f6';
-      case 'done':
-        return '#10b981';
-      case 'blocked':
-        return '#ef4444';
-      default:
-        return '#64748b';
+      case 'todo': return '#64748b';
+      case 'in_progress': return '#3b82f6';
+      case 'done': return '#10b981';
+      case 'blocked': return '#ef4444';
+      default: return '#64748b';
     }
   };
 
-  // Get messages for task at current time
   const getMessagesForTask = (taskId: string) => {
     return snapshot.messages.filter(
       (m) => m.task_id === taskId && new Date(m.timestamp).getTime() <= currentAbsTime
     );
   };
 
-  // Apply power scale to indicator position to match task bar positions
+  // Build parent context groups from all work subtasks (for the context lane above agents)
+  const subtasksByParent = new Map<string, {
+    name: string;
+    tasks: SnapshotTask[];
+    done: number;
+    total: number;
+  }>();
+
+  for (const task of snapshot.tasks) {
+    if ((task.display_role || 'work') !== 'work') continue;
+    if (!task.parent_task_id) continue;
+    const pid = task.parent_task_id;
+    if (!subtasksByParent.has(pid)) {
+      subtasksByParent.set(pid, {
+        name: task.parent_task_name || 'Parent Task',
+        tasks: [],
+        done: 0,
+        total: 0,
+      });
+    }
+    const entry = subtasksByParent.get(pid)!;
+    entry.tasks.push(task);
+    entry.total++;
+    const state = getTaskStateAtTime(task, currentAbsTime);
+    if (state.status === 'done') entry.done++;
+  }
+
+  // Compute timeline span for each parent group
+  const parentContextGroups = Array.from(subtasksByParent.entries())
+    .filter(([, v]) => v.total >= 2)
+    .map(([parentId, v]) => {
+      const starts = v.tasks.map((t) => {
+        const ts = t.started_at
+          ? new Date(t.started_at).getTime()
+          : new Date(t.created_at).getTime();
+        return ts - startTime;
+      });
+      const ends = v.tasks.map((t) => {
+        const state = getTaskStateAtTime(t, currentAbsTime);
+        if (state.status === 'in_progress') return currentTime;
+        return new Date(t.updated_at).getTime() - startTime;
+      });
+
+      const earliest = Math.max(0, Math.min(...starts));
+      const latest = Math.min(totalDuration, Math.max(...ends, earliest + 1000));
+
+      const startLog = timeToLogScale(earliest, totalDuration);
+      const endLog = timeToLogScale(latest, totalDuration);
+
+      return {
+        parentId,
+        name: v.name,
+        done: v.done,
+        total: v.total,
+        left: `${(startLog / totalDuration) * 100}%`,
+        width: `${Math.max(((endLog - startLog) / totalDuration) * 100, 1)}%`,
+      };
+    });
+
   const currentTimeScaled = timeToLogScale(currentTime, totalDuration);
   const currentTimePercent = (currentTimeScaled / totalDuration) * 100;
 
@@ -105,19 +149,15 @@ const AgentSwimLanesView = () => {
           {/* Time axis */}
           <div className="time-axis">
             {Array.from({ length: 13 }, (_, i) => i * 30).map((minutes) => {
-              // Convert minutes to milliseconds, apply power scale
               const timeMs = minutes * 60000;
               const timeScaledMs = timeToLogScale(timeMs, totalDuration);
               const position = (timeScaledMs / totalDuration) * 100;
-
               return (
                 <div key={minutes} className="time-marker" style={{ left: `${position}%` }}>
                   <span>{minutes}m</span>
                 </div>
               );
             })}
-
-            {/* Current time indicator - positioned relative to time-axis */}
             <div
               className="current-time-line"
               style={{ left: `${currentTimePercent}%` }}
@@ -143,7 +183,6 @@ const AgentSwimLanesView = () => {
                 {designTasks.map((task) => {
                   const taskState = getTaskStateAtTime(task, currentAbsTime);
                   const isActive = taskState.isActive;
-
                   return (
                     <div
                       key={task.id}
@@ -167,16 +206,36 @@ const AgentSwimLanesView = () => {
                           {taskState.status === 'done' ? 'Design' : `${taskState.progress}%`}
                         </span>
                       </div>
-
                       {taskState.progress === 100 && (
-                        <div className="completion-indicator" title="Design complete">
-                          ✓
-                        </div>
+                        <div className="completion-indicator" title="Design complete">✓</div>
                       )}
                     </div>
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* Parent context lanes — one thin row per parent group, above agent lanes */}
+          {parentContextGroups.length > 0 && (
+            <div className="parent-context-section">
+              {parentContextGroups.map(({ parentId, name, done, total, left, width }) => (
+                <div key={parentId} className="parent-context-lane">
+                  <div className="parent-context-info">
+                    <span className="parent-context-name">{name}</span>
+                    <span className={`parent-context-badge ${done === total ? 'all-done' : ''}`}>
+                      {done}/{total} ✓
+                    </span>
+                  </div>
+                  <div className="parent-context-timeline">
+                    <div
+                      className="parent-context-bar"
+                      style={{ left, width }}
+                      title={`${name}: ${done}/${total} subtasks done`}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -195,11 +254,10 @@ const AgentSwimLanesView = () => {
 
               <div className="lane-timeline">
                 {tasks.map((task) => {
-                  const messages = getMessagesForTask(task.id);
-                  const questions = messages.filter((m) => m.type === 'question');
-                  const blockers = messages.filter((m) => m.type === 'blocker');
+                  const msgs = getMessagesForTask(task.id);
+                  const questions = msgs.filter((m) => m.type === 'question');
+                  const blockers = msgs.filter((m) => m.type === 'blocker');
 
-                  // Get dynamic state based on current time
                   const taskState = getTaskStateAtTime(task, currentAbsTime);
                   const isActive = taskState.isActive;
 
@@ -214,7 +272,7 @@ const AgentSwimLanesView = () => {
                       onClick={(e) => {
                         e.stopPropagation();
                         selectTask(task.id);
-                        setLifecycleTask(task); // Show lifecycle panel
+                        setLifecycleTask(task);
                       }}
                       title={task.name}
                     >
@@ -223,7 +281,6 @@ const AgentSwimLanesView = () => {
                         <span className="task-bar-progress">{taskState.progress}%</span>
                       </div>
 
-                      {/* Message indicators */}
                       {questions.map((q, idx) => {
                         const qTime = new Date(q.timestamp).getTime();
                         const qPercent =
@@ -231,7 +288,6 @@ const AgentSwimLanesView = () => {
                             (new Date(task.updated_at).getTime() -
                               new Date(task.created_at).getTime())) *
                           100;
-
                         return (
                           <div
                             key={idx}
@@ -251,7 +307,6 @@ const AgentSwimLanesView = () => {
                             (new Date(task.updated_at).getTime() -
                               new Date(task.created_at).getTime())) *
                           100;
-
                         return (
                           <div
                             key={idx}
@@ -265,9 +320,7 @@ const AgentSwimLanesView = () => {
                       })}
 
                       {taskState.progress === 100 && (
-                        <div className="completion-indicator" title="Task completed">
-                          ✓
-                        </div>
+                        <div className="completion-indicator" title="Task completed">✓</div>
                       )}
                     </div>
                   );
@@ -278,7 +331,6 @@ const AgentSwimLanesView = () => {
         </div>
       </div>
 
-      {/* Task Lifecycle Panel */}
       {lifecycleTask && (
         <TaskLifecyclePanel
           task={lifecycleTask}

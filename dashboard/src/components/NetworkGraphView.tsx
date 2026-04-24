@@ -29,6 +29,7 @@ const NetworkGraphView = () => {
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   const nodesRef = useRef<GraphNode[]>([]);
+  const subtaskGroupsRef = useRef<Map<string, { nodes: GraphNode[]; name: string }>>(new Map());
 
   const tasks = useVisualizationStore((state) => state.getDagTasks());
   const currentTime = useVisualizationStore((state) => state.currentTime);
@@ -307,6 +308,67 @@ const NetworkGraphView = () => {
     // Design-origin markers are rendered as HTML pills above the SVG (see JSX below).
     // Here we just keep the column layout driven by nodePrimaryGhost / primaryGhostIds.
 
+    // Group sibling subtasks — dashed bounding rect + progress badge rendered behind nodes
+    const subtaskGroups = new Map<string, { nodes: GraphNode[]; name: string }>();
+    visibleNodes.forEach(node => {
+      if (!node.task.parent_task_id) return;
+      const pid = node.task.parent_task_id;
+      if (!subtaskGroups.has(pid)) {
+        subtaskGroups.set(pid, { nodes: [], name: node.task.parent_task_name || 'Group' });
+      }
+      subtaskGroups.get(pid)!.nodes.push(node);
+    });
+    subtaskGroupsRef.current = subtaskGroups;
+
+    const groupLayer = g.append('g').attr('class', 'subtask-groups');
+
+    subtaskGroups.forEach((group, parentId) => {
+      if (group.nodes.length < 2) return;
+      const xs = group.nodes.map(n => n.x!);
+      const ys = group.nodes.map(n => n.y!);
+      const pad = 34;
+      const rx = Math.min(...xs) - pad;
+      const ry = Math.min(...ys) - pad;
+      const rw = Math.max(...xs) - Math.min(...xs) + pad * 2;
+      const rh = Math.max(...ys) - Math.min(...ys) + pad * 2;
+
+      groupLayer.append('rect')
+        .attr('x', rx).attr('y', ry)
+        .attr('width', rw).attr('height', rh)
+        .attr('rx', 8).attr('ry', 8)
+        .attr('fill', '#1e3a5f0d')
+        .attr('stroke', '#3b82f655')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '6,3');
+
+      const shortName = group.name.length > 26
+        ? group.name.substring(0, 26) + '…'
+        : group.name;
+
+      groupLayer.append('text')
+        .attr('x', rx + 6).attr('y', ry + 11)
+        .attr('fill', '#60a5fa').attr('font-size', '9px').attr('font-weight', '600')
+        .style('pointer-events', 'none')
+        .text(shortName);
+
+      const initDone = group.nodes.filter(n => n.status === 'done').length;
+
+      groupLayer.append('rect')
+        .attr('x', rx + rw - 44).attr('y', ry + 2)
+        .attr('width', 40).attr('height', 14)
+        .attr('rx', 7)
+        .attr('fill', '#1e3a5f').attr('stroke', '#3b82f644').attr('stroke-width', 1);
+
+      groupLayer.append('text')
+        .attr('class', 'subtask-group-progress')
+        .attr('data-parent-id', parentId)
+        .attr('x', rx + rw - 24).attr('y', ry + 12)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#60a5fa').attr('font-size', '8px').attr('font-weight', '700')
+        .style('pointer-events', 'none')
+        .text(`${initDone}/${group.nodes.length} ✓`);
+    });
+
     // Create node lookup map for link resolution
     const nodeMap = new Map<string, GraphNode>();
     visibleNodes.forEach(n => nodeMap.set(n.id, n));
@@ -507,6 +569,16 @@ const NetworkGraphView = () => {
       .data(nodesRef.current)
       .text(d => d.isGhost ? 'Design' : `${d.progress}%`);
 
+    // Update subtask group progress badges
+    subtaskGroupsRef.current.forEach((group, parentId) => {
+      const done = group.nodes.filter(n => {
+        const state = getTaskStateAtTime(n.task, currentAbsTime);
+        return state.status === 'done';
+      }).length;
+      svg.select(`[data-parent-id="${parentId}"]`)
+        .text(`${done}/${group.nodes.length} ✓`);
+    });
+
   }, [currentTime, selectedTaskId]); // Re-run when time or selection changes
 
   // Toggle the design-link ring on nodes depending on the hovered design pill.
@@ -580,6 +652,13 @@ const NetworkGraphView = () => {
           <div className="legend-item">
             <div className="legend-border" style={{ borderColor: '#a855f7', borderStyle: 'dashed', backgroundColor: 'transparent' }}></div>
             <span>Hover a pill to highlight dependents</span>
+          </div>
+        </div>
+        <div className="legend-section">
+          <div className="legend-title">Subtask Groups</div>
+          <div className="legend-item">
+            <div className="legend-border" style={{ borderColor: '#3b82f6', borderStyle: 'dashed', backgroundColor: '#1e3a5f11' }}></div>
+            <span>Sibling subtasks</span>
           </div>
         </div>
         <div className="legend-section">

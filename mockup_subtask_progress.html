@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Subtask Progress Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; font-size: 13px; padding: 24px; }
+  h1 { color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px; }
+  h2 { color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 16px; }
+  .section { margin-bottom: 48px; }
+  .label-new { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e44; font-size: 9px; padding: 2px 6px; border-radius: 99px; text-transform: uppercase; letter-spacing: 1px; vertical-align: middle; margin-left: 8px; }
+  .label-before { background: #ef444422; color: #ef4444; border: 1px solid #ef444444; font-size: 9px; padding: 2px 6px; border-radius: 99px; text-transform: uppercase; letter-spacing: 1px; vertical-align: middle; margin-left: 8px; }
+  .compare { display: flex; gap: 32px; }
+  .panel { flex: 1; }
+
+  /* ── BOARD ─────────────────────────────────────────────────── */
+  .board { display: flex; gap: 10px; }
+  .col { flex: 1; background: #1e293b; border-radius: 8px; overflow: hidden; min-width: 170px; }
+  .col-header { display: flex; align-items: center; gap: 6px; padding: 10px 12px 8px; border-bottom: 3px solid; }
+  .col-icon { font-size: 12px; }
+  .col-label { font-size: 11px; font-weight: 600; color: #cbd5e1; flex: 1; }
+  .col-count { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 99px; color: #fff; }
+  .col-cards { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+
+  /* parent group header */
+  .parent-group { border-radius: 6px; overflow: hidden; border: 1px solid #334155; margin-bottom: 2px; }
+  .parent-header { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: #162032; cursor: pointer; }
+  .parent-icon { font-size: 10px; color: #64748b; }
+  .parent-name { font-size: 10px; font-weight: 600; color: #94a3b8; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .parent-badge { font-size: 9px; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: #1e3a5f; color: #60a5fa; white-space: nowrap; }
+  .parent-badge.partial { background: #1e3a5f; color: #60a5fa; }
+  .parent-badge.done { background: #14532d; color: #4ade80; }
+  .parent-pbar { height: 2px; background: #0f172a; }
+  .parent-pbar-fill { height: 100%; background: #3b82f6; transition: width 0.3s; }
+  .subtask-cards { padding: 4px 6px 6px 16px; background: #162032; display: flex; flex-direction: column; gap: 4px; }
+
+  .card { background: #1e293b; border-radius: 6px; padding: 8px 10px; border-left: 3px solid; }
+  .card.subtask-card { background: #1a2744; border-radius: 4px; padding: 6px 8px; border-left: 2px solid; }
+  .card-id { font-size: 9px; color: #475569; }
+  .card-name { font-size: 11px; color: #e2e8f0; margin: 2px 0; font-weight: 500; line-height: 1.3; }
+  .card-name.subtask-name { font-size: 10px; color: #cbd5e1; }
+  .card-meta { display: flex; gap: 6px; margin-top: 4px; align-items: center; }
+  .card-agent { font-size: 9px; color: #64748b; background: #0f172a; padding: 1px 5px; border-radius: 3px; }
+  .card-progress { height: 3px; background: #334155; border-radius: 2px; margin-top: 5px; }
+  .card-progress-fill { height: 100%; border-radius: 2px; }
+  .subtask-check { font-size: 9px; margin-right: 4px; }
+  .card-parent-tag { font-size: 8px; color: #3b82f6; background: #1e3a5f; padding: 1px 5px; border-radius: 3px; }
+
+  /* ── SWIMLANE ───────────────────────────────────────────────── */
+  .swimlane-wrap { background: #1e293b; border-radius: 8px; padding: 0; overflow: hidden; }
+  .swim-header { padding: 10px 16px; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 8px; }
+  .swim-title { font-size: 11px; color: #94a3b8; font-weight: 600; }
+  .timeline-ticks { display: flex; padding: 4px 16px 4px 100px; gap: 0; border-bottom: 1px solid #1e293b; }
+  .tick { flex: 1; font-size: 8px; color: #475569; text-align: left; border-left: 1px solid #334155; padding-left: 3px; }
+  .lane { display: flex; align-items: center; border-bottom: 1px solid #1e293b; min-height: 36px; }
+  .lane-label { width: 100px; min-width: 100px; padding: 0 12px; font-size: 10px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lane-track { flex: 1; position: relative; height: 36px; }
+  .bar { position: absolute; height: 18px; top: 9px; border-radius: 3px; display: flex; align-items: center; padding: 0 6px; font-size: 9px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* new: parent context bar */
+  .parent-ctx-bar { position: absolute; height: 6px; top: 4px; border-radius: 2px; opacity: 0.35; }
+  .parent-ctx-label { position: absolute; top: 0; font-size: 8px; color: #94a3b8; white-space: nowrap; }
+  .parent-bracket { position: absolute; height: 28px; top: 4px; border: 1px dashed #3b82f655; border-radius: 3px; pointer-events: none; }
+  .parent-bracket-label { position: absolute; top: -14px; font-size: 8px; color: #60a5fa; white-space: nowrap; background: #1e293b; padding: 0 3px; border-radius: 2px; }
+  .progress-dot { position: absolute; width: 5px; height: 5px; border-radius: 50%; top: 50%; transform: translateY(-50%); }
+
+  /* ── DAG ────────────────────────────────────────────────────── */
+  .dag-wrap { background: #0f172a; border-radius: 8px; padding: 16px; position: relative; height: 340px; overflow: hidden; border: 1px solid #1e293b; }
+  .dag-node { position: absolute; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: #fff; border: 2px solid; cursor: pointer; z-index: 2; flex-direction: column; gap: 1px; }
+  .dag-label { position: absolute; font-size: 8px; color: #94a3b8; text-align: center; width: 70px; z-index: 2; }
+  .dag-group-rect { position: absolute; border: 1.5px dashed #3b82f655; border-radius: 8px; background: #1e3a5f11; z-index: 1; }
+  .dag-group-label { position: absolute; font-size: 8px; color: #60a5fa; background: #0f172a; padding: 0 4px; border-radius: 2px; z-index: 3; }
+  .dag-progress-badge { position: absolute; background: #1e3a5f; color: #60a5fa; font-size: 8px; font-weight: 700; padding: 2px 5px; border-radius: 99px; border: 1px solid #3b82f644; z-index: 3; white-space: nowrap; }
+  .dag-edge { position: absolute; pointer-events: none; z-index: 0; }
+  .dag-legend { display: flex; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  .dag-legend-item { display: flex; align-items: center; gap: 4px; font-size: 9px; color: #64748b; }
+  .dag-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* status colors */
+  .todo { border-color: #475569; background: #334155; }
+  .in_progress { border-color: #3b82f6; background: #1e3a5f; }
+  .done { border-color: #10b981; background: #14532d; }
+  .blocked { border-color: #ef4444; background: #7f1d1d; }
+
+  .divider { width: 1px; background: #334155; }
+  .vs-label { color: #475569; font-size: 10px; text-align: center; padding: 4px 0; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════
+     BOARD VIEW
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <h1>Board View — Subtask Grouping</h1>
+  <h2>In Progress column (zoomed in)</h2>
+
+  <div class="compare">
+    <!-- BEFORE -->
+    <div class="panel">
+      <div style="margin-bottom:8px;color:#64748b;font-size:10px;">BEFORE <span class="label-before">stalled</span></div>
+      <div class="col" style="max-width:220px;">
+        <div class="col-header" style="border-color:#3b82f6;">
+          <span class="col-icon">⚡</span>
+          <span class="col-label">In Progress</span>
+          <span class="col-count" style="background:#3b82f6;">5</span>
+        </div>
+        <div class="col-cards">
+          <div class="card" style="border-color:#3b82f6;">
+            <div class="card-id">#a1b2c3d4</div>
+            <div class="card-name">Set up JWT signing keys</div>
+            <div class="card-meta"><span class="card-agent">agent-2</span></div>
+            <div class="card-progress"><div class="card-progress-fill" style="width:30%;background:#3b82f6;"></div></div>
+          </div>
+          <div class="card" style="border-color:#3b82f6;">
+            <div class="card-id">#b2c3d4e5</div>
+            <div class="card-name">Build session middleware</div>
+            <div class="card-meta"><span class="card-agent">agent-2</span></div>
+            <div class="card-progress"><div class="card-progress-fill" style="width:60%;background:#3b82f6;"></div></div>
+          </div>
+          <div class="card" style="border-color:#3b82f6;">
+            <div class="card-id">#c3d4e5f6</div>
+            <div class="card-name">Wire up database schema</div>
+            <div class="card-meta"><span class="card-agent">agent-3</span></div>
+            <div class="card-progress"><div class="card-progress-fill" style="width:10%;background:#3b82f6;"></div></div>
+          </div>
+          <div class="card" style="border-color:#3b82f6;">
+            <div class="card-id">#d4e5f6g7</div>
+            <div class="card-name">Add refresh token rotation</div>
+            <div class="card-meta"><span class="card-agent">agent-3</span></div>
+          </div>
+          <div class="card" style="border-color:#3b82f6;">
+            <div class="card-id">#e5f6g7h8</div>
+            <div class="card-name">Migrate users table indexes</div>
+            <div class="card-meta"><span class="card-agent">agent-1</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:8px;color:#475569;font-size:9px;max-width:220px;line-height:1.5;">
+        5 unrelated-looking tasks. No context. Is this progress? Hard to tell.
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="vs-label">→</div>
+    <div class="divider"></div>
+
+    <!-- AFTER -->
+    <div class="panel">
+      <div style="margin-bottom:8px;color:#64748b;font-size:10px;">AFTER <span class="label-new">context visible</span></div>
+      <div class="col" style="max-width:220px;">
+        <div class="col-header" style="border-color:#3b82f6;">
+          <span class="col-icon">⚡</span>
+          <span class="col-label">In Progress</span>
+          <span class="col-count" style="background:#3b82f6;">5</span>
+        </div>
+        <div class="col-cards">
+          <!-- GROUP 1: Build Authentication -->
+          <div class="parent-group">
+            <div class="parent-header">
+              <span class="parent-icon">▾</span>
+              <span class="parent-name">Build Authentication System</span>
+              <span class="parent-badge partial">2 / 4 ✓</span>
+            </div>
+            <div class="parent-pbar"><div class="parent-pbar-fill" style="width:50%;"></div></div>
+            <div class="subtask-cards">
+              <div class="card subtask-card" style="border-color:#10b981;opacity:0.6;">
+                <div class="card-name subtask-name">✓ Set up JWT signing keys</div>
+                <div class="card-meta"><span class="card-agent">agent-2</span></div>
+              </div>
+              <div class="card subtask-card" style="border-color:#3b82f6;">
+                <div class="card-name subtask-name">Build session middleware</div>
+                <div class="card-meta"><span class="card-agent">agent-2</span></div>
+                <div class="card-progress"><div class="card-progress-fill" style="width:60%;background:#3b82f6;"></div></div>
+              </div>
+              <div class="card subtask-card" style="border-color:#eab308;opacity:0.7;">
+                <div class="card-name subtask-name">Add refresh token rotation</div>
+                <div class="card-meta"><span class="card-agent" style="color:#94a3b8;">unassigned</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- GROUP 2: Database Migration -->
+          <div class="parent-group">
+            <div class="parent-header">
+              <span class="parent-icon">▾</span>
+              <span class="parent-name">Database Schema Migration</span>
+              <span class="parent-badge partial">0 / 2 ✓</span>
+            </div>
+            <div class="parent-pbar"><div class="parent-pbar-fill" style="width:5%;"></div></div>
+            <div class="subtask-cards">
+              <div class="card subtask-card" style="border-color:#3b82f6;">
+                <div class="card-name subtask-name">Wire up database schema</div>
+                <div class="card-meta"><span class="card-agent">agent-3</span></div>
+                <div class="card-progress"><div class="card-progress-fill" style="width:10%;background:#3b82f6;"></div></div>
+              </div>
+              <div class="card subtask-card" style="border-color:#3b82f6;">
+                <div class="card-name subtask-name">Migrate users table indexes</div>
+                <div class="card-meta"><span class="card-agent">agent-1</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:8px;color:#475569;font-size:9px;max-width:220px;line-height:1.5;">
+        Parent context + progress badge. Auth is 50% done. DB migration just started.
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════
+     SWIMLANE VIEW
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <h1>Swimlane View — Parent Context Bar</h1>
+  <h2>Agent timeline with subtask grouping</h2>
+
+  <div class="compare">
+    <!-- BEFORE -->
+    <div class="panel">
+      <div style="margin-bottom:8px;color:#64748b;font-size:10px;">BEFORE <span class="label-before">stalled</span></div>
+      <div class="swimlane-wrap" style="max-width:500px;">
+        <div class="swim-header"><span class="swim-title">Agent Timelines</span></div>
+        <div class="timeline-ticks">
+          <div class="tick">0m</div><div class="tick">15m</div><div class="tick">30m</div>
+          <div class="tick">45m</div><div class="tick">60m</div>
+        </div>
+        <div class="lane">
+          <div class="lane-label">agent-1</div>
+          <div class="lane-track">
+            <div class="bar in_progress" style="left:5%;width:35%;">Migrate users table</div>
+          </div>
+        </div>
+        <div class="lane">
+          <div class="lane-label">agent-2</div>
+          <div class="lane-track">
+            <div class="bar done" style="left:2%;width:20%;">Set up JWT keys</div>
+            <div class="bar in_progress" style="left:24%;width:30%;">Build session mid…</div>
+          </div>
+        </div>
+        <div class="lane">
+          <div class="lane-label">agent-3</div>
+          <div class="lane-track">
+            <div class="bar in_progress" style="left:10%;width:28%;">Wire up DB schema</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:8px;color:#475569;font-size:9px;max-width:500px;line-height:1.5;">
+        Bars look stalled. No grouping — can't tell these agents are coordinating on the same parent tasks.
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="vs-label">→</div>
+    <div class="divider"></div>
+
+    <!-- AFTER -->
+    <div class="panel">
+      <div style="margin-bottom:8px;color:#64748b;font-size:10px;">AFTER <span class="label-new">context visible</span></div>
+      <div class="swimlane-wrap" style="max-width:500px;">
+        <div class="swim-header"><span class="swim-title">Agent Timelines</span></div>
+        <div class="timeline-ticks">
+          <div class="tick">0m</div><div class="tick">15m</div><div class="tick">30m</div>
+          <div class="tick">45m</div><div class="tick">60m</div>
+        </div>
+
+        <!-- PARENT CONTEXT LANE: Build Auth -->
+        <div class="lane" style="min-height:20px;background:#162032;border-bottom:none;">
+          <div class="lane-label" style="color:#60a5fa;font-size:9px;">Build Auth System</div>
+          <div class="lane-track" style="height:20px;">
+            <!-- bracket spanning agent-2's work -->
+            <div style="position:absolute;left:2%;width:52%;height:16px;top:2px;background:#1e3a5f44;border:1px dashed #3b82f655;border-radius:3px;"></div>
+            <div style="position:absolute;left:2%;top:2px;font-size:8px;color:#60a5fa;padding:0 4px;">2/3 ✓</div>
+          </div>
+        </div>
+        <div class="lane">
+          <div class="lane-label">agent-2</div>
+          <div class="lane-track">
+            <div class="bar done" style="left:2%;width:20%;">Set up JWT keys</div>
+            <div class="bar in_progress" style="left:24%;width:30%;">Build session mid…</div>
+          </div>
+        </div>
+
+        <!-- PARENT CONTEXT LANE: DB Migration -->
+        <div class="lane" style="min-height:20px;background:#162032;border-bottom:none;">
+          <div class="lane-label" style="color:#60a5fa;font-size:9px;">DB Schema Migration</div>
+          <div class="lane-track" style="height:20px;">
+            <div style="position:absolute;left:5%;width:38%;height:16px;top:2px;background:#1e3a5f44;border:1px dashed #3b82f655;border-radius:3px;"></div>
+            <div style="position:absolute;left:5%;top:2px;font-size:8px;color:#60a5fa;padding:0 4px;">0/2 ✓</div>
+          </div>
+        </div>
+        <div class="lane">
+          <div class="lane-label">agent-1</div>
+          <div class="lane-track">
+            <div class="bar in_progress" style="left:5%;width:35%;">Migrate users table</div>
+          </div>
+        </div>
+        <div class="lane">
+          <div class="lane-label">agent-3</div>
+          <div class="lane-track">
+            <div class="bar in_progress" style="left:10%;width:28%;">Wire up DB schema</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:8px;color:#475569;font-size:9px;max-width:500px;line-height:1.5;">
+        Parent context lanes group related subtask bars. Auth is 2/3 done. DB just started. Progress is obvious.
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════
+     DAG VIEW
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <h1>DAG View — Subtask Group Rects</h1>
+  <h2>Network graph with sibling grouping + progress badge</h2>
+
+  <div class="compare">
+    <!-- BEFORE -->
+    <div class="panel">
+      <div style="margin-bottom:8px;color:#64748b;font-size:10px;">BEFORE <span class="label-before">stalled</span></div>
+      <div class="dag-wrap" style="width:340px;">
+        <!-- edges (SVG) -->
+        <svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
+          <!-- Design → auth subtasks -->
+          <line x1="60" y1="60" x2="120" y2="130" stroke="#334155" stroke-width="1.5"/>
+          <line x1="60" y1="60" x2="190" y2="130" stroke="#334155" stroke-width="1.5"/>
+          <line x1="60" y1="60" x2="260" y2="130" stroke="#334155" stroke-width="1.5"/>
+          <!-- auth subtasks → DB subtasks -->
+          <line x1="120" y1="174" x2="120" y2="230" stroke="#334155" stroke-width="1.5" stroke-dasharray="3,3"/>
+          <line x1="260" y1="174" x2="230" y2="230" stroke="#334155" stroke-width="1.5"/>
+        </svg>
+
+        <!-- Design node -->
+        <div class="dag-node done" style="left:38px;top:38px;border-color:#10b981;background:#14532d;">
+          <span>✓</span>
+        </div>
+        <div class="dag-label" style="left:16px;top:84px;">Design Auth</div>
+
+        <!-- Auth subtask nodes — NO grouping -->
+        <div class="dag-node done" style="left:98px;top:108px;">✓</div>
+        <div class="dag-label" style="left:76px;top:154px;font-size:7px;">JWT Keys</div>
+
+        <div class="dag-node in_progress" style="left:168px;top:108px;">60%</div>
+        <div class="dag-label" style="left:148px;top:154px;font-size:7px;">Session Mid.</div>
+
+        <div class="dag-node todo" style="left:238px;top:108px;">—</div>
+        <div class="dag-label" style="left:216px;top:154px;font-size:7px;">Refresh Tok.</div>
+
+        <!-- DB subtask nodes — NO grouping -->
+        <div class="dag-node in_progress" style="left:98px;top:208px;">10%</div>
+        <div class="dag-label" style="left:78px;top:254px;font-size:7px;">DB Schema</div>
+
+        <div class="dag-node in_progress" style="left:208px;top:208px;">5%</div>
+        <div class="dag-label" style="left:188px;top:254px;font-size:7px;">Users Index</div>
+      </div>
+      <div style="margin-top:8px;color:#475569;font-size:9px;width:340px;line-height:1.5;">
+        5 disconnected-looking nodes. No visual grouping shows they're part of the same parent effort.
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="vs-label">→</div>
+    <div class="divider"></div>
+
+    <!-- AFTER -->
+    <div class="panel">
+      <div style="margin-bottom:8px;color:#64748b;font-size:10px;">AFTER <span class="label-new">context visible</span></div>
+      <div class="dag-wrap" style="width:340px;">
+        <svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
+          <line x1="60" y1="60" x2="120" y2="130" stroke="#334155" stroke-width="1.5"/>
+          <line x1="60" y1="60" x2="190" y2="130" stroke="#334155" stroke-width="1.5"/>
+          <line x1="60" y1="60" x2="260" y2="130" stroke="#334155" stroke-width="1.5"/>
+          <line x1="120" y1="174" x2="120" y2="228" stroke="#334155" stroke-width="1.5" stroke-dasharray="3,3"/>
+          <line x1="260" y1="174" x2="230" y2="228" stroke="#334155" stroke-width="1.5"/>
+        </svg>
+
+        <!-- AUTH GROUP RECT -->
+        <div class="dag-group-rect" style="left:84px;top:96px;width:198px;height:90px;"></div>
+        <div class="dag-group-label" style="left:88px;top:86px;">Build Auth System</div>
+        <div class="dag-progress-badge" style="left:222px;top:86px;">1/3 ✓</div>
+
+        <!-- DB GROUP RECT -->
+        <div class="dag-group-rect" style="left:84px;top:198px;width:168px;height:80px;"></div>
+        <div class="dag-group-label" style="left:88px;top:188px;">DB Schema Migration</div>
+        <div class="dag-progress-badge" style="left:208px;top:188px;">0/2 ✓</div>
+
+        <!-- Design node -->
+        <div class="dag-node done" style="left:38px;top:38px;border-color:#10b981;background:#14532d;"><span>✓</span></div>
+        <div class="dag-label" style="left:16px;top:84px;">Design Auth</div>
+
+        <!-- Auth subtask nodes -->
+        <div class="dag-node done" style="left:98px;top:108px;">✓</div>
+        <div class="dag-label" style="left:76px;top:154px;font-size:7px;">JWT Keys</div>
+
+        <div class="dag-node in_progress" style="left:168px;top:108px;">60%</div>
+        <div class="dag-label" style="left:148px;top:154px;font-size:7px;">Session Mid.</div>
+
+        <div class="dag-node todo" style="left:238px;top:108px;">—</div>
+        <div class="dag-label" style="left:216px;top:154px;font-size:7px;">Refresh Tok.</div>
+
+        <!-- DB subtask nodes -->
+        <div class="dag-node in_progress" style="left:98px;top:208px;">10%</div>
+        <div class="dag-label" style="left:78px;top:254px;font-size:7px;">DB Schema</div>
+
+        <div class="dag-node in_progress" style="left:208px;top:208px;">5%</div>
+        <div class="dag-label" style="left:188px;top:254px;font-size:7px;">Users Index</div>
+      </div>
+      <div style="margin-top:8px;color:#475569;font-size:9px;width:340px;line-height:1.5;">
+        Dashed group rects + progress badge. Immediately clear: Auth has 1/3 done, DB just started.
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

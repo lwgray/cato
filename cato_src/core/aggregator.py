@@ -831,6 +831,18 @@ class Aggregator:
                             filtered_tasks = [
                                 t for t in all_tasks if t.get("project_id") in match_ids
                             ]
+                            # Also include subtasks whose parent was matched
+                            matched_ids = {str(t.get("id", "")) for t in filtered_tasks}
+                            for task in all_tasks:
+                                parent_id = str(task.get("parent_task_id") or "")
+                                task_id = str(task.get("id", ""))
+                                if (
+                                    parent_id
+                                    and parent_id in matched_ids
+                                    and task_id not in matched_ids
+                                ):
+                                    filtered_tasks.append(task)
+                                    matched_ids.add(task_id)
                             logger.info(
                                 f"Fallback filtering: "
                                 f"{len(filtered_tasks)}"
@@ -922,6 +934,20 @@ class Aggregator:
                                             parent_id = task_id_str.split("_sub_")[0]
                                             parent_ids_to_include.add(parent_id)
                                         break
+
+                        # Include subtasks from subtasks.json whose parent was matched
+                        # (hex UUID subtask IDs fail the Planka numeric filter above)
+                        matched_ids = {str(t.get("id", "")) for t in filtered_tasks}
+                        for task in all_tasks:
+                            parent_id = str(task.get("parent_task_id") or "")
+                            if not parent_id:
+                                continue
+                            task_id = str(task.get("id", ""))
+                            if parent_id in matched_ids and task_id not in matched_ids:
+                                filtered_tasks.append(task)
+                                matched_ids.add(task_id)
+                                if "_sub_" in task_id:
+                                    parent_ids_to_include.add(parent_id)
 
                         # Collect dependency IDs from matched tasks
                         dependency_ids_to_include: set[str] = set()
