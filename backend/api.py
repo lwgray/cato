@@ -99,22 +99,33 @@ if HISTORICAL_MODE_AVAILABLE and ProjectHistoryAggregator and ProjectHistoryQuer
         logger.error(f"Failed to initialize historical analysis components: {e}")
         HISTORICAL_MODE_AVAILABLE = False
 
-# Load Marcus data path from config (for live mode aggregator)
+# Load Marcus data path(s) from config (for live mode aggregator)
 config_path = Path(__file__).parent.parent / "config.json"
 marcus_data_path_root = None
+_extra_marcus_roots: list[Path] = []
 try:
     with open(config_path, "r") as f:
         config = json.load(f)
-        marcus_data_path = config.get("marcus_data_path")
-        if marcus_data_path:
-            marcus_data_path_root = Path(marcus_data_path).parent
-            logger.info(f"Using Marcus data path from config: {marcus_data_path_root}")
+        # Multi-path support: marcus_data_paths overrides marcus_data_path
+        multi_paths = config.get("marcus_data_paths")
+        if multi_paths:
+            _extra_marcus_roots = [Path(p).parent for p in multi_paths]
+            marcus_data_path_root = _extra_marcus_roots[0]
+            logger.info(
+                f"Using {len(_extra_marcus_roots)} Marcus data paths from config"
+            )
         else:
-            marcus_data_path_root = None
-            logger.info("No Marcus data path in config, using auto-detection")
+            marcus_data_path = config.get("marcus_data_path")
+            if marcus_data_path:
+                marcus_data_path_root = Path(marcus_data_path).parent
+                _extra_marcus_roots = [marcus_data_path_root]
+                logger.info(
+                    f"Using Marcus data path from config: {marcus_data_path_root}"
+                )
+            else:
+                logger.info("No Marcus data path in config, using auto-detection")
 except Exception as e:
     logger.warning(f"Could not load config.json: {e}, using auto-detection")
-    marcus_data_path_root = None
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -132,8 +143,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize aggregator for snapshot API
-aggregator = Aggregator(marcus_root=marcus_root)
+# Initialize aggregator for snapshot API — multi-root if configured
+aggregator = (
+    Aggregator(marcus_roots=_extra_marcus_roots)
+    if _extra_marcus_roots
+    else Aggregator(marcus_root=marcus_root)
+)
 
 # Simple in-memory cache for snapshots (60s TTL for better performance)
 snapshot_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}

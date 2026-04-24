@@ -127,20 +127,35 @@ class Aggregator:
     single aggregation function.
     """
 
-    def __init__(self, marcus_root: Optional[Path] = None):
+    def __init__(
+        self,
+        marcus_root: Optional[Path] = None,
+        marcus_roots: Optional[List[Path]] = None,
+    ):
         """
         Initialize the aggregator.
 
         Parameters
         ----------
         marcus_root : Optional[Path]
-            Path to Marcus root directory. If None, auto-detects from current location.
+            Single Marcus root directory (backward-compatible form).
+        marcus_roots : Optional[List[Path]]
+            Multiple Marcus root directories for parallel experiments.
+            When provided, takes precedence over marcus_root. The first
+            entry becomes self.marcus_root for backward compatibility.
         """
-        if marcus_root is None:
-            # Auto-detect Marcus root (assumes viz is a subdirectory of Marcus)
-            self.marcus_root = Path(__file__).parent.parent.parent
+        # Resolve the list of roots: plural arg wins, else wrap singular
+        if marcus_roots is not None:
+            self.marcus_roots: List[Path] = [Path(r) for r in marcus_roots]
+        elif marcus_root is not None:
+            self.marcus_roots = [Path(marcus_root)]
         else:
-            self.marcus_root = Path(marcus_root)
+            # Auto-detect: assumes viz is a subdirectory of Marcus
+            auto_root = Path(__file__).parent.parent.parent
+            self.marcus_roots = [auto_root]
+
+        # Primary root (backward compat attribute)
+        self.marcus_root: Path = self.marcus_roots[0]
 
         self.persistence_dir = self.marcus_root / "data" / "marcus_state"
         self.conversation_logs_dir = self.marcus_root / "logs" / "conversations"
@@ -149,12 +164,15 @@ class Aggregator:
         self.project_matcher = ProjectMatcher(tolerance=20)
         self.snapshot_version_counter = 0
 
+        # Maps project_id → its source marcus_root (populated by _load_projects)
+        self._project_root: Dict[str, Path] = {}
+
         # Cache for projects data to avoid repeated file I/O
         self._projects_cache: Optional[List[Dict[str, Any]]] = None
         self._projects_cache_time: Optional[datetime] = None
         self._projects_cache_ttl = 60  # Cache for 60 seconds
 
-        logger.info(f"Initialized Aggregator with root: {self.marcus_root}")
+        logger.info(f"Initialized Aggregator with roots: {self.marcus_roots}")
 
     def create_snapshot(
         self,
@@ -378,7 +396,12 @@ class Aggregator:
         return snapshot
 
     def _load_projects(self) -> List[Dict[str, Any]]:
-        """Load projects from projects.json with caching."""
+        """Load projects from all marcus_roots with caching.
+
+        Merges projects.json from every root in self.marcus_roots. Roots
+        with no projects.json are silently skipped. Each project's source
+        root is recorded in self._project_root for downstream use.
+        """
         # Check cache first
         now = datetime.now(timezone.utc)
         if (
@@ -389,31 +412,33 @@ class Aggregator:
         ):
             return self._projects_cache
 
-        # Cache miss - load from file
-        projects_file = self.persistence_dir / "projects.json"
-        if not projects_file.exists():
-            logger.warning(f"Projects file not found: {projects_file}")
-            return []
+        all_projects: List[Dict[str, Any]] = []
+        project_root_map: Dict[str, Path] = {}
 
-        try:
-            with open(projects_file, "r") as f:
-                data = json.load(f)
-                # Extract actual projects (skip metadata like "active_project")
-                projects = []
+        for root in self.marcus_roots:
+            projects_file = root / "data" / "marcus_state" / "projects.json"
+            if not projects_file.exists():
+                logger.debug(f"Projects file not found (skipping): {projects_file}")
+                continue
+            try:
+                with open(projects_file, "r") as f:
+                    data = json.load(f)
                 for key, value in data.items():
                     if key != "active_project" and isinstance(value, dict):
                         if "id" in value:
-                            projects.append(value)
+                            all_projects.append(value)
+                            project_root_map[value["id"]] = root
+            except Exception as e:
+                logger.error(f"Error loading projects from {projects_file}: {e}")
 
-                # Update cache
-                self._projects_cache = projects
-                self._projects_cache_time = now
+        self._project_root = project_root_map
+        self._projects_cache = all_projects
+        self._projects_cache_time = now
 
-                logger.info(f"Loaded {len(projects)} projects")
-                return projects
-        except Exception as e:
-            logger.error(f"Error loading projects: {e}")
-            return []
+        logger.info(
+            f"Loaded {len(all_projects)} projects from {len(self.marcus_roots)} root(s)"
+        )
+        return all_projects
 
     def get_active_project_id(self) -> Optional[str]:
         """
