@@ -29,7 +29,6 @@ const NetworkGraphView = () => {
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   const nodesRef = useRef<GraphNode[]>([]);
-  const subtaskGroupsRef = useRef<Map<string, { nodes: GraphNode[]; name: string }>>(new Map());
 
   const tasks = useVisualizationStore((state) => state.getDagTasks());
   const currentTime = useVisualizationStore((state) => state.currentTime);
@@ -308,7 +307,7 @@ const NetworkGraphView = () => {
     // Design-origin markers are rendered as HTML pills above the SVG (see JSX below).
     // Here we just keep the column layout driven by nodePrimaryGhost / primaryGhostIds.
 
-    // Group sibling subtasks — dashed bounding rect + progress badge rendered behind nodes
+    // Group sibling subtasks — used for hover-highlight only (no persistent visual)
     const subtaskGroups = new Map<string, { nodes: GraphNode[]; name: string }>();
     visibleNodes.forEach(node => {
       if (!node.task.parent_task_id) return;
@@ -318,55 +317,12 @@ const NetworkGraphView = () => {
       }
       subtaskGroups.get(pid)!.nodes.push(node);
     });
-    subtaskGroupsRef.current = subtaskGroups;
 
-    const groupLayer = g.append('g').attr('class', 'subtask-groups');
-
-    subtaskGroups.forEach((group, parentId) => {
-      if (group.nodes.length < 2) return;
-      const xs = group.nodes.map(n => n.x!);
-      const ys = group.nodes.map(n => n.y!);
-      const pad = 34;
-      const rx = Math.min(...xs) - pad;
-      const ry = Math.min(...ys) - pad;
-      const rw = Math.max(...xs) - Math.min(...xs) + pad * 2;
-      const rh = Math.max(...ys) - Math.min(...ys) + pad * 2;
-
-      groupLayer.append('rect')
-        .attr('x', rx).attr('y', ry)
-        .attr('width', rw).attr('height', rh)
-        .attr('rx', 8).attr('ry', 8)
-        .attr('fill', '#1e3a5f0d')
-        .attr('stroke', '#3b82f655')
-        .attr('stroke-width', 1.5)
-        .attr('stroke-dasharray', '6,3');
-
-      const shortName = group.name.length > 26
-        ? group.name.substring(0, 26) + '…'
-        : group.name;
-
-      groupLayer.append('text')
-        .attr('x', rx + 6).attr('y', ry + 11)
-        .attr('fill', '#60a5fa').attr('font-size', '9px').attr('font-weight', '600')
-        .style('pointer-events', 'none')
-        .text(shortName);
-
-      const initDone = group.nodes.filter(n => n.status === 'done').length;
-
-      groupLayer.append('rect')
-        .attr('x', rx + rw - 44).attr('y', ry + 2)
-        .attr('width', 40).attr('height', 14)
-        .attr('rx', 7)
-        .attr('fill', '#1e3a5f').attr('stroke', '#3b82f644').attr('stroke-width', 1);
-
-      groupLayer.append('text')
-        .attr('class', 'subtask-group-progress')
-        .attr('data-parent-id', parentId)
-        .attr('x', rx + rw - 24).attr('y', ry + 12)
-        .attr('text-anchor', 'middle')
-        .attr('fill', '#60a5fa').attr('font-size', '8px').attr('font-weight', '700')
-        .style('pointer-events', 'none')
-        .text(`${initDone}/${group.nodes.length} ✓`);
+    // Assign a stable hue to each parent group
+    const GROUP_COLORS = ['#8b5cf6', '#06b6d4', '#f59e0b', '#ec4899', '#10b981', '#f97316', '#6366f1'];
+    const parentGroupColorMap = new Map<string, string>();
+    Array.from(subtaskGroups.keys()).forEach((pid, idx) => {
+      parentGroupColorMap.set(pid, GROUP_COLORS[idx % GROUP_COLORS.length]);
     });
 
     // Create node lookup map for link resolution
@@ -432,7 +388,17 @@ const NetworkGraphView = () => {
       .data(visibleNodes)
       .enter().append('g')
       .attr('cursor', 'pointer')
-      .attr('class', d => `node-${d.id}`);
+      .attr('class', d => `dag-node node-${d.id}`);
+
+    // Sibling-group glow ring — shown only on hover, hidden at rest
+    node.append('circle')
+      .attr('class', 'sibling-ring')
+      .attr('r', 30)
+      .attr('fill', 'none')
+      .attr('stroke', '#8b5cf6')
+      .attr('stroke-width', 3)
+      .attr('opacity', 0)
+      .style('pointer-events', 'none');
 
     // Design-link highlight ring — behind the node circle, hidden by default.
     // Shown when a design-origin pill is hovered and this node depends on that design.
@@ -463,6 +429,63 @@ const NetworkGraphView = () => {
       .on('click', (_, d) => {
         if (!d.isGhost) { selectTask(d.id); setLifecycleTask(d.task); }
       });
+
+    // Sibling hover: on mouseenter highlight all siblings, dim everything else
+    node.on('mouseenter', (_, d) => {
+      const pid = d.task.parent_task_id;
+      if (!pid || !subtaskGroups.has(pid)) return;
+
+      const siblingIds = new Set(subtaskGroups.get(pid)!.nodes.map(n => n.id));
+      const color = parentGroupColorMap.get(pid) || '#8b5cf6';
+
+      g.selectAll<SVGGElement, GraphNode>('.dag-node')
+        .each(function(nd) {
+          const isSibling = siblingIds.has(nd.id);
+          const el = d3.select(this);
+          el.select('.node-circle')
+            .transition().duration(120)
+            .attr('opacity', isSibling ? 1 : 0.12);
+          el.select('.node-label')
+            .transition().duration(120)
+            .attr('opacity', isSibling ? 1 : 0.12);
+          el.select('.node-progress')
+            .transition().duration(120)
+            .attr('opacity', isSibling ? 1 : 0.12);
+          el.select('.sibling-ring')
+            .transition().duration(120)
+            .attr('opacity', isSibling ? 0.9 : 0)
+            .attr('stroke', color);
+        });
+
+      g.selectAll('line')
+        .transition().duration(120)
+        .attr('opacity', 0.05);
+
+    }).on('mouseleave', (_, d) => {
+      const pid = d.task.parent_task_id;
+      if (!pid || !subtaskGroups.has(pid)) return;
+
+      g.selectAll<SVGGElement, GraphNode>('.dag-node')
+        .each(function(nd) {
+          const el = d3.select(this);
+          el.select('.node-circle')
+            .transition().duration(180)
+            .attr('opacity', nd.isGhost ? 0.6 : 1);
+          el.select('.node-label')
+            .transition().duration(180)
+            .attr('opacity', nd.isGhost ? 0.6 : 1);
+          el.select('.node-progress')
+            .transition().duration(180)
+            .attr('opacity', nd.isGhost ? 0.6 : 1);
+          el.select('.sibling-ring')
+            .transition().duration(180)
+            .attr('opacity', 0);
+        });
+
+      g.selectAll('line')
+        .transition().duration(180)
+        .attr('opacity', 0.6);
+    });
 
     node.append('text')
       .attr('class', 'node-label')
@@ -569,16 +592,6 @@ const NetworkGraphView = () => {
       .data(nodesRef.current)
       .text(d => d.isGhost ? 'Design' : `${d.progress}%`);
 
-    // Update subtask group progress badges
-    subtaskGroupsRef.current.forEach((group, parentId) => {
-      const done = group.nodes.filter(n => {
-        const state = getTaskStateAtTime(n.task, currentAbsTime);
-        return state.status === 'done';
-      }).length;
-      svg.select(`[data-parent-id="${parentId}"]`)
-        .text(`${done}/${group.nodes.length} ✓`);
-    });
-
   }, [currentTime, selectedTaskId]); // Re-run when time or selection changes
 
   // Toggle the design-link ring on nodes depending on the hovered design pill.
@@ -657,8 +670,8 @@ const NetworkGraphView = () => {
         <div className="legend-section">
           <div className="legend-title">Subtask Groups</div>
           <div className="legend-item">
-            <div className="legend-border" style={{ borderColor: '#3b82f6', borderStyle: 'dashed', backgroundColor: '#1e3a5f11' }}></div>
-            <span>Sibling subtasks</span>
+            <div className="legend-border" style={{ borderColor: '#8b5cf6', borderStyle: 'solid', backgroundColor: 'transparent' }}></div>
+            <span>Hover node to highlight siblings</span>
           </div>
         </div>
         <div className="legend-section">

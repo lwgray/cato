@@ -23,7 +23,7 @@ const BoardView = () => {
   const currentTime = useVisualizationStore((state) => state.currentTime);
   const messages = useVisualizationStore((state) => state.getMessagesUpToCurrentTime());
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
-  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const { grouped, metrics, parentProgress } = useMemo(() => {
     if (!snapshot || !snapshot.start_time) {
@@ -125,8 +125,8 @@ const BoardView = () => {
     return `${hours}h${mins > 0 ? ` ${mins}m` : ''}`;
   };
 
-  const toggleParent = (parentId: string) => {
-    setCollapsedParents((prev) => {
+  const toggleExpanded = (parentId: string) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(parentId)) next.delete(parentId);
       else next.add(parentId);
@@ -244,23 +244,20 @@ const BoardView = () => {
 
                 {/* Subtask groups */}
                 {Array.from(byParent.entries()).map(([parentId, ptasks]) => {
+                  const MAX_VISIBLE = 3;
                   const prog = parentProgress.get(parentId);
                   const name =
                     prog?.name ?? ptasks[0]?.parent_task_name ?? 'Parent Task';
                   const done = prog?.done ?? 0;
                   const total = prog?.total ?? ptasks.length;
                   const pct = total > 0 ? (done / total) * 100 : 0;
-                  const isCollapsed = collapsedParents.has(parentId);
+                  const isExpanded = expandedGroups.has(parentId);
+                  const visibleCards = isExpanded ? ptasks : ptasks.slice(0, MAX_VISIBLE);
+                  const hiddenCount = ptasks.length - MAX_VISIBLE;
 
                   return (
                     <div key={parentId} className="parent-group">
-                      <div
-                        className="parent-group-header"
-                        onClick={() => toggleParent(parentId)}
-                      >
-                        <span className="parent-group-chevron">
-                          {isCollapsed ? '▸' : '▾'}
-                        </span>
+                      <div className="parent-group-header">
                         <span className="parent-group-name">{name}</span>
                         <span
                           className={`parent-group-badge ${done === total ? 'all-done' : ''}`}
@@ -274,10 +271,18 @@ const BoardView = () => {
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      {!isCollapsed && (
-                        <div className="parent-group-cards">
-                          {ptasks.map((task) => renderCard(task, col))}
-                        </div>
+                      <div className="parent-group-cards">
+                        {visibleCards.map((task) => renderCard(task, col))}
+                      </div>
+                      {ptasks.length > MAX_VISIBLE && (
+                        <button
+                          className={`parent-group-expand ${isExpanded ? 'expanded' : ''}`}
+                          onClick={() => toggleExpanded(parentId)}
+                        >
+                          {isExpanded
+                            ? '▴  Show less'
+                            : `▾  Show ${hiddenCount} more task${hiddenCount !== 1 ? 's' : ''}…`}
+                        </button>
                       )}
                     </div>
                   );
