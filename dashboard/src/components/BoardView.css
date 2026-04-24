@@ -38,6 +38,7 @@
 .board-column {
   flex: 1 1 0;
   min-width: 220px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background-color: #1e293b;
@@ -77,6 +78,7 @@
 
 .column-cards {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0.5rem;
   display: flex;
