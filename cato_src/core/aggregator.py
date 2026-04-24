@@ -1125,8 +1125,56 @@ class Aggregator:
             logger.error(f"Error loading tasks: {e}")
             return []
 
+    @staticmethod
+    def _normalize_realtime_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize a realtime_*.jsonl entry to conversation log format.
+
+        realtime logs use {type, source, target, agent_id, ...} while the
+        aggregator expects {from_agent_id, to_agent_id, message_type, ...}.
+        This method adds the expected fields without removing originals.
+
+        Parameters
+        ----------
+        entry : Dict[str, Any]
+            Raw entry from a realtime_*.jsonl file.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Entry with added from_agent_id, to_agent_id, message_type fields.
+        """
+        normalized = dict(entry)
+        event_type = entry.get("type", "")
+
+        normalized["message_type"] = event_type
+
+        if event_type == "task_assignment":
+            normalized["to_agent_id"] = entry.get("agent_id") or entry.get("target")
+            normalized.setdefault("from_agent_id", entry.get("source"))
+        elif event_type in {
+            "task_request",
+            "task_progress",
+            "task_completion",
+            "task_blocked",
+        }:
+            normalized["from_agent_id"] = (
+                entry.get("agent_id") or entry.get("worker_id") or entry.get("source")
+            )
+            normalized.setdefault("to_agent_id", entry.get("target"))
+        else:
+            # Non-agent events (server_startup, ping_*) get None agent IDs
+            normalized.setdefault("from_agent_id", None)
+            normalized.setdefault("to_agent_id", None)
+
+        return normalized
+
     def _load_messages(self) -> List[Dict[str, Any]]:
-        """Load conversation messages from logs."""
+        """Load conversation messages from logs.
+
+        Loads both conversations_*.jsonl and realtime_*.jsonl files.
+        Realtime entries are normalized to the aggregator's expected field
+        names via _normalize_realtime_entry().
+        """
         messages: List[Dict[str, Any]] = []
         if not self.conversation_logs_dir.exists():
             logger.warning(
@@ -1135,11 +1183,17 @@ class Aggregator:
             return messages
 
         for log_file in self.conversation_logs_dir.glob("*.jsonl"):
+            is_realtime = log_file.name.startswith("realtime_")
             try:
                 with open(log_file, "r") as f:
                     for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
                         try:
-                            entry = json.loads(line.strip())
+                            entry = json.loads(line)
+                            if is_realtime and "from_agent_id" not in entry:
+                                entry = self._normalize_realtime_entry(entry)
                             messages.append(entry)
                         except json.JSONDecodeError:
                             continue
