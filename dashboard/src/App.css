@@ -177,6 +177,7 @@
 .visualization-container.full-width {
   padding: 0;
   overflow: hidden;
+  position: relative;
 }
 
 /* Metrics panel will be styled in its own component */
