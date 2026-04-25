@@ -76,6 +76,7 @@ interface VisualizationState {
   // Derived getters
   getVisibleTasks: () => Task[];
   getContextTasks: () => Task[];
+  getStructuralTasks: () => Task[];
   getDagTasks: () => Task[];
   getMessagesUpToCurrentTime: () => Message[];
   getActiveAgentsAtCurrentTime: () => Agent[];
@@ -333,6 +334,12 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       const snapshot = get().snapshot;
       if (!snapshot) return [];
       return snapshot.tasks.filter((t) => t.display_role === 'context');
+    },
+
+    getStructuralTasks: () => {
+      const snapshot = get().snapshot;
+      if (!snapshot) return [];
+      return snapshot.tasks.filter((t) => t.display_role === 'structural');
     },
 
     getDagTasks: () => {

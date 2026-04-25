@@ -1432,19 +1432,17 @@ class Aggregator:
         Returns
         -------
         str
-            "context" — project descriptors, README/docs
-                        (shown in Project Info drawer only)
             "structural" — design tasks that create fan-out topology
-                           (ghost nodes in DAG, not on board)
-            "work" — normal work items (full display everywhere)
+                           (ghost nodes in DAG, shown in Project Info drawer)
+            "work" — all other tasks (full display everywhere)
 
         Note: Design tasks are checked BEFORE auto_completed because
         design tasks often have both labels. They need to be structural
         (ghost nodes) to preserve the DAG's diamond topology.
         """
-        name = task_data.get("name", "")
+        # name = task_data.get("name", "")
         labels = task_data.get("labels") or []
-        source_type = task_data.get("source_type", "")
+        # source_type = task_data.get("source_type", "")
 
         # Structural: design tasks that create fan-out topology
         # Must be checked BEFORE auto_completed — design tasks often have
@@ -1452,14 +1450,6 @@ class Aggregator:
         # in the DAG as ghost nodes to preserve the diamond shape.
         if task_data.get("type") == "design" or "design" in labels:
             return "structural"
-
-        # Context: project descriptors and documentation tasks
-        if name.startswith("About:") or source_type == "project_about":
-            return "context"
-
-        # Context: README/documentation tasks
-        if "README" in name and any(lbl in labels for lbl in ["documentation", "docs"]):
-            return "context"
 
         return "work"
 
