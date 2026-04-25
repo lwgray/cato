@@ -90,7 +90,7 @@ function App() {
       </header>
 
       <div className="app-content">
-        <div className={`visualization-container ${currentLayer === 'quality' ? 'full-width' : ''}`}>
+        <div className={`visualization-container ${currentLayer === 'quality' || currentLayer === 'board' ? 'full-width' : ''}`}>
           {/* Live mode views */}
           {currentLayer === 'network' && <NetworkGraphView />}
           {currentLayer === 'swimlanes' && <AgentSwimLanesView />}

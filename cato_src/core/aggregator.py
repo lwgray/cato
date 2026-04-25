@@ -127,20 +127,35 @@ class Aggregator:
     single aggregation function.
     """
 
-    def __init__(self, marcus_root: Optional[Path] = None):
+    def __init__(
+        self,
+        marcus_root: Optional[Path] = None,
+        marcus_roots: Optional[List[Path]] = None,
+    ):
         """
         Initialize the aggregator.
 
         Parameters
         ----------
         marcus_root : Optional[Path]
-            Path to Marcus root directory. If None, auto-detects from current location.
+            Single Marcus root directory (backward-compatible form).
+        marcus_roots : Optional[List[Path]]
+            Multiple Marcus root directories for parallel experiments.
+            When provided, takes precedence over marcus_root. The first
+            entry becomes self.marcus_root for backward compatibility.
         """
-        if marcus_root is None:
-            # Auto-detect Marcus root (assumes viz is a subdirectory of Marcus)
-            self.marcus_root = Path(__file__).parent.parent.parent
+        # Resolve the list of roots: plural arg wins, else wrap singular
+        if marcus_roots is not None:
+            self.marcus_roots: List[Path] = [Path(r) for r in marcus_roots]
+        elif marcus_root is not None:
+            self.marcus_roots = [Path(marcus_root)]
         else:
-            self.marcus_root = Path(marcus_root)
+            # Auto-detect: assumes viz is a subdirectory of Marcus
+            auto_root = Path(__file__).parent.parent.parent
+            self.marcus_roots = [auto_root]
+
+        # Primary root (backward compat attribute)
+        self.marcus_root: Path = self.marcus_roots[0]
 
         self.persistence_dir = self.marcus_root / "data" / "marcus_state"
         self.conversation_logs_dir = self.marcus_root / "logs" / "conversations"
@@ -149,12 +164,15 @@ class Aggregator:
         self.project_matcher = ProjectMatcher(tolerance=20)
         self.snapshot_version_counter = 0
 
+        # Maps project_id → its source marcus_root (populated by _load_projects)
+        self._project_root: Dict[str, Path] = {}
+
         # Cache for projects data to avoid repeated file I/O
         self._projects_cache: Optional[List[Dict[str, Any]]] = None
         self._projects_cache_time: Optional[datetime] = None
         self._projects_cache_ttl = 60  # Cache for 60 seconds
 
-        logger.info(f"Initialized Aggregator with root: {self.marcus_root}")
+        logger.info(f"Initialized Aggregator with roots: {self.marcus_roots}")
 
     def create_snapshot(
         self,
@@ -378,7 +396,12 @@ class Aggregator:
         return snapshot
 
     def _load_projects(self) -> List[Dict[str, Any]]:
-        """Load projects from projects.json with caching."""
+        """Load projects from all marcus_roots with caching.
+
+        Merges projects.json from every root in self.marcus_roots. Roots
+        with no projects.json are silently skipped. Each project's source
+        root is recorded in self._project_root for downstream use.
+        """
         # Check cache first
         now = datetime.now(timezone.utc)
         if (
@@ -389,31 +412,33 @@ class Aggregator:
         ):
             return self._projects_cache
 
-        # Cache miss - load from file
-        projects_file = self.persistence_dir / "projects.json"
-        if not projects_file.exists():
-            logger.warning(f"Projects file not found: {projects_file}")
-            return []
+        all_projects: List[Dict[str, Any]] = []
+        project_root_map: Dict[str, Path] = {}
 
-        try:
-            with open(projects_file, "r") as f:
-                data = json.load(f)
-                # Extract actual projects (skip metadata like "active_project")
-                projects = []
+        for root in self.marcus_roots:
+            projects_file = root / "data" / "marcus_state" / "projects.json"
+            if not projects_file.exists():
+                logger.debug(f"Projects file not found (skipping): {projects_file}")
+                continue
+            try:
+                with open(projects_file, "r") as f:
+                    data = json.load(f)
                 for key, value in data.items():
                     if key != "active_project" and isinstance(value, dict):
                         if "id" in value:
-                            projects.append(value)
+                            all_projects.append(value)
+                            project_root_map[value["id"]] = root
+            except Exception as e:
+                logger.error(f"Error loading projects from {projects_file}: {e}")
 
-                # Update cache
-                self._projects_cache = projects
-                self._projects_cache_time = now
+        self._project_root = project_root_map
+        self._projects_cache = all_projects
+        self._projects_cache_time = now
 
-                logger.info(f"Loaded {len(projects)} projects")
-                return projects
-        except Exception as e:
-            logger.error(f"Error loading projects: {e}")
-            return []
+        logger.info(
+            f"Loaded {len(all_projects)} projects from {len(self.marcus_roots)} root(s)"
+        )
+        return all_projects
 
     def get_active_project_id(self) -> Optional[str]:
         """
@@ -831,6 +856,18 @@ class Aggregator:
                             filtered_tasks = [
                                 t for t in all_tasks if t.get("project_id") in match_ids
                             ]
+                            # Also include subtasks whose parent was matched
+                            matched_ids = {str(t.get("id", "")) for t in filtered_tasks}
+                            for task in all_tasks:
+                                parent_id = str(task.get("parent_task_id") or "")
+                                task_id = str(task.get("id", ""))
+                                if (
+                                    parent_id
+                                    and parent_id in matched_ids
+                                    and task_id not in matched_ids
+                                ):
+                                    filtered_tasks.append(task)
+                                    matched_ids.add(task_id)
                             logger.info(
                                 f"Fallback filtering: "
                                 f"{len(filtered_tasks)}"
@@ -922,6 +959,20 @@ class Aggregator:
                                             parent_id = task_id_str.split("_sub_")[0]
                                             parent_ids_to_include.add(parent_id)
                                         break
+
+                        # Include subtasks from subtasks.json whose parent was matched
+                        # (hex UUID subtask IDs fail the Planka numeric filter above)
+                        matched_ids = {str(t.get("id", "")) for t in filtered_tasks}
+                        for task in all_tasks:
+                            parent_id = str(task.get("parent_task_id") or "")
+                            if not parent_id:
+                                continue
+                            task_id = str(task.get("id", ""))
+                            if parent_id in matched_ids and task_id not in matched_ids:
+                                filtered_tasks.append(task)
+                                matched_ids.add(task_id)
+                                if "_sub_" in task_id:
+                                    parent_ids_to_include.add(parent_id)
 
                         # Collect dependency IDs from matched tasks
                         dependency_ids_to_include: set[str] = set()
@@ -1074,8 +1125,56 @@ class Aggregator:
             logger.error(f"Error loading tasks: {e}")
             return []
 
+    @staticmethod
+    def _normalize_realtime_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize a realtime_*.jsonl entry to conversation log format.
+
+        realtime logs use {type, source, target, agent_id, ...} while the
+        aggregator expects {from_agent_id, to_agent_id, message_type, ...}.
+        This method adds the expected fields without removing originals.
+
+        Parameters
+        ----------
+        entry : Dict[str, Any]
+            Raw entry from a realtime_*.jsonl file.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Entry with added from_agent_id, to_agent_id, message_type fields.
+        """
+        normalized = dict(entry)
+        event_type = entry.get("type", "")
+
+        normalized["message_type"] = event_type
+
+        if event_type == "task_assignment":
+            normalized["to_agent_id"] = entry.get("agent_id") or entry.get("target")
+            normalized.setdefault("from_agent_id", entry.get("source"))
+        elif event_type in {
+            "task_request",
+            "task_progress",
+            "task_completion",
+            "task_blocked",
+        }:
+            normalized["from_agent_id"] = (
+                entry.get("agent_id") or entry.get("worker_id") or entry.get("source")
+            )
+            normalized.setdefault("to_agent_id", entry.get("target"))
+        else:
+            # Non-agent events (server_startup, ping_*) get None agent IDs
+            normalized.setdefault("from_agent_id", None)
+            normalized.setdefault("to_agent_id", None)
+
+        return normalized
+
     def _load_messages(self) -> List[Dict[str, Any]]:
-        """Load conversation messages from logs."""
+        """Load conversation messages from logs.
+
+        Loads both conversations_*.jsonl and realtime_*.jsonl files.
+        Realtime entries are normalized to the aggregator's expected field
+        names via _normalize_realtime_entry().
+        """
         messages: List[Dict[str, Any]] = []
         if not self.conversation_logs_dir.exists():
             logger.warning(
@@ -1084,11 +1183,17 @@ class Aggregator:
             return messages
 
         for log_file in self.conversation_logs_dir.glob("*.jsonl"):
+            is_realtime = log_file.name.startswith("realtime_")
             try:
                 with open(log_file, "r") as f:
                     for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
                         try:
-                            entry = json.loads(line.strip())
+                            entry = json.loads(line)
+                            if is_realtime and "from_agent_id" not in entry:
+                                entry = self._normalize_realtime_entry(entry)
                             messages.append(entry)
                         except json.JSONDecodeError:
                             continue

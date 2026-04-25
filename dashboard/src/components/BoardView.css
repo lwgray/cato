@@ -3,16 +3,12 @@
    ============================================================ */
 
 .board-view {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  height: 100%;
   background-color: #0f172a;
   overflow: hidden;
-}
-
-.board-view.with-detail .board-columns {
-  flex: 1;
 }
 
 .board-empty {
@@ -27,17 +23,19 @@
 /* ---- Columns grid ---- */
 
 .board-columns {
+  flex: 1;
+  min-height: 0;
   display: flex;
   gap: 0.75rem;
   padding: 1rem 1rem 0.5rem;
-  flex: 1;
-  min-height: 0;
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .board-column {
   flex: 1 1 0;
   min-width: 220px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background-color: #1e293b;
@@ -77,6 +75,7 @@
 
 .column-cards {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0.5rem;
   display: flex;
@@ -100,6 +99,7 @@
   border-radius: 0.375rem;
   padding: 0.625rem 0.75rem;
   cursor: pointer;
+  flex-shrink: 0;
   transition: box-shadow 0.15s, transform 0.15s;
 }
 
@@ -495,6 +495,113 @@
 
 .summary-divider {
   color: #475569;
+}
+
+/* ---- Parent groups ---- */
+
+.parent-group {
+  border-radius: 0.375rem;
+  border: 1px solid #334155;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.parent-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  background-color: #162032;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s;
+}
+
+.parent-group-header:hover {
+  background-color: #1e3a5f;
+}
+
+.parent-group-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #94a3b8;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.parent-group-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.0625rem 0.375rem;
+  background-color: #1e3a5f;
+  color: #60a5fa;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid #3b82f644;
+}
+
+.parent-group-badge.all-done {
+  background-color: #14532d;
+  color: #4ade80;
+  border-color: #16a34a44;
+}
+
+.parent-group-pbar {
+  height: 2px;
+  background-color: #0f172a;
+}
+
+.parent-group-pbar-fill {
+  height: 100%;
+  background-color: #3b82f6;
+  transition: width 0.3s ease;
+}
+
+.parent-group-cards {
+  padding: 0.375rem 0.375rem 0.375rem 0.75rem;
+  background-color: #162032;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.parent-group-cards .board-card {
+  background-color: #1a2744;
+}
+
+.parent-group-expand {
+  display: block;
+  width: calc(100% - 0.75rem);
+  margin: 0.25rem 0 0.375rem 0.375rem;
+  padding: 0.3rem 0;
+  background: none;
+  border: 1px dashed #334155;
+  border-radius: 4px;
+  color: #60a5fa;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.parent-group-expand:hover {
+  background-color: #1e3a5f33;
+  border-color: #3b82f6;
+}
+
+.parent-group-expand.expanded {
+  color: #475569;
+  border-color: #1e293b;
+}
+
+.parent-group-expand.expanded:hover {
+  color: #94a3b8;
+  border-color: #334155;
+  background-color: transparent;
 }
 
 /* ---- Scrollbar styling ---- */

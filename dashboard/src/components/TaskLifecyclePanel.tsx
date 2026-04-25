@@ -21,10 +21,15 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
     artifactType: string;
   } | null>(null);
 
-  // Only show artifacts/decisions/messages that belong to this specific task
+  // For structural (design origin) tasks, also include their direct dependent tasks
+  // so artifacts/decisions from impl tasks spawned by this design are visible.
   const relevantTaskIds = useMemo(() => {
     if (!task) return new Set<string>();
-    return new Set<string>([task.id]);
+    const ids = new Set<string>([task.id]);
+    if (task.display_role === 'structural') {
+      task.dependent_task_ids.forEach(id => ids.add(id));
+    }
+    return ids;
   }, [task]);
 
   // Get messages related to this task

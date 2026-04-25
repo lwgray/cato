@@ -8,11 +8,17 @@
   position: relative;
 }
 
-.network-svg {
+.network-graph-body {
+  position: relative;
   flex: 1;
+  min-height: 0;
+}
+
+.network-svg {
   width: 100%;
   height: 100%;
   background-color: #0f172a;
+  display: block;
 }
 
 .pulsing-node {
@@ -87,4 +93,87 @@
   width: 24px;
   height: 0;
   flex-shrink: 0;
+}
+
+.design-origins-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 1rem;
+  background-color: rgba(46, 16, 101, 0.35);
+  border-bottom: 1px solid rgba(168, 85, 247, 0.25);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(168, 85, 247, 0.4) transparent;
+}
+
+.strip-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #d8b4fe;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  flex-shrink: 0;
+  padding-right: 0.75rem;
+  border-right: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.strip-pills {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.design-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  background-color: rgba(46, 16, 101, 0.55);
+  border: 1px dashed #a855f7;
+  border-radius: 999px;
+  color: #d8b4fe;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease, color 0.15s ease;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.design-pill:hover,
+.design-pill.active {
+  background-color: rgba(168, 85, 247, 0.28);
+  border-style: solid;
+  color: #f3e8ff;
+  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.18);
+}
+
+.design-pill.selected {
+  background-color: rgba(168, 85, 247, 0.4);
+  border-color: #f59e0b;
+  border-style: solid;
+  color: #fff;
+}
+
+.pill-icon {
+  font-size: 0.7rem;
+  opacity: 0.85;
+  font-style: italic;
+}
+
+.pill-name {
+  font-style: italic;
+}
+
+.pill-count {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #c084fc;
+  background-color: rgba(168, 85, 247, 0.15);
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-style: normal;
 }

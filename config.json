@@ -6,5 +6,11 @@
   "frontend": {
     "port": 5173
   },
-  "marcus_data_path": "/Users/lwgray/dev/marcus/data"
+  "marcus_data_path": "/Users/lwgray/dev/marcus/data",
+  "_comment_marcus_data_paths": "Uncomment to watch multiple parallel Marcus instances (overrides marcus_data_path)",
+  "_marcus_data_paths_example": [
+    "/Users/lwgray/dev/marcus/data",
+    "/tmp/parallel_exp_1/data",
+    "/tmp/parallel_exp_2/data"
+  ]
 }

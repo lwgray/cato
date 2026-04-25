@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { useVisualizationStore } from '../store/visualizationStore';
 import { Task } from '../services/dataService';
@@ -37,6 +37,36 @@ const NetworkGraphView = () => {
 
   // Local state for lifecycle panel
   const [lifecycleTask, setLifecycleTask] = useState<Task | null>(null);
+  // Which design-origin pill the user is hovering — highlights linked impl nodes
+  const [hoveredGhostId, setHoveredGhostId] = useState<string | null>(null);
+
+  // Design tasks rendered as HTML pills above the DAG (option 1 header strip).
+  // Sorted so pill order is stable across renders.
+  const designTasks = useMemo(
+    () =>
+      tasks
+        .filter((t) => t.display_role === 'structural')
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [tasks]
+  );
+
+  // Map ghost (design) task id -> set of impl task ids that directly depend on it.
+  // Used to highlight impl nodes when a pill is hovered.
+  const ghostToImpls = useMemo(() => {
+    const ghostIds = new Set(designTasks.map((t) => t.id));
+    const map = new Map<string, Set<string>>();
+    tasks.forEach((task) => {
+      if (task.display_role === 'structural') return;
+      (task.dependency_ids || []).forEach((depId) => {
+        if (ghostIds.has(depId)) {
+          if (!map.has(depId)) map.set(depId, new Set());
+          map.get(depId)!.add(task.id);
+        }
+      });
+    });
+    return map;
+  }, [tasks, designTasks]);
 
   // Build graph structure once when tasks change
   useEffect(() => {
@@ -201,15 +231,34 @@ const NetworkGraphView = () => {
     // Group nodes by which ghost task they originally depended on.
     // Ghost tasks encode the design stream each impl task came from —
     // they're filtered from the display but their lineage is still in rawDepMap.
-    const nodeGhostGroup = new Map<string, string>(); // nodeId -> ghostId
+    //
+    // Two maps, different purposes:
+    //   - nodePrimaryGhost: one ghost per impl node for COLUMN LAYOUT.
+    //     Skips convergence (maxDepth) so fan-in nodes stay centered.
+    //   - ghostToImpls: all ghosts any impl depends on, for MARKER RENDERING.
+    //     Includes convergence so design tasks referenced only by final
+    //     integration still appear. A node contributing multiple ghosts
+    //     (e.g. both 'Design System' and 'Visual Design System') registers
+    //     all of them, so every referenced design task gets a marker.
+    const nodePrimaryGhost = new Map<string, string>();
+    const ghostToImpls = new Map<string, Set<string>>();
     visibleNodes.forEach(node => {
+      const depth = depthMap.get(node.id) || 0;
       const originalDeps = Array.from(rawDepMap.get(node.id) || []);
-      const ghostDep = originalDeps.find(depId => ghostIds.has(depId));
-      if (ghostDep) nodeGhostGroup.set(node.id, ghostDep);
+      const ghostDeps = originalDeps.filter(depId => ghostIds.has(depId));
+      if (ghostDeps.length === 0) return;
+
+      if (depth < maxDepth) {
+        nodePrimaryGhost.set(node.id, ghostDeps[0]);
+      }
+      ghostDeps.forEach(gId => {
+        if (!ghostToImpls.has(gId)) ghostToImpls.set(gId, new Set());
+        ghostToImpls.get(gId)!.add(node.id);
+      });
     });
 
-    const ghostGroupIds = Array.from(new Set(nodeGhostGroup.values()));
-    const numGroups = ghostGroupIds.length;
+    const primaryGhostIds = Array.from(new Set(nodePrimaryGhost.values()));
+    const numGroups = primaryGhostIds.length;
 
     const padding = 50;
     const verticalSpacing = (height - 100) / (maxDepth + 1);
@@ -223,8 +272,8 @@ const NetworkGraphView = () => {
     });
 
     byDepth.forEach((layerNodes, depth) => {
-      const grouped = layerNodes.filter(n => nodeGhostGroup.has(n.id));
-      const ungrouped = layerNodes.filter(n => !nodeGhostGroup.has(n.id));
+      const grouped = layerNodes.filter(n => nodePrimaryGhost.has(n.id));
+      const ungrouped = layerNodes.filter(n => !nodePrimaryGhost.has(n.id));
 
       // Ungrouped nodes (roots, shared parents, convergence): center across full width
       if (ungrouped.length > 0) {
@@ -240,8 +289,8 @@ const NetworkGraphView = () => {
       // Grouped nodes: each ghost stream gets its own column slice
       if (grouped.length > 0 && numGroups > 0) {
         const groupWidth = (width - padding * 2) / numGroups;
-        ghostGroupIds.forEach((ghostId, gIdx) => {
-          const groupNodes = grouped.filter(n => nodeGhostGroup.get(n.id) === ghostId);
+        primaryGhostIds.forEach((ghostId, gIdx) => {
+          const groupNodes = grouped.filter(n => nodePrimaryGhost.get(n.id) === ghostId);
           if (groupNodes.length === 0) return;
           const colLeft = padding + gIdx * groupWidth;
           const hSpacing = groupWidth / (groupNodes.length + 1);
@@ -253,6 +302,27 @@ const NetworkGraphView = () => {
           });
         });
       }
+    });
+
+    // Design-origin markers are rendered as HTML pills above the SVG (see JSX below).
+    // Here we just keep the column layout driven by nodePrimaryGhost / primaryGhostIds.
+
+    // Group sibling subtasks — used for hover-highlight only (no persistent visual)
+    const subtaskGroups = new Map<string, { nodes: GraphNode[]; name: string }>();
+    visibleNodes.forEach(node => {
+      if (!node.task.parent_task_id) return;
+      const pid = node.task.parent_task_id;
+      if (!subtaskGroups.has(pid)) {
+        subtaskGroups.set(pid, { nodes: [], name: node.task.parent_task_name || 'Group' });
+      }
+      subtaskGroups.get(pid)!.nodes.push(node);
+    });
+
+    // Assign a stable hue to each parent group
+    const GROUP_COLORS = ['#8b5cf6', '#06b6d4', '#f59e0b', '#ec4899', '#10b981', '#f97316', '#6366f1'];
+    const parentGroupColorMap = new Map<string, string>();
+    Array.from(subtaskGroups.keys()).forEach((pid, idx) => {
+      parentGroupColorMap.set(pid, GROUP_COLORS[idx % GROUP_COLORS.length]);
     });
 
     // Create node lookup map for link resolution
@@ -318,7 +388,29 @@ const NetworkGraphView = () => {
       .data(visibleNodes)
       .enter().append('g')
       .attr('cursor', 'pointer')
-      .attr('class', d => `node-${d.id}`);
+      .attr('class', d => `dag-node node-${d.id}`);
+
+    // Sibling-group glow ring — shown only on hover, hidden at rest
+    node.append('circle')
+      .attr('class', 'sibling-ring')
+      .attr('r', 30)
+      .attr('fill', 'none')
+      .attr('stroke', '#8b5cf6')
+      .attr('stroke-width', 3)
+      .attr('opacity', 0)
+      .style('pointer-events', 'none');
+
+    // Design-link highlight ring — behind the node circle, hidden by default.
+    // Shown when a design-origin pill is hovered and this node depends on that design.
+    node.append('circle')
+      .attr('class', 'design-link-ring')
+      .attr('r', 28)
+      .attr('fill', 'none')
+      .attr('stroke', '#a855f7')
+      .attr('stroke-width', 3)
+      .attr('stroke-dasharray', '3,2')
+      .attr('opacity', 0)
+      .style('pointer-events', 'none');
 
     node.append('circle')
       .attr('class', 'node-circle')
@@ -337,6 +429,63 @@ const NetworkGraphView = () => {
       .on('click', (_, d) => {
         if (!d.isGhost) { selectTask(d.id); setLifecycleTask(d.task); }
       });
+
+    // Sibling hover: on mouseenter highlight all siblings, dim everything else
+    node.on('mouseenter', (_, d) => {
+      const pid = d.task.parent_task_id;
+      if (!pid || !subtaskGroups.has(pid)) return;
+
+      const siblingIds = new Set(subtaskGroups.get(pid)!.nodes.map(n => n.id));
+      const color = parentGroupColorMap.get(pid) || '#8b5cf6';
+
+      g.selectAll<SVGGElement, GraphNode>('.dag-node')
+        .each(function(nd) {
+          const isSibling = siblingIds.has(nd.id);
+          const el = d3.select(this);
+          el.select('.node-circle')
+            .transition().duration(120)
+            .attr('opacity', isSibling ? 1 : 0.12);
+          el.select('.node-label')
+            .transition().duration(120)
+            .attr('opacity', isSibling ? 1 : 0.12);
+          el.select('.node-progress')
+            .transition().duration(120)
+            .attr('opacity', isSibling ? 1 : 0.12);
+          el.select('.sibling-ring')
+            .transition().duration(120)
+            .attr('opacity', isSibling ? 0.9 : 0)
+            .attr('stroke', color);
+        });
+
+      g.selectAll('line')
+        .transition().duration(120)
+        .attr('opacity', 0.05);
+
+    }).on('mouseleave', (_, d) => {
+      const pid = d.task.parent_task_id;
+      if (!pid || !subtaskGroups.has(pid)) return;
+
+      g.selectAll<SVGGElement, GraphNode>('.dag-node')
+        .each(function(nd) {
+          const el = d3.select(this);
+          el.select('.node-circle')
+            .transition().duration(180)
+            .attr('opacity', nd.isGhost ? 0.6 : 1);
+          el.select('.node-label')
+            .transition().duration(180)
+            .attr('opacity', nd.isGhost ? 0.6 : 1);
+          el.select('.node-progress')
+            .transition().duration(180)
+            .attr('opacity', nd.isGhost ? 0.6 : 1);
+          el.select('.sibling-ring')
+            .transition().duration(180)
+            .attr('opacity', 0);
+        });
+
+      g.selectAll('line')
+        .transition().duration(180)
+        .attr('opacity', 0.6);
+    });
 
     node.append('text')
       .attr('class', 'node-label')
@@ -445,8 +594,51 @@ const NetworkGraphView = () => {
 
   }, [currentTime, selectedTaskId]); // Re-run when time or selection changes
 
+  // Toggle the design-link ring on nodes depending on the hovered design pill.
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const linkedIds = hoveredGhostId
+      ? ghostToImpls.get(hoveredGhostId) || new Set<string>()
+      : new Set<string>();
+    d3.select(svgRef.current)
+      .selectAll<SVGCircleElement, GraphNode>('.design-link-ring')
+      .attr('opacity', (d) => (linkedIds.has(d.id) ? 0.9 : 0));
+  }, [hoveredGhostId, ghostToImpls]);
+
   return (
     <div className="network-graph-view">
+      {designTasks.length > 0 && (
+        <div className="design-origins-strip">
+          <div className="strip-label">Design Origins</div>
+          <div className="strip-pills">
+            {designTasks.map((t) => {
+              const count = ghostToImpls.get(t.id)?.size ?? 0;
+              const displayName = t.name.replace(/^Design\s+/i, '');
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`design-pill ${hoveredGhostId === t.id ? 'active' : ''} ${
+                    selectedTaskId === t.id ? 'selected' : ''
+                  }`}
+                  onMouseEnter={() => setHoveredGhostId(t.id)}
+                  onMouseLeave={() => setHoveredGhostId(null)}
+                  onClick={() => {
+                    selectTask(t.id);
+                    setLifecycleTask(t);
+                  }}
+                  title={`${t.name} — ${count} dependent task${count === 1 ? '' : 's'}`}
+                >
+                  <span className="pill-icon" aria-hidden>◐</span>
+                  <span className="pill-name">{displayName}</span>
+                  {count > 0 && <span className="pill-count">{count}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div className="network-graph-body">
       <svg ref={svgRef} className="network-svg" />
       <div className="legend">
         <div className="legend-section">
@@ -469,10 +661,17 @@ const NetworkGraphView = () => {
           </div>
         </div>
         <div className="legend-section">
-          <div className="legend-title">Node Types</div>
+          <div className="legend-title">Design Origins</div>
           <div className="legend-item">
-            <div className="legend-border" style={{ borderColor: '#64748b', borderStyle: 'dashed', opacity: 0.6 }}></div>
-            <span>Design origin</span>
+            <div className="legend-border" style={{ borderColor: '#a855f7', borderStyle: 'dashed', backgroundColor: 'transparent' }}></div>
+            <span>Hover a pill to highlight dependents</span>
+          </div>
+        </div>
+        <div className="legend-section">
+          <div className="legend-title">Subtask Groups</div>
+          <div className="legend-item">
+            <div className="legend-border" style={{ borderColor: '#8b5cf6', borderStyle: 'solid', backgroundColor: 'transparent' }}></div>
+            <span>Hover node to highlight siblings</span>
           </div>
         </div>
         <div className="legend-section">
@@ -490,6 +689,7 @@ const NetworkGraphView = () => {
             <span>Redundant dep</span>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Task Lifecycle Panel */}
