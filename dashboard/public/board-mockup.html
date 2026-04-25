@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Board Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f172a;
+    color: #e2e8f0;
+    font-family: system-ui, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---- Fake header ---- */
+  .header {
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    color: #94a3b8;
+    flex-shrink: 0;
+  }
+
+  /* ---- THE BOARD: exact same CSS I put in BoardView.css ---- */
+  .board-view {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: #0f172a;
+    overflow: hidden;
+  }
+
+  .board-columns {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    gap: 0.75rem;
+    padding: 1rem 1rem 0.5rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .board-column {
+    flex: 1 1 0;
+    min-width: 220px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: #1e293b;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  .column-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 3px solid;
+    flex-shrink: 0;
+  }
+  .column-label { font-weight: 600; font-size: 0.875rem; flex: 1; }
+  .column-count {
+    font-size: 0.75rem; font-weight: 700; color: #0f172a;
+    padding: 0.125rem 0.5rem; border-radius: 999px;
+  }
+
+  /* THIS is the scrollable area */
+  .column-cards {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;    /* <-- scrollbar lives here */
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .column-cards::-webkit-scrollbar { width: 5px; }
+  .column-cards::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+
+  /* ---- Cards ---- */
+  .card {
+    background: #0f172a;
+    border-left: 4px solid #334155;
+    border-radius: 0.375rem;
+    padding: 0.625rem 0.75rem;
+    flex-shrink: 0;
+  }
+  .card-id   { font-size: 0.7rem; color: #64748b; font-family: monospace; }
+  .card-name { font-size: 0.825rem; font-weight: 600; color: #e2e8f0; margin: 0.2rem 0; }
+  .card-meta { font-size: 0.7rem; color: #38bdf8; }
+
+  /* ---- Parent group ---- */
+  .parent-group {
+    border-radius: 0.375rem;
+    border: 1px solid #334155;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .parent-group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.5rem;
+    background: #162032;
+  }
+  .parent-group-name {
+    font-size: 0.72rem; font-weight: 600; color: #94a3b8;
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .parent-group-badge {
+    font-size: 0.65rem; font-weight: 700;
+    padding: 0.0625rem 0.375rem;
+    background: #1e3a5f; color: #60a5fa;
+    border-radius: 999px; border: 1px solid #3b82f644;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .parent-group-badge.all-done { background: #14532d; color: #4ade80; border-color: #16a34a44; }
+  .pbar { height: 2px; background: #0f172a; }
+  .pbar-fill { height: 100%; background: #3b82f6; }
+  .group-cards {
+    padding: 0.375rem 0.375rem 0.375rem 0.75rem;
+    background: #162032;
+    display: flex; flex-direction: column; gap: 0.375rem;
+  }
+  .group-cards .card { background: #1a2744; }
+
+  .expand-btn {
+    display: block;
+    width: calc(100% - 0.75rem);
+    margin: 0.25rem 0 0.375rem 0.375rem;
+    padding: 0.3rem 0;
+    background: none;
+    border: 1px dashed #334155;
+    border-radius: 4px;
+    color: #60a5fa;
+    font-size: 0.72rem; font-weight: 600;
+    cursor: pointer; text-align: center;
+  }
+  .expand-btn:hover { background: #1e3a5f33; border-color: #3b82f6; }
+
+  /* ---- Summary bar ---- */
+  .board-summary {
+    display: flex; align-items: center; justify-content: center;
+    gap: 0.5rem; padding: 0.625rem 1rem;
+    background: #1e293b; border-top: 1px solid #334155;
+    font-size: 0.825rem; color: #94a3b8;
+    flex-shrink: 0;
+  }
+  .board-summary strong { color: #e2e8f0; }
+  .sum-done strong { color: #10b981; }
+  .sum-agents strong { color: #3b82f6; }
+
+  /* ---- Annotations ---- */
+  .arrow-note {
+    position: absolute;
+    background: #f59e0b;
+    color: #0f172a;
+    font-size: 0.7rem; font-weight: 700;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">Cato Dashboard — Board View Mockup &nbsp;|&nbsp; Columns scroll individually &nbsp;|&nbsp; Subtask groups truncate at 3</div>
+
+<div class="board-view">
+  <div class="board-columns">
+
+    <!-- BACKLOG: 6 cards, doesn't fit → should scroll -->
+    <div class="board-column">
+      <div class="column-header" style="border-bottom-color:#eab308">
+        <span>📋</span>
+        <span class="column-label">Backlog</span>
+        <span class="column-count" style="background:#eab308">10</span>
+      </div>
+      <div class="column-cards">
+
+        <!-- standalone card -->
+        <div class="card" style="border-left-color:#eab308">
+          <div class="card-id">#3c5c2c10</div>
+          <div class="card-name">Standalone task A</div>
+          <div class="card-meta">agent_unicorn_1 · 30m</div>
+        </div>
+
+        <!-- parent group: 5 subtasks, shows 3 + expand -->
+        <div class="parent-group">
+          <div class="parent-group-header">
+            <span class="parent-group-name">Implement Widget Display System</span>
+            <span class="parent-group-badge">0/5 ✓</span>
+          </div>
+          <div class="pbar"><div class="pbar-fill" style="width:0%"></div></div>
+          <div class="group-cards">
+            <div class="card"><div class="card-id">#88b51df6</div><div class="card-name">Implement responsive grid layout</div><div class="card-meta">agent_unicorn_1 · 30m</div></div>
+            <div class="card"><div class="card-id">#88b51df6</div><div class="card-name">Build widget rendering engine</div><div class="card-meta">agent_unicorn_1 · 30m</div></div>
+            <div class="card"><div class="card-id">#88b51df6</div><div class="card-name">Implement dashboard config</div><div class="card-meta">agent_unicorn_1 · 30m</div></div>
+          </div>
+          <!-- "Show 2 more" because 5 total, 3 shown -->
+          <button class="expand-btn">▾  Show 2 more tasks…</button>
+        </div>
+
+        <!-- another group -->
+        <div class="parent-group">
+          <div class="parent-group-header">
+            <span class="parent-group-name">Implement External Data Integration</span>
+            <span class="parent-group-badge">0/5 ✓</span>
+          </div>
+          <div class="pbar"><div class="pbar-fill" style="width:0%"></div></div>
+          <div class="group-cards">
+            <div class="card"><div class="card-id">#a0bdfd97</div><div class="card-name">Implement Weather Data Models</div><div class="card-meta">agent_unicorn_2 · 30m</div></div>
+            <div class="card"><div class="card-id">#a0bdfd97</div><div class="card-name">Build Weather API Client</div><div class="card-meta">agent_unicorn_2 · 45m</div></div>
+            <div class="card"><div class="card-id">#a0bdfd97</div><div class="card-name">Implement Weather Data Cache</div><div class="card-meta">agent_unicorn_2 · 30m</div></div>
+          </div>
+          <button class="expand-btn">▾  Show 2 more tasks…</button>
+        </div>
+
+        <!-- more standalone to force scroll -->
+        <div class="card" style="border-left-color:#eab308"><div class="card-id">#aaaa0001</div><div class="card-name">Standalone task B</div><div class="card-meta">agent_unicorn_1 · 60m</div></div>
+        <div class="card" style="border-left-color:#eab308"><div class="card-id">#aaaa0002</div><div class="card-name">Standalone task C</div><div class="card-meta">agent_unicorn_2 · 30m</div></div>
+        <div class="card" style="border-left-color:#eab308"><div class="card-id">#aaaa0003</div><div class="card-name">Standalone task D — only visible by scrolling ↑</div><div class="card-meta">agent_unicorn_2 · 45m</div></div>
+        <div class="card" style="border-left-color:#eab308"><div class="card-id">#aaaa0004</div><div class="card-name">Standalone task E — only visible by scrolling ↑</div><div class="card-meta">agent_unicorn_1 · 30m</div></div>
+
+      </div><!-- /column-cards -->
+    </div><!-- /backlog column -->
+
+    <!-- IN PROGRESS: 1 card -->
+    <div class="board-column">
+      <div class="column-header" style="border-bottom-color:#3b82f6">
+        <span>⚡</span>
+        <span class="column-label">In Progress</span>
+        <span class="column-count" style="background:#3b82f6">1</span>
+      </div>
+      <div class="column-cards">
+        <div class="card" style="border-left-color:#3b82f6">
+          <div class="card-id">#66e6751a</div>
+          <div class="card-name">Documentation &amp; Development Environment Setup</div>
+          <div class="card-meta">agent_unicorn_2 · 30m</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BLOCKED: 0 -->
+    <div class="board-column">
+      <div class="column-header" style="border-bottom-color:#ef4444">
+        <span>🚫</span>
+        <span class="column-label">Blocked</span>
+        <span class="column-count" style="background:#ef4444">0</span>
+      </div>
+      <div class="column-cards">
+        <div style="color:#475569;font-size:0.8rem;text-align:center;padding:1rem;font-style:italic">No tasks</div>
+      </div>
+    </div>
+
+    <!-- DONE: 16 cards, definitely needs scroll -->
+    <div class="board-column">
+      <div class="column-header" style="border-bottom-color:#10b981">
+        <span>✓</span>
+        <span class="column-label">Done</span>
+        <span class="column-count" style="background:#10b981">16</span>
+      </div>
+      <div class="column-cards">
+
+        <div class="card" style="border-left-color:#10b981"><div class="card-id">#3c5c2c10</div><div class="card-name">Design System &amp; Visual Tokens</div><div class="card-meta">agent_unicorn_2 · 180m</div></div>
+        <div class="card" style="border-left-color:#10b981"><div class="card-id">#planning</div><div class="card-name">Marcus Planning: dashboard-v102</div><div class="card-meta">Marcus · planning</div></div>
+
+        <!-- group: 5 done subtasks, shows 3 + expand -->
+        <div class="parent-group">
+          <div class="parent-group-header">
+            <span class="parent-group-name">Shared Tech Foundation &amp; Project Setup</span>
+            <span class="parent-group-badge all-done">4/5 ✓</span>
+          </div>
+          <div class="pbar"><div class="pbar-fill" style="width:80%"></div></div>
+          <div class="group-cards">
+            <div class="card"><div class="card-id">#66e6751a</div><div class="card-name">TypeScript &amp; Build Configuration</div><div class="card-meta">agent_unicorn_1 · 60m</div></div>
+            <div class="card"><div class="card-id">#66e6751a</div><div class="card-name">Testing Infrastructure &amp; Jest Config</div><div class="card-meta">agent_unicorn_1 · 60m</div></div>
+            <div class="card"><div class="card-id">#66e6751a</div><div class="card-name">Project Directory Structure</div><div class="card-meta">agent_unicorn_1 · 30m</div></div>
+          </div>
+          <button class="expand-btn">▾  Show 2 more tasks…</button>
+        </div>
+
+        <!-- more done cards to force scroll -->
+        <div class="card" style="border-left-color:#10b981"><div class="card-id">#bbf20d33</div><div class="card-name">Define Widget Base Component Interface</div><div class="card-meta">agent_unicorn_2 · 45m</div></div>
+        <div class="card" style="border-left-color:#10b981"><div class="card-id">#bbf20d33</div><div class="card-name">Implement Widget Base Component</div><div class="card-meta">agent_unicorn_2 · 60m</div></div>
+        <div class="card" style="border-left-color:#10b981"><div class="card-id">#bbf20d33</div><div class="card-name">Create Widget Layout Container</div><div class="card-meta">agent_unicorn_2 · 45m</div></div>
+        <div class="card" style="border-left-color:#10b981"><div class="card-id">#bbf20d33</div><div class="card-name">Create Widget Documentation</div><div class="card-meta">agent_unicorn_1 · 30m</div></div>
+        <div class="card" style="border-left-color:#10b981"><div class="card-id">#3b82f6aa</div><div class="card-name">Build weather data fetcher — scroll to see ↑</div><div class="card-meta">agent_unicorn_2 · 60m</div></div>
+        <div class="card" style="border-left-color:#10b981"><div class="card-id">#3b82f6bb</div><div class="card-name">Create Weather Widget — scroll to see ↑</div><div class="card-meta">agent_unicorn_1 · 45m</div></div>
+        <div class="card" style="border-left-color:#10b981"><div class="card-id">#3b82f6cc</div><div class="card-name">Create dashboard layout — scroll to see ↑</div><div class="card-meta">agent_unicorn_2 · 30m</div></div>
+
+      </div><!-- /column-cards -->
+    </div><!-- /done column -->
+
+  </div><!-- /board-columns -->
+
+  <div class="board-summary">
+    <span><strong>27</strong> tasks</span>
+    <span style="color:#475569">·</span>
+    <span class="sum-done"><strong>37%</strong> complete</span>
+    <span style="color:#475569">·</span>
+    <span class="sum-agents"><strong>1</strong> agent active</span>
+  </div>
+</div>
+
+</body>
+</html>

@@ -252,6 +252,7 @@ const BoardView = () => {
                   const total = prog?.total ?? ptasks.length;
                   const pct = total > 0 ? (done / total) * 100 : 0;
                   const isExpanded = expandedGroups.has(parentId);
+                  // Truncate based on this column's card count, not cross-column total
                   const visibleCards = isExpanded ? ptasks : ptasks.slice(0, MAX_VISIBLE);
                   const hiddenCount = ptasks.length - MAX_VISIBLE;
 

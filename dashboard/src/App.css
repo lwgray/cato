@@ -163,6 +163,7 @@
 
 .app-content {
   flex: 1;
+  min-height: 0;
   display: flex;
   overflow: hidden;
 }
@@ -178,6 +179,7 @@
   padding: 0;
   overflow: hidden;
   position: relative;
+  height: 100%;
 }
 
 /* Metrics panel will be styled in its own component */

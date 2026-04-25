@@ -11,10 +11,6 @@
   overflow: hidden;
 }
 
-.board-view.with-detail .board-columns {
-  flex: 1;
-}
-
 .board-empty {
   display: flex;
   align-items: center;
@@ -27,12 +23,13 @@
 /* ---- Columns grid ---- */
 
 .board-columns {
+  flex: 1;
+  min-height: 0;
   display: flex;
   gap: 0.75rem;
   padding: 1rem 1rem 0.5rem;
-  flex: 1;
-  min-height: 0;
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .board-column {
@@ -102,6 +99,7 @@
   border-radius: 0.375rem;
   padding: 0.625rem 0.75rem;
   cursor: pointer;
+  flex-shrink: 0;
   transition: box-shadow 0.15s, transform 0.15s;
 }
 
@@ -505,6 +503,7 @@
   border-radius: 0.375rem;
   border: 1px solid #334155;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .parent-group-header {
