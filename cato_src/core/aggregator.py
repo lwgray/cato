@@ -131,6 +131,7 @@ class Aggregator:
         self,
         marcus_root: Optional[Path] = None,
         marcus_roots: Optional[List[Path]] = None,
+        history_cutoff_date: Optional[str] = None,
     ):
         """
         Initialize the aggregator.
@@ -143,6 +144,11 @@ class Aggregator:
             Multiple Marcus root directories for parallel experiments.
             When provided, takes precedence over marcus_root. The first
             entry becomes self.marcus_root for backward compatibility.
+        history_cutoff_date : Optional[str]
+            ISO date string (YYYY-MM-DD). Projects created before this date
+            are excluded from _load_projects(). Log files whose filename
+            timestamp predates this cutoff are skipped in _load_messages()
+            and _load_events(). None means load everything.
         """
         # Resolve the list of roots: plural arg wins, else wrap singular
         if marcus_roots is not None:
@@ -163,6 +169,14 @@ class Aggregator:
 
         self.project_matcher = ProjectMatcher(tolerance=20)
         self.snapshot_version_counter = 0
+
+        # History window — projects and logs older than this are excluded.
+        # Stored in two forms: ISO (for project created_at comparison) and
+        # compact YYYYMMDD (for log filename comparison).
+        self.history_cutoff_date: Optional[str] = history_cutoff_date
+        self._cutoff_compact: Optional[str] = (
+            history_cutoff_date.replace("-", "") if history_cutoff_date else None
+        )
 
         # Maps project_id → its source marcus_root (populated by _load_projects)
         self._project_root: Dict[str, Path] = {}
@@ -426,6 +440,12 @@ class Aggregator:
                 for key, value in data.items():
                     if key != "active_project" and isinstance(value, dict):
                         if "id" in value:
+                            if (
+                                self.history_cutoff_date
+                                and value.get("created_at", "")
+                                < self.history_cutoff_date
+                            ):
+                                continue
                             all_projects.append(value)
                             project_root_map[value["id"]] = root
             except Exception as e:
@@ -779,14 +799,22 @@ class Aggregator:
         """
         all_tasks = []
 
-        # Load parent tasks from database
-        parent_tasks = self.load_parent_tasks_from_db()
+        # Resolve which root owns this project (populated by _load_projects).
+        # Falls back to primary root when called without a project_id or when
+        # _project_root hasn't been populated yet (e.g. direct test calls).
+        project_root = (
+            self._project_root.get(project_id, self.marcus_root)
+            if project_id
+            else self.marcus_root
+        )
+
+        # Load parent tasks from database for this project's root
+        parent_tasks = self.load_parent_tasks_from_db(root=project_root)
         all_tasks.extend(parent_tasks)
-        print(f"[DEBUG] Loaded {len(parent_tasks)} parent tasks from database")
         logger.info(f"Loaded {len(parent_tasks)} parent tasks from database")
 
-        # Load subtasks from JSON file
-        subtasks_file = self.persistence_dir / "subtasks.json"
+        # Load subtasks from JSON file for this project's root
+        subtasks_file = project_root / "data" / "marcus_state" / "subtasks.json"
         if subtasks_file.exists():
             try:
                 with open(subtasks_file, "r") as f:
@@ -1171,56 +1199,72 @@ class Aggregator:
     def _load_messages(self) -> List[Dict[str, Any]]:
         """Load conversation messages from logs.
 
-        Loads both conversations_*.jsonl and realtime_*.jsonl files.
-        Realtime entries are normalized to the aggregator's expected field
-        names via _normalize_realtime_entry().
+        Loads both conversations_*.jsonl and realtime_*.jsonl files from all
+        marcus_roots. Realtime entries are normalized to the aggregator's expected
+        field names via _normalize_realtime_entry().
         """
         messages: List[Dict[str, Any]] = []
-        if not self.conversation_logs_dir.exists():
-            logger.warning(
-                f"Conversation logs dir not found: {self.conversation_logs_dir}"
-            )
-            return messages
+        logs_dirs = [root / "logs" / "conversations" for root in self.marcus_roots]
 
-        for log_file in self.conversation_logs_dir.glob("*.jsonl"):
-            is_realtime = log_file.name.startswith("realtime_")
-            try:
-                with open(log_file, "r") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
+        for logs_dir in logs_dirs:
+            if not logs_dir.exists():
+                logger.warning(f"Conversation logs dir not found: {logs_dir}")
+                continue
+            for log_file in logs_dir.glob("*.jsonl"):
+                if log_file.stat().st_size == 0:
+                    continue
+                if self._cutoff_compact:
+                    parts = log_file.stem.split("_")
+                    if len(parts) >= 2 and parts[1].isdigit() and len(parts[1]) == 8:
+                        if parts[1] < self._cutoff_compact:
                             continue
-                        try:
-                            entry = json.loads(line)
-                            if is_realtime and "from_agent_id" not in entry:
-                                entry = self._normalize_realtime_entry(entry)
-                            messages.append(entry)
-                        except json.JSONDecodeError:
-                            continue
-            except Exception as e:
-                logger.error(f"Error loading messages from {log_file}: {e}")
+                is_realtime = log_file.name.startswith("realtime_")
+                try:
+                    with open(log_file, "r") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                entry = json.loads(line)
+                                if is_realtime and "from_agent_id" not in entry:
+                                    entry = self._normalize_realtime_entry(entry)
+                                messages.append(entry)
+                            except json.JSONDecodeError:
+                                continue
+                except Exception as e:
+                    logger.error(f"Error loading messages from {log_file}: {e}")
 
         logger.info(f"Loaded {len(messages)} messages")
         return messages
 
     def _load_events(self) -> List[Dict[str, Any]]:
-        """Load agent events from logs."""
+        """Load agent events from logs across all marcus_roots."""
         events: List[Dict[str, Any]] = []
-        if not self.agent_events_dir.exists():
-            logger.warning(f"Agent events dir not found: {self.agent_events_dir}")
-            return events
+        events_dirs = [root / "logs" / "agent_events" for root in self.marcus_roots]
 
-        for log_file in self.agent_events_dir.glob("*.jsonl"):
-            try:
-                with open(log_file, "r") as f:
-                    for line in f:
-                        try:
-                            entry = json.loads(line.strip())
-                            events.append(entry)
-                        except json.JSONDecodeError:
+        for events_dir in events_dirs:
+            if not events_dir.exists():
+                logger.warning(f"Agent events dir not found: {events_dir}")
+                continue
+            for log_file in events_dir.glob("*.jsonl"):
+                if log_file.stat().st_size == 0:
+                    continue
+                if self._cutoff_compact:
+                    parts = log_file.stem.split("_")
+                    if len(parts) >= 2 and parts[1].isdigit() and len(parts[1]) == 8:
+                        if parts[1] < self._cutoff_compact:
                             continue
-            except Exception as e:
-                logger.error(f"Error loading events from {log_file}: {e}")
+                try:
+                    with open(log_file, "r") as f:
+                        for line in f:
+                            try:
+                                entry = json.loads(line.strip())
+                                events.append(entry)
+                            except json.JSONDecodeError:
+                                continue
+                except Exception as e:
+                    logger.error(f"Error loading events from {log_file}: {e}")
 
         logger.info(f"Loaded {len(events)} events")
         return events
@@ -1423,6 +1467,25 @@ class Aggregator:
         logger.info(f"Loaded {len(artifacts)} artifacts")
         return artifacts
 
+    def _parse_ai_suggestions(self, content: str) -> Optional[Dict[str, Any]]:
+        """Extract the AI suggestions dict from a blocker comment string."""
+        import ast
+
+        marker = "📋 AI Suggestions:\n"
+        idx = content.find(marker)
+        if idx == -1:
+            return None
+        raw = content[idx + len(marker) :].strip()
+        # Try JSON first (new format after fence-stripping fix), then Python repr
+        for parser in (json.loads, ast.literal_eval):
+            try:
+                result = parser(raw)
+                if isinstance(result, dict):
+                    return result
+            except Exception:  # nosec B112
+                continue
+        return None
+
     def _classify_display_role(
         self, task_data: Dict[str, Any]
     ) -> Literal["work", "structural", "context"]:
@@ -1584,12 +1647,21 @@ class Aggregator:
         else:  # todo or any other status
             return 0
 
-    def load_parent_tasks_from_db(self) -> List[Dict[str, Any]]:
+    def load_parent_tasks_from_db(
+        self, root: Optional[Path] = None
+    ) -> List[Dict[str, Any]]:
         """
         Load parent tasks from marcus.db (task_metadata collection).
 
         Parent tasks are stored in the database, while subtasks are in subtasks.json.
         This method loads the parent tasks and enriches them with outcome data.
+
+        Parameters
+        ----------
+        root : Optional[Path]
+            Marcus root to read from. Defaults to self.marcus_root (primary root).
+            Pass a non-primary root when loading tasks for a project that lives in
+            a parallel experiment directory.
 
         Returns
         -------
@@ -1598,7 +1670,8 @@ class Aggregator:
         """
         import sqlite3
 
-        db_path = self.marcus_root / "data" / "marcus.db"
+        effective_root = root if root is not None else self.marcus_root
+        db_path = effective_root / "data" / "marcus.db"
         if not db_path.exists():
             logger.warning(f"marcus.db not found at {db_path}")
             return []
@@ -1699,38 +1772,71 @@ class Aggregator:
 
                 parent_tasks.append(task)
 
-            # Enrich with authoritative status from kanban.db
-            # (for SQLite provider, kanban.db is the source of truth)
-            kanban_db = self.marcus_root / "data" / "kanban.db"
-            if kanban_db.exists():
+            # Enrich with authoritative status from all kanban*.db files.
+            # Parallel experiments (introduced with SQLite parallel support)
+            # write to kanban_parallel_N.db rather than kanban.db, so we
+            # must read all matching databases and merge. Later files in the
+            # glob win on conflict — each experiment owns its own task IDs
+            # so collisions should not occur in practice.
+            kanban_status: Dict[str, Dict[str, Any]] = {}
+            data_dir = effective_root / "data"
+            kanban_dbs = (
+                sorted(data_dir.glob("kanban*.db")) if data_dir.exists() else []
+            )
+            for kanban_db in kanban_dbs:
                 try:
                     kanban_conn = sqlite3.connect(str(kanban_db))
                     kanban_rows = kanban_conn.execute(
-                        "SELECT id, status, assigned_to " "FROM tasks"
+                        "SELECT id, status, assigned_to FROM tasks"
                     ).fetchall()
-                    kanban_status = {
-                        r[0]: {"status": r[1], "assigned_to": r[2]} for r in kanban_rows
-                    }
+                    # Read latest blocker comment with AI suggestions per task
+                    # (comments table may not exist in older/test databases)
+                    try:
+                        blocker_rows = kanban_conn.execute(
+                            "SELECT task_id, content FROM comments "
+                            "WHERE content LIKE '%AI Suggestions%' "
+                            "ORDER BY created_at ASC"
+                        ).fetchall()
+                    except Exception:
+                        blocker_rows = []
                     kanban_conn.close()
-
-                    enriched = 0
-                    for task in parent_tasks:
-                        tid = task.get("task_id", task.get("id"))
-                        if tid and tid in kanban_status:
-                            task["status"] = kanban_status[tid]["status"]
-                            if kanban_status[tid]["assigned_to"]:
-                                task["assigned_agent_id"] = kanban_status[tid][
-                                    "assigned_to"
-                                ]
-                            enriched += 1
-
-                    if enriched:
-                        logger.info(
-                            f"Enriched {enriched} tasks with " f"status from kanban.db"
-                        )
+                    for row in kanban_rows:
+                        kanban_status[row[0]] = {
+                            "status": row[1],
+                            "assigned_to": row[2],
+                            "blocker_ai_suggestions": None,
+                        }
+                    for task_id, content in blocker_rows:
+                        if task_id in kanban_status:
+                            kanban_status[task_id]["blocker_ai_suggestions"] = (
+                                self._parse_ai_suggestions(content)
+                            )
+                    logger.debug(
+                        f"Read {len(kanban_rows)} task statuses from {kanban_db.name}"
+                    )
                 except Exception as e:
                     logger.warning(
-                        f"Could not read kanban.db for " f"status enrichment: {e}"
+                        f"Could not read {kanban_db.name} for status enrichment: {e}"
+                    )
+
+            if kanban_status:
+                enriched = 0
+                for task in parent_tasks:
+                    tid = task.get("task_id", task.get("id"))
+                    if tid and tid in kanban_status:
+                        task["status"] = kanban_status[tid]["status"]
+                        if kanban_status[tid]["assigned_to"]:
+                            task["assigned_agent_id"] = kanban_status[tid][
+                                "assigned_to"
+                            ]
+                        task["blocker_ai_suggestions"] = kanban_status[tid].get(
+                            "blocker_ai_suggestions"
+                        )
+                        enriched += 1
+                if enriched:
+                    logger.info(
+                        f"Enriched {enriched} tasks with status from "
+                        f"{len(kanban_dbs)} kanban database(s)"
                     )
 
             logger.info(f"Loaded {len(parent_tasks)} parent tasks from marcus.db")
@@ -2411,6 +2517,7 @@ class Aggregator:
                 labels=task_data.get("labels", []),
                 metadata=task_data.get("metadata", {}),
                 display_role=self._classify_display_role(task_data),
+                blocker_ai_suggestions=task_data.get("blocker_ai_suggestions"),
             )
             tasks.append(task)
 

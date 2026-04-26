@@ -1,5 +1,6 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
+import { fetchSettings, updateSettings } from '../services/dataService';
 import ExportButton from './ExportButton';
 
 /**
@@ -28,14 +29,44 @@ const HeaderControls = () => {
   );
 
   const handleDropdownFocus = useCallback(async () => {
-    // Refresh projects list when user opens the dropdown
-    // This ensures new projects are immediately visible
     if (!isLoading) {
-      console.log('Refreshing projects list on dropdown focus...');
       await loadProjects();
     }
   }, [isLoading, loadProjects]);
 
+  // Settings panel state
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [cutoffDate, setCutoffDate] = useState<string>('');
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchSettings().then(s => setCutoffDate(s.history_cutoff_date ?? '')).catch(() => {});
+  }, []);
+
+  // Close panel on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+        setSettingsOpen(false);
+      }
+    };
+    if (settingsOpen) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [settingsOpen]);
+
+  const handleSaveSettings = useCallback(async () => {
+    setSettingsSaving(true);
+    try {
+      await updateSettings({ history_cutoff_date: cutoffDate || null });
+      setSettingsOpen(false);
+      await loadProjects();
+    } catch (e) {
+      console.error('Failed to save settings', e);
+    } finally {
+      setSettingsSaving(false);
+    }
+  }, [cutoffDate, loadProjects]);
 
   return (
     <>
@@ -85,6 +116,57 @@ const HeaderControls = () => {
 
           {/* Export button - on the right */}
           <ExportButton />
+
+          {/* Settings */}
+          <div style={{ position: 'relative' }} ref={settingsRef}>
+            <button
+              className="refresh-button"
+              onClick={() => setSettingsOpen(o => !o)}
+              title="Cato settings"
+            >
+              ⚙️
+            </button>
+            {settingsOpen && (
+              <div style={{
+                position: 'absolute', right: 0, top: '110%', zIndex: 100,
+                background: '#1e293b', border: '1px solid #334155',
+                borderRadius: '0.5rem', padding: '1rem', minWidth: '260px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+              }}>
+                <div style={{ color: '#e2e8f0', fontWeight: 600, marginBottom: '0.75rem' }}>
+                  Settings
+                </div>
+                <label style={{ color: '#94a3b8', fontSize: '0.85rem', display: 'block', marginBottom: '0.25rem' }}>
+                  Show history since
+                </label>
+                <input
+                  type="date"
+                  value={cutoffDate}
+                  onChange={e => setCutoffDate(e.target.value)}
+                  style={{
+                    width: '100%', padding: '0.4rem', borderRadius: '0.25rem',
+                    border: '1px solid #475569', background: '#0f172a',
+                    color: '#e2e8f0', fontSize: '0.9rem', marginBottom: '0.75rem',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.75rem' }}>
+                  Filters both the project list and log files. Leave blank to show all history.
+                </div>
+                <button
+                  onClick={handleSaveSettings}
+                  disabled={settingsSaving}
+                  style={{
+                    width: '100%', padding: '0.4rem', borderRadius: '0.25rem',
+                    background: '#3b82f6', color: '#fff', border: 'none',
+                    cursor: settingsSaving ? 'not-allowed' : 'pointer', fontSize: '0.9rem',
+                  }}
+                >
+                  {settingsSaving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
       {loadError && (

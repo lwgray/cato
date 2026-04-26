@@ -99,10 +99,11 @@ if HISTORICAL_MODE_AVAILABLE and ProjectHistoryAggregator and ProjectHistoryQuer
         logger.error(f"Failed to initialize historical analysis components: {e}")
         HISTORICAL_MODE_AVAILABLE = False
 
-# Load Marcus data path(s) from config (for live mode aggregator)
+# Load Marcus data path(s) and settings from config (for live mode aggregator)
 config_path = Path(__file__).parent.parent / "config.json"
 marcus_data_path_root = None
 _extra_marcus_roots: list[Path] = []
+_history_cutoff_date: Optional[str] = None
 try:
     with open(config_path, "r") as f:
         config = json.load(f)
@@ -124,6 +125,9 @@ try:
                 )
             else:
                 logger.info("No Marcus data path in config, using auto-detection")
+        _history_cutoff_date = config.get("history_cutoff_date")
+        if _history_cutoff_date:
+            logger.info(f"History cutoff date: {_history_cutoff_date}")
 except Exception as e:
     logger.warning(f"Could not load config.json: {e}, using auto-detection")
 
@@ -145,9 +149,11 @@ app.add_middleware(
 
 # Initialize aggregator for snapshot API — multi-root if configured
 aggregator = (
-    Aggregator(marcus_roots=_extra_marcus_roots)
+    Aggregator(
+        marcus_roots=_extra_marcus_roots, history_cutoff_date=_history_cutoff_date
+    )
     if _extra_marcus_roots
-    else Aggregator(marcus_root=marcus_root)
+    else Aggregator(marcus_root=marcus_root, history_cutoff_date=_history_cutoff_date)
 )
 
 # Simple in-memory cache for snapshots (60s TTL for better performance)
@@ -452,6 +458,56 @@ async def get_projects() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error loading projects: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error loading projects: {str(e)}")
+
+
+@app.get("/api/settings")  # type: ignore[misc]
+async def get_settings() -> Dict[str, Any]:
+    """Return current Cato settings from config.json."""
+    try:
+        with open(config_path, "r") as f:
+            cfg = json.load(f)
+        return {
+            "history_cutoff_date": cfg.get("history_cutoff_date"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/settings")  # type: ignore[misc]
+async def update_settings(body: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Update Cato settings in config.json and reinitialize the aggregator.
+
+    Accepts: {"history_cutoff_date": "YYYY-MM-DD" | null}
+    """
+    global aggregator
+
+    try:
+        with open(config_path, "r") as f:
+            cfg = json.load(f)
+
+        if "history_cutoff_date" in body:
+            cfg["history_cutoff_date"] = body["history_cutoff_date"]
+
+        with open(config_path, "w") as f:
+            json.dump(cfg, f, indent=2)
+
+        # Reinitialize aggregator with new cutoff
+        new_cutoff: Optional[str] = cfg.get("history_cutoff_date")
+        aggregator = (
+            Aggregator(marcus_roots=_extra_marcus_roots, history_cutoff_date=new_cutoff)
+            if _extra_marcus_roots
+            else Aggregator(marcus_root=marcus_root, history_cutoff_date=new_cutoff)
+        )
+
+        # Invalidate snapshot cache so next request re-reads with new cutoff
+        snapshot_cache.clear()
+
+        logger.info(f"Settings updated: history_cutoff_date={new_cutoff}")
+        return {"history_cutoff_date": new_cutoff}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/snapshot")  # type: ignore[misc]

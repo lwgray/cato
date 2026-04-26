@@ -179,6 +179,9 @@ class Task:
     # "context" = info drawer only
     display_role: Literal["work", "structural", "context"] = "work"
 
+    # Latest blocker AI suggestions (only populated for blocked tasks)
+    blocker_ai_suggestions: Optional[Dict[str, Any]] = None
+
     def __post_init__(self) -> None:
         """Validate timezone-aware timestamps."""
         if self.created_at.tzinfo is None:
