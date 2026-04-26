@@ -1,24 +1,24 @@
 .task-lifecycle-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  width: 600px;
-  height: 100vh;
+  flex-shrink: 0;
+  width: 480px;
+  height: 100%;
   background-color: #1e293b;
   border-left: 2px solid #334155;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
-  z-index: 1000;
-  animation: slideIn 0.3s ease-out;
+  overflow: hidden;
+  animation: slideIn 0.2s ease-out;
 }
 
 @keyframes slideIn {
   from {
     transform: translateX(100%);
+    opacity: 0;
   }
   to {
     transform: translateX(0);
+    opacity: 1;
   }
 }
 

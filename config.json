@@ -7,6 +7,8 @@
     "port": 5173
   },
   "marcus_data_path": "/Users/lwgray/dev/marcus/data",
+  "history_cutoff_date": "2026-04-14",
+  "_comment_history_cutoff_date": "Only show projects and load logs on/after this date (YYYY-MM-DD). Leave null to show all.",
   "_comment_marcus_data_paths": "Uncomment to watch multiple parallel Marcus instances (overrides marcus_data_path)",
   "_marcus_data_paths_example": [
     "/Users/lwgray/dev/marcus/data",

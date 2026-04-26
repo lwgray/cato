@@ -98,6 +98,16 @@ export interface Task {
 
   // Display role for visualization
   display_role: 'work' | 'structural' | 'context';
+
+  // Latest blocker AI suggestions (only populated for blocked tasks)
+  blocker_ai_suggestions?: {
+    root_cause?: string;
+    resolution_steps?: string[];
+    escalation_needed?: boolean;
+    estimated_hours?: number;
+    required_resources?: string[];
+    prevention_measures?: string[];
+  } | null;
 }
 
 /**
@@ -359,6 +369,21 @@ export async function fetchProjects(): Promise<Project[]> {
  * Promise<boolean>
  *     True if API is healthy, false otherwise
  */
+export async function fetchSettings(): Promise<{ history_cutoff_date: string | null }> {
+  const response = await fetch(`${API_BASE_URL}/api/settings`);
+  if (!response.ok) throw new Error('Failed to fetch settings');
+  return response.json();
+}
+
+export async function updateSettings(settings: { history_cutoff_date: string | null }): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!response.ok) throw new Error('Failed to update settings');
+}
+
 export async function checkApiHealth(): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE_URL}/health`, {

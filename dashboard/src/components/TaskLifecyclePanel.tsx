@@ -23,9 +23,14 @@ const TaskLifecyclePanel = ({ task, onClose }: TaskLifecyclePanelProps) => {
 
   // For structural (design origin) tasks, also include their direct dependent tasks
   // so artifacts/decisions from impl tasks spawned by this design are visible.
+  // Also include parent_task_id so subtasks show parent-level decisions/artifacts
+  // (parent tasks are hidden in subtasks view but their decisions still matter).
   const relevantTaskIds = useMemo(() => {
     if (!task) return new Set<string>();
     const ids = new Set<string>([task.id]);
+    if (task.parent_task_id) {
+      ids.add(task.parent_task_id);
+    }
     if (task.display_role === 'structural') {
       task.dependent_task_ids.forEach(id => ids.add(id));
     }

@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
 import { Task } from '../services/dataService';
 import { getTaskStateAtTime } from '../utils/timelineUtils';
+import ArtifactPreviewModal from './ArtifactPreviewModal';
 import './BoardView.css';
 
 const COLUMNS: { key: Task['status']; label: string; color: string; icon: string }[] = [
@@ -22,8 +23,15 @@ const BoardView = () => {
   const snapshot = useVisualizationStore((state) => state.snapshot);
   const currentTime = useVisualizationStore((state) => state.currentTime);
   const messages = useVisualizationStore((state) => state.getMessagesUpToCurrentTime());
+  const getDecisionsUpToCurrentTime = useVisualizationStore((state) => state.getDecisionsUpToCurrentTime);
+  const getArtifactsUpToCurrentTime = useVisualizationStore((state) => state.getArtifactsUpToCurrentTime);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [previewArtifact, setPreviewArtifact] = useState<{
+    artifactId: string;
+    filename: string;
+    artifactType: string;
+  } | null>(null);
 
   const { grouped, metrics, parentProgress } = useMemo(() => {
     if (!snapshot || !snapshot.start_time) {
@@ -100,6 +108,26 @@ const BoardView = () => {
     if (!selectedCard) return [];
     return messages.filter((m) => m.task_id === selectedCard);
   }, [selectedCard, messages]);
+
+  const taskDecisions = useMemo(() => {
+    if (!selectedCard) return [];
+    const task = snapshot?.tasks.find((t) => t.id === selectedCard);
+    const relevantIds = new Set([selectedCard]);
+    if (task?.parent_task_id) relevantIds.add(task.parent_task_id);
+    return getDecisionsUpToCurrentTime()
+      .filter((d) => relevantIds.has(d.task_id))
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [selectedCard, snapshot, getDecisionsUpToCurrentTime]);
+
+  const taskArtifacts = useMemo(() => {
+    if (!selectedCard) return [];
+    const task = snapshot?.tasks.find((t) => t.id === selectedCard);
+    const relevantIds = new Set([selectedCard]);
+    if (task?.parent_task_id) relevantIds.add(task.parent_task_id);
+    return getArtifactsUpToCurrentTime()
+      .filter((a) => relevantIds.has(a.task_id))
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [selectedCard, snapshot, getArtifactsUpToCurrentTime]);
 
   const subtasks = useMemo(() => {
     if (!selectedCard || !snapshot) return [];
@@ -476,6 +504,85 @@ const BoardView = () => {
               </div>
             )}
 
+            {/* Blocker AI Suggestions */}
+            {selectedTask.status === 'blocked' && selectedTask.blocker_ai_suggestions && (
+              <div className="detail-section blocker-ai">
+                <h4>🤖 AI Suggestions</h4>
+                {selectedTask.blocker_ai_suggestions.root_cause && (
+                  <div className="ai-row">
+                    <span className="ai-label">Root cause</span>
+                    <span className="ai-value">{selectedTask.blocker_ai_suggestions.root_cause}</span>
+                  </div>
+                )}
+                {selectedTask.blocker_ai_suggestions.escalation_needed !== undefined && (
+                  <div className="ai-row">
+                    <span className="ai-label">Escalate</span>
+                    <span className={`ai-badge ${selectedTask.blocker_ai_suggestions.escalation_needed ? 'escalate-yes' : 'escalate-no'}`}>
+                      {selectedTask.blocker_ai_suggestions.escalation_needed ? 'Yes' : 'No'}
+                    </span>
+                  </div>
+                )}
+                {selectedTask.blocker_ai_suggestions.resolution_steps && selectedTask.blocker_ai_suggestions.resolution_steps.length > 0 && (
+                  <div className="ai-steps">
+                    <span className="ai-label">Resolution steps</span>
+                    <ol className="ai-steps-list">
+                      {selectedTask.blocker_ai_suggestions.resolution_steps.map((step, i) => (
+                        <li key={i}>{step}</li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+                {selectedTask.blocker_ai_suggestions.estimated_hours !== undefined && (
+                  <div className="ai-row">
+                    <span className="ai-label">Est. to resolve</span>
+                    <span className="ai-value">{selectedTask.blocker_ai_suggestions.estimated_hours}h</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Artifacts */}
+            {taskArtifacts.length > 0 && (
+              <div className="detail-section">
+                <h4>📦 Artifacts ({taskArtifacts.length})</h4>
+                <div className="detail-artifacts">
+                  {taskArtifacts.map((artifact) => (
+                    <div
+                      key={artifact.artifact_id}
+                      className="detail-artifact-card"
+                      onClick={() => setPreviewArtifact({
+                        artifactId: artifact.artifact_id,
+                        filename: artifact.filename,
+                        artifactType: artifact.artifact_type,
+                      })}
+                    >
+                      <span className="artifact-filename">{artifact.filename}</span>
+                      <span className="artifact-type-tag">{artifact.artifact_type}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Decisions */}
+            {taskDecisions.length > 0 && (
+              <div className="detail-section">
+                <h4>📋 Decisions ({taskDecisions.length})</h4>
+                <div className="detail-decisions">
+                  {taskDecisions.map((decision) => (
+                    <div key={decision.decision_id} className="detail-decision-card">
+                      <div className="decision-what">{decision.what}</div>
+                      {decision.why && (
+                        <div className="decision-why">
+                          <span className="decision-label">Why:</span> {decision.why}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Description */}
             {selectedTask.description && (
               <div className="detail-section">
@@ -487,6 +594,15 @@ const BoardView = () => {
             )}
           </div>
         </div>
+      )}
+
+      {previewArtifact && (
+        <ArtifactPreviewModal
+          artifactId={previewArtifact.artifactId}
+          filename={previewArtifact.filename}
+          artifactType={previewArtifact.artifactType}
+          onClose={() => setPreviewArtifact(null)}
+        />
       )}
 
       {/* Summary bar */}

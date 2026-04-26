@@ -48,6 +48,10 @@ interface VisualizationState {
   // Project Info drawer state
   isProjectInfoOpen: boolean;
 
+  // Task lifecycle panel state (shared across views)
+  lifecycleTask: Task | null;
+  setLifecycleTask: (task: Task | null) => void;
+
   // Auto-refresh state
   autoRefreshIntervalId: number | null;
   autoRefreshInterval: number; // milliseconds
@@ -76,6 +80,7 @@ interface VisualizationState {
   // Derived getters
   getVisibleTasks: () => Task[];
   getContextTasks: () => Task[];
+  getStructuralTasks: () => Task[];
   getDagTasks: () => Task[];
   getMessagesUpToCurrentTime: () => Message[];
   getActiveAgentsAtCurrentTime: () => Agent[];
@@ -105,6 +110,8 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     showBlockedTasks: true,
     filteredAgentIds: [],
     isProjectInfoOpen: false,
+    lifecycleTask: null,
+    setLifecycleTask: (task) => set({ lifecycleTask: task }),
     autoRefreshIntervalId: null,
     autoRefreshInterval: 60000, // 60 seconds
 
@@ -333,6 +340,12 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       const snapshot = get().snapshot;
       if (!snapshot) return [];
       return snapshot.tasks.filter((t) => t.display_role === 'context');
+    },
+
+    getStructuralTasks: () => {
+      const snapshot = get().snapshot;
+      if (!snapshot) return [];
+      return snapshot.tasks.filter((t) => t.display_role === 'structural');
     },
 
     getDagTasks: () => {

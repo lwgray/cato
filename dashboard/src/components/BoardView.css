@@ -631,3 +631,128 @@
   background-color: #334155;
   border-radius: 2px;
 }
+
+/* Artifacts & Decisions in detail panel */
+.detail-artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.detail-artifact-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.detail-artifact-card:hover {
+  border-color: #3b82f6;
+  background: #1e293b;
+}
+
+.artifact-filename {
+  flex: 1;
+  color: #e2e8f0;
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artifact-type-tag {
+  flex-shrink: 0;
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.detail-decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.detail-decision-card {
+  padding: 0.5rem 0.6rem;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.decision-what {
+  color: #e2e8f0;
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+}
+
+.decision-why {
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.decision-label {
+  color: #64748b;
+  font-weight: 600;
+}
+
+/* Blocker AI Suggestions */
+.blocker-ai {
+  border-left: 3px solid #ef4444;
+}
+
+.ai-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.ai-label {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.ai-value {
+  color: #cbd5e1;
+  font-size: 0.8rem;
+}
+
+.ai-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+}
+
+.escalate-yes {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.escalate-no {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.ai-steps {
+  margin-bottom: 0.4rem;
+}
+
+.ai-steps-list {
+  margin: 0.25rem 0 0 0;
+  padding-left: 1.25rem;
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}

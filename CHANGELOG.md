@@ -10,6 +10,17 @@ minimum compatible Marcus version.
 
 ## [Unreleased]
 
+### Added
+- Multi-path aggregator support for parallel Marcus instances
+- Subtask grouping context surfaced across DAG, Swimlane, and Board views
+- Header pill strip in DAG view showing all design tasks
+- Hover-highlight in DAG and max-3 expand in Board replace cluttered grouping marks
+- Ghost-group column breakdown in DAG layout
+
+### Fixed
+- Board column scroll restored via absolute positioning and fixed flex height chain
+- Aggregator normalizes `realtime_*.jsonl` entries for Conversation view
+
 ## [0.3.0] - 2026-04-07
 
 **The Quality & Observability release.** Adds Epictetus quality dashboard,
@@ -81,7 +92,8 @@ and Project Info drawer. Requires Marcus >= 0.3.0 for quality_assessments.
 - Zustand state management
 - Docker integration with Marcus
 
-[Unreleased]: https://github.com/lwgray/cato/compare/v0.2.1...HEAD
-[0.2.1]: https://github.com/lwgray/cato/compare/v0.2.0...v0.2.1
+[Unreleased]: https://github.com/lwgray/cato/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/lwgray/cato/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/lwgray/cato/compare/v0.1.1...v0.2.1
 [0.1.1]: https://github.com/lwgray/cato/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/lwgray/cato/releases/tag/v0.1.0

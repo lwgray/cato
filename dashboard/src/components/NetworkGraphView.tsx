@@ -3,7 +3,6 @@ import * as d3 from 'd3';
 import { useVisualizationStore } from '../store/visualizationStore';
 import { Task } from '../services/dataService';
 import { getTaskStateAtTime } from '../utils/timelineUtils';
-import TaskLifecyclePanel from './TaskLifecyclePanel';
 import './NetworkGraphView.css';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
@@ -35,8 +34,8 @@ const NetworkGraphView = () => {
   const selectTask = useVisualizationStore((state) => state.selectTask);
   const selectedTaskId = useVisualizationStore((state) => state.selectedTaskId);
 
-  // Local state for lifecycle panel
-  const [lifecycleTask, setLifecycleTask] = useState<Task | null>(null);
+  // Lifecycle panel via store (rendered at App level to avoid covering header)
+  const setLifecycleTask = useVisualizationStore((state) => state.setLifecycleTask);
   // Which design-origin pill the user is hovering — highlights linked impl nodes
   const [hoveredGhostId, setHoveredGhostId] = useState<string | null>(null);
 
@@ -692,13 +691,6 @@ const NetworkGraphView = () => {
       </div>
       </div>
 
-      {/* Task Lifecycle Panel */}
-      {lifecycleTask && (
-        <TaskLifecyclePanel
-          task={lifecycleTask}
-          onClose={() => setLifecycleTask(null)}
-        />
-      )}
     </div>
   );
 };

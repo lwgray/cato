@@ -10,6 +10,7 @@ import TimelineControls from './components/TimelineControls';
 import MetricsPanel from './components/MetricsPanel';
 import ProjectInfoDrawer from './components/ProjectInfoDrawer';
 import HeaderControls from './components/HeaderControls';
+import TaskLifecyclePanel from './components/TaskLifecyclePanel';
 import './App.css';
 
 function App() {
@@ -19,6 +20,8 @@ function App() {
   const toggleProjectInfo = useVisualizationStore((state) => state.toggleProjectInfo);
   const contextTasks = useVisualizationStore((state) => state.getContextTasks());
   const snapshot = useVisualizationStore((state) => state.snapshot);
+  const lifecycleTask = useVisualizationStore((state) => state.lifecycleTask);
+  const setLifecycleTask = useVisualizationStore((state) => state.setLifecycleTask);
 
   // Actions for initialization
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
@@ -100,8 +103,16 @@ function App() {
           {currentLayer === 'quality' && <QualityDashboard />}
         </div>
 
-        {/* Metrics panel — hidden on Quality tab */}
-        {currentLayer !== 'quality' && <MetricsPanel />}
+        {/* Task Lifecycle Panel — inline sidebar, pushes content left */}
+        {lifecycleTask && (
+          <TaskLifecyclePanel
+            task={lifecycleTask}
+            onClose={() => setLifecycleTask(null)}
+          />
+        )}
+
+        {/* Metrics panel — hidden on Quality tab and when lifecycle panel is open */}
+        {currentLayer !== 'quality' && !lifecycleTask && <MetricsPanel />}
 
         {/* Project Info drawer */}
         <ProjectInfoDrawer />
