@@ -82,15 +82,34 @@ const HeaderControls = () => {
               onFocus={handleDropdownFocus}
               title="Select project to visualize (auto-refreshes on open)"
             >
-              {projects.map((project: any) => {
-                const projectId = project.project_id || project.id;
-                const projectName = project.project_name || project.name;
-                return (
-                  <option key={projectId} value={projectId}>
-                    {projectName}
-                  </option>
-                );
-              })}
+              {(() => {
+                // Count occurrences of each name to detect duplicates
+                const nameCounts: Record<string, number> = {};
+                projects.forEach((p: any) => {
+                  const n = p.project_name || p.name;
+                  nameCounts[n] = (nameCounts[n] || 0) + 1;
+                });
+                return projects.map((project: any) => {
+                  const projectId = project.project_id || project.id;
+                  const projectName = project.project_name || project.name;
+                  const isDuplicate = nameCounts[projectName] > 1;
+                  let label = projectName;
+                  if (isDuplicate && (project.created_at || project.last_used)) {
+                    const ts = project.created_at || project.last_used;
+                    const d = new Date(ts);
+                    const dateStr = d.toLocaleString('en-US', {
+                      month: 'short', day: 'numeric',
+                      hour: '2-digit', minute: '2-digit', hour12: false,
+                    });
+                    label = `${projectName} (${dateStr})`;
+                  }
+                  return (
+                    <option key={projectId} value={projectId}>
+                      {label}
+                    </option>
+                  );
+                });
+              })()}
             </select>
           ) : (
             <div className="project-selector loading" style={{
