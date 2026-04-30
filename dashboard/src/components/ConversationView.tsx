@@ -271,7 +271,13 @@ const ConversationView = () => {
 
       {/* Messages Container */}
       <div className="conversations-container">
-        {Object.entries(groupedMessages).map(([taskId, msgs]) => {
+        {Object.entries(groupedMessages)
+          .sort(([a], [b]) => {
+            if (a === 'general') return 1;
+            if (b === 'general') return -1;
+            return 0;
+          })
+          .map(([taskId, msgs]) => {
           if (msgs.length === 0) return null;
 
           return (

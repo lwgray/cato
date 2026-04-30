@@ -247,8 +247,17 @@ class Aggregator:
             if task_id and task_id in task_ids_set:
                 task_related_messages.append(msg)
 
-        # Infer project agents from tasks and task-related messages only
+        # Infer project agents from tasks and task-related messages only.
+        # Exclude the central coordinator ("marcus"/"system"); it talks to every
+        # agent in every project, so treating it as a project agent would pull
+        # in cross-project messages in PASS 2.
         project_agent_ids = set()
+        coordinator_ids = {"marcus", "system"}
+
+        def _is_coordinator(agent_id: Optional[str]) -> bool:
+            if agent_id is None:
+                return False
+            return agent_id.lower() in coordinator_ids
 
         # From tasks
         for task in filtered_tasks:
@@ -257,22 +266,37 @@ class Aggregator:
                 or task.get("agent_id")
                 or task.get("assigned_to")
             )
-            if agent_id:
+            if agent_id and not _is_coordinator(agent_id):
                 project_agent_ids.add(agent_id)
 
         # From task-related messages
         for msg in task_related_messages:
             from_agent = msg.get("from_agent_id")
             to_agent = msg.get("to_agent_id")
-            if from_agent:
+            if from_agent and not _is_coordinator(from_agent):
                 project_agent_ids.add(from_agent)
-            if to_agent:
+            if to_agent and not _is_coordinator(to_agent):
                 project_agent_ids.add(to_agent)
 
         logger.info(
             f"Identified {len(project_agent_ids)} project agents"
             " from tasks and messages"
         )
+
+        # Compute project active time window from task-related messages.
+        # Used to gate task_id=None messages so cross-project task requests by
+        # agents who happen to also work on this project don't leak in.
+        project_window_start: Optional[datetime] = None
+        project_window_end: Optional[datetime] = None
+        if project_id and task_related_messages:
+            window_ts: List[datetime] = []
+            for msg in task_related_messages:
+                ts = self._parse_timestamp(msg.get("timestamp"))
+                if ts:
+                    window_ts.append(ts)
+            if window_ts:
+                project_window_start = min(window_ts)
+                project_window_end = max(window_ts)
 
         # PASS 2: Include all messages involving project agents
         filtered_messages = []
@@ -281,13 +305,31 @@ class Aggregator:
             from_agent = msg.get("from_agent_id")
             to_agent = msg.get("to_agent_id")
 
-            # Include if: (1) related to project task, OR (2) involves project agents
+            task_match = bool(task_id) and task_id in task_ids_set
+            agent_match = (
+                from_agent in project_agent_ids or to_agent in project_agent_ids
+            )
+
+            if not (task_match or agent_match):
+                continue
+
+            # When a project filter is active, gate non-task-tied agent matches
+            # by the project's active time window. Cross-project agents (same
+            # worker_id reused across projects) generate task_request messages
+            # with no task_id; without this gate they leak in.
             if (
-                (task_id and task_id in task_ids_set)
-                or (from_agent in project_agent_ids)
-                or (to_agent in project_agent_ids)
+                project_id
+                and not task_match
+                and project_window_start is not None
+                and project_window_end is not None
             ):
-                filtered_messages.append(msg)
+                ts = self._parse_timestamp(msg.get("timestamp"))
+                if ts is None:
+                    continue
+                if ts < project_window_start or ts > project_window_end:
+                    continue
+
+            filtered_messages.append(msg)
 
         logger.info(
             f"Pre-filtered messages: {len(filtered_messages)}"
@@ -1865,6 +1907,11 @@ class Aggregator:
             logger.warning(f"marcus.db not found at {db_path}")
             return None
 
+        # project_ids in projects.json may use dashed UUID format
+        # (e.g. "abc-def-...") while Epictetus stores keys without dashes.
+        # Normalize to hex-without-dashes so both formats match.
+        normalized_id = project_id.replace("-", "")
+
         try:
             conn = sqlite3.connect(str(db_path))
             cursor = conn.cursor()
@@ -1872,7 +1919,7 @@ class Aggregator:
                 "SELECT data FROM persistence "
                 "WHERE collection IN ('quality_assessments', 'epictetus_audits') "
                 "AND key=? ORDER BY rowid DESC LIMIT 1",
-                (project_id,),
+                (normalized_id,),
             )
             row = cursor.fetchone()
             conn.close()
