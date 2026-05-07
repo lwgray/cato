@@ -1467,8 +1467,31 @@ class Aggregator:
                 )
                 return None
 
-            # Step 2: Fetch parent task rows for the candidate IDs
+            # Step 2: Fetch parent task rows for the candidate IDs, then
+            # follow ``dependencies`` edges to pull in any referenced parents
+            # that didn't surface via conversations / Planka prefix. Without
+            # this expansion, an unstarted task whose dependent appears first
+            # in the logs would be a dangling edge target → orphan-filtered
+            # out of the DAG. The slow path does the same walk inline
+            # (aggregator.py:1771-1789).
             parent_tasks = self._load_parent_tasks_by_ids(candidates, root)
+            seen_ids = set(candidates)
+            for _ in range(8):  # bounded BFS over dep chain depth
+                new_dep_ids: Set[str] = set()
+                for task in parent_tasks:
+                    deps = task.get("dependencies") or task.get("dependency_ids") or []
+                    for dep in deps:
+                        dep_str = str(dep)
+                        if dep_str and dep_str not in seen_ids:
+                            new_dep_ids.add(dep_str)
+                if not new_dep_ids:
+                    break
+                seen_ids |= new_dep_ids
+                extra = self._load_parent_tasks_by_ids(new_dep_ids, root)
+                if not extra:
+                    break
+                parent_tasks.extend(extra)
+            candidates = seen_ids
 
             # Step 3: Read subtasks.json (mtime-cached) and filter by parent
             all_subtasks = self._load_subtasks_json_cached(root)
