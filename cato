@@ -35,7 +35,10 @@ start_backend() {
 
     echo -e "${BLUE}Starting backend on port ${BACKEND_PORT}...${NC}"
     cd "$SCRIPT_DIR"
-    PYTHONPATH="$SCRIPT_DIR" python backend/api.py > /tmp/cato-backend.log 2>&1 &
+    # exec -a renames argv[0] to "cato-backend" so ps/pkill can target this
+    # specific process without false-matching other Python scripts.
+    ( PYTHONPATH="$SCRIPT_DIR" exec -a cato-backend python backend/api.py ) \
+        > /tmp/cato-backend.log 2>&1 &
     BACKEND_PID=$!
 
     # Wait for backend to be ready
@@ -74,6 +77,8 @@ EOF
 
     echo -e "${BLUE}Starting frontend on port ${FRONTEND_PORT}...${NC}"
     cd "$SCRIPT_DIR/dashboard"
+    # npm spawns node→vite; we identify them later by the cato/dashboard
+    # path baked into vite's argv (unique to this project).
     npm run dev > /tmp/cato-frontend.log 2>&1 &
     FRONTEND_PID=$!
     echo -e "${GREEN}Frontend started (PID: ${FRONTEND_PID})${NC}"
@@ -83,11 +88,21 @@ EOF
 stop_services() {
     echo -e "${BLUE}Stopping Cato services...${NC}"
 
-    # Stop backend
-    pkill -f "python.*backend/api.py" && echo -e "${GREEN}✓ Backend stopped${NC}" || echo -e "${YELLOW}  Backend not running${NC}"
+    # Stop backend — match the renamed argv[0] from start_backend, plus the
+    # legacy "python backend/api.py" form for any pre-existing processes.
+    if pkill -f "cato-backend|python.*backend/api\.py"; then
+        echo -e "${GREEN}✓ Backend stopped${NC}"
+    else
+        echo -e "${YELLOW}  Backend not running${NC}"
+    fi
 
-    # Stop frontend
-    pkill -f "vite" && echo -e "${GREEN}✓ Frontend stopped${NC}" || echo -e "${YELLOW}  Frontend not running${NC}"
+    # Stop frontend — match only vite/esbuild rooted in THIS project's
+    # dashboard dir to avoid killing unrelated vite servers.
+    if pkill -f "${SCRIPT_DIR}/dashboard.*(vite|esbuild)"; then
+        echo -e "${GREEN}✓ Frontend stopped${NC}"
+    else
+        echo -e "${YELLOW}  Frontend not running${NC}"
+    fi
 }
 
 show_status() {

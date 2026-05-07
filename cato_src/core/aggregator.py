@@ -20,11 +20,13 @@ Performance:
 import json
 import logging
 import sqlite3
+import time
 import uuid
 from collections import defaultdict
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Set
+from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple
 
 from cato_src.core.store import (
     Agent,
@@ -186,7 +188,524 @@ class Aggregator:
         self._projects_cache_time: Optional[datetime] = None
         self._projects_cache_ttl = 60  # Cache for 60 seconds
 
+        # Caches for parsed log files (keyed by directory signature: tuple of
+        # (path, mtime_ns, size) for each file). Invalidated when any source
+        # file appears, disappears, or is modified.
+        self._messages_cache: Optional[List[Dict[str, Any]]] = None
+        self._messages_cache_signature: Optional[Tuple] = None
+        self._events_cache: Optional[List[Dict[str, Any]]] = None
+        self._events_cache_signature: Optional[Tuple] = None
+
+        # Lazy-initialized Marcus persistence handle. Reused across calls so
+        # decisions and artifacts share one instance instead of paying the
+        # init cost twice per snapshot.
+        self._persistence: Optional[Any] = None
+        self._persistence_init_attempted: bool = False
+
+        # mtime-validated cache for subtasks.json (per marcus_root). Reading
+        # the full ~5k-entry file is ~150ms; the file is rewritten atomically
+        # by Marcus, so an mtime+size match guarantees identical content.
+        self._subtasks_cache: Dict[
+            str, Tuple[Tuple[float, int], List[Dict[str, Any]]]
+        ] = {}
+
         logger.info(f"Initialized Aggregator with roots: {self.marcus_roots}")
+
+    def _get_marcus_persistence(self) -> Optional[Any]:
+        """Lazy-load and cache Marcus's ProjectHistoryPersistence instance.
+
+        Returns None if Marcus is not importable (e.g. running standalone).
+        """
+        if self._persistence is not None or self._persistence_init_attempted:
+            return self._persistence
+        self._persistence_init_attempted = True
+        try:
+            import sys
+
+            if str(self.marcus_root) not in sys.path:
+                sys.path.insert(0, str(self.marcus_root))
+            from src.core.project_history import ProjectHistoryPersistence
+
+            self._persistence = ProjectHistoryPersistence()
+        except Exception as e:
+            logger.debug(f"Marcus persistence unavailable: {e}")
+            self._persistence = None
+        return self._persistence
+
+    def _load_subtasks_json_cached(self, root: Path) -> List[Dict[str, Any]]:
+        """Read subtasks.json with mtime-validated caching.
+
+        The file is rewritten atomically by Marcus (temp + rename), so an
+        mtime+size match means the content is identical. This avoids paying
+        ~150ms of JSON parse on every snapshot when nothing changed.
+        """
+        subtasks_file = root / "data" / "marcus_state" / "subtasks.json"
+        if not subtasks_file.exists():
+            return []
+        try:
+            st = subtasks_file.stat()
+        except OSError:
+            return []
+
+        signature = (st.st_mtime, st.st_size)
+        cached = self._subtasks_cache.get(str(subtasks_file))
+        if cached and cached[0] == signature:
+            return cached[1]
+
+        try:
+            with open(subtasks_file, "r") as f:
+                data = json.load(f)
+        except Exception as e:
+            logger.error(f"Error reading {subtasks_file}: {e}")
+            return []
+
+        if isinstance(data, dict) and "subtasks" in data:
+            subtasks: List[Dict[str, Any]] = list(data["subtasks"].values())
+        elif isinstance(data, dict):
+            subtasks = list(data.values())
+        else:
+            subtasks = data
+
+        self._subtasks_cache[str(subtasks_file)] = (signature, subtasks)
+        return subtasks
+
+    def _query_parent_ids_by_project_metadata(
+        self, project_id: str, root: Path
+    ) -> Set[str]:
+        """SQL-filter parent task IDs whose metadata.project_id matches.
+
+        Returns the set of task_metadata keys (the parent task IDs) where the
+        embedded JSON ``project_id`` field equals ``project_id``. Catches the
+        ~50% of parents that have project_id explicitly set; the rest must
+        come from conversation logs or Planka prefix matching.
+        """
+        db_path = root / "data" / "marcus.db"
+        if not db_path.exists():
+            return set()
+        try:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                conn.execute("PRAGMA query_only = 1")
+                rows = conn.execute(
+                    "SELECT key FROM persistence "
+                    "WHERE collection = 'task_metadata' "
+                    "AND json_extract(data, '$.project_id') = ?",
+                    (project_id,),
+                ).fetchall()
+            finally:
+                conn.close()
+            return {row[0] for row in rows}
+        except Exception as e:
+            logger.debug(f"project_id metadata query failed: {e}")
+            return set()
+
+    def _query_parent_ids_by_planka_prefix(
+        self,
+        planka_board_id: Optional[str],
+        planka_project_id: Optional[str],
+        root: Path,
+    ) -> Set[str]:
+        """Match parent task IDs whose 8-char prefix is within ±20 of a Planka ID.
+
+        Replicates the in-memory fuzzy match in the original ``_load_tasks``
+        without iterating all 11k tasks. Uses SQL substring + numeric prefix
+        comparison. Cheap: indexed scan over ~5k task_metadata rows is fast.
+        """
+        prefixes: List[int] = []
+        for pid in (planka_board_id, planka_project_id):
+            if pid and len(pid) >= 8:
+                try:
+                    prefixes.append(int(pid[:8]))
+                except ValueError:
+                    pass
+        if not prefixes:
+            return set()
+
+        db_path = root / "data" / "marcus.db"
+        if not db_path.exists():
+            return set()
+        try:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                conn.execute("PRAGMA query_only = 1")
+                rows = conn.execute(
+                    "SELECT key FROM persistence WHERE collection = 'task_metadata'"
+                ).fetchall()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.debug(f"Planka prefix scan failed: {e}")
+            return set()
+
+        matches: Set[str] = set()
+        for (key,) in rows:
+            if not key or len(key) < 8 or not key[0].isdigit():
+                continue
+            try:
+                key_prefix = int(key[:8])
+            except ValueError:
+                continue
+            for prefix in prefixes:
+                if abs(key_prefix - prefix) <= 20:
+                    matches.add(key)
+                    break
+        return matches
+
+    def _load_parent_tasks_by_ids(
+        self, task_ids: Set[str], root: Path
+    ) -> List[Dict[str, Any]]:
+        """SQL-fetch parent task metadata+outcomes for an explicit ID set.
+
+        Project-scoped equivalent of ``load_parent_tasks_from_db``. Avoids
+        loading all 5,344 parent rows when we only need ~10. Uses an indexed
+        ``key IN (...)`` lookup against the persistence table.
+        """
+        if not task_ids:
+            return []
+
+        db_path = root / "data" / "marcus.db"
+        if not db_path.exists():
+            return []
+
+        ids_list = list(task_ids)
+        placeholders = ",".join("?" * len(ids_list))
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                conn.execute("PRAGMA query_only = 1")
+                # Metadata
+                meta_rows = conn.execute(
+                    "SELECT key, data FROM persistence "  # nosec B608
+                    f"WHERE collection = 'task_metadata' AND key IN ({placeholders})",
+                    ids_list,
+                ).fetchall()
+                # Outcomes — match by task_id IN (...) against the JSON field,
+                # since outcome keys are suffixed with agent+timestamp.
+                outcome_rows = conn.execute(
+                    "SELECT key, data FROM persistence "  # nosec B608
+                    "WHERE collection = 'task_outcomes' "
+                    f"AND json_extract(data, '$.task_id') IN ({placeholders})",
+                    ids_list,
+                ).fetchall()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error(f"Error loading filtered parent tasks: {e}")
+            return []
+
+        outcomes_by_task: Dict[str, Dict[str, Any]] = {}
+        for _, data_json in outcome_rows:
+            try:
+                outcome = json.loads(data_json)
+                actual_id = outcome.get("task_id")
+                if actual_id:
+                    outcomes_by_task[actual_id] = outcome
+            except json.JSONDecodeError:
+                continue
+
+        parent_tasks: List[Dict[str, Any]] = []
+        for key, data_json in meta_rows:
+            try:
+                task = json.loads(data_json)
+            except json.JSONDecodeError:
+                continue
+            if "task_id" in task and "id" not in task:
+                task["id"] = task["task_id"]
+            actual_id = task.get("task_id", key)
+            outcome = outcomes_by_task.get(actual_id, {})
+            if outcome:
+                if outcome.get("completed_at"):
+                    task["status"] = "done"
+                elif outcome.get("started_at"):
+                    task["status"] = "in_progress"
+                else:
+                    task["status"] = "todo"
+                task["updated_at"] = (
+                    outcome.get("completed_at")
+                    or outcome.get("started_at")
+                    or task.get("created_at")
+                )
+                task["started_at"] = outcome.get("started_at")
+                task["completed_at"] = outcome.get("completed_at")
+                task["actual_hours"] = outcome.get("actual_hours", 0.0)
+                task["progress_percent"] = 100 if outcome.get("completed_at") else 0
+                task["assigned_agent_id"] = outcome.get("agent_id")
+            if "dependencies" in task:
+                task["dependency_ids"] = task["dependencies"]
+            task.setdefault("parent_task_id", None)
+            task.setdefault("is_subtask", False)
+            task.setdefault("assigned_agent_name", None)
+            task.setdefault("project_id", None)
+            task.setdefault("project_name", None)
+            parent_tasks.append(task)
+
+        # Apply kanban status (filtered to our IDs only)
+        kanban_status = self._load_kanban_status_for_ids(task_ids, root)
+        if kanban_status:
+            for task in parent_tasks:
+                tid = task.get("task_id", task.get("id"))
+                if tid and tid in kanban_status:
+                    task["status"] = kanban_status[tid]["status"]
+                    if kanban_status[tid].get("assigned_to"):
+                        task["assigned_agent_id"] = kanban_status[tid]["assigned_to"]
+                    task["blocker_ai_suggestions"] = kanban_status[tid].get(
+                        "blocker_ai_suggestions"
+                    )
+
+        return parent_tasks
+
+    def _load_kanban_status_for_ids(
+        self, task_ids: Set[str], root: Path
+    ) -> Dict[str, Dict[str, Any]]:
+        """Read kanban*.db status for an explicit ID set.
+
+        Project-scoped equivalent of the kanban scan inside
+        ``load_parent_tasks_from_db``.
+        """
+        if not task_ids:
+            return {}
+        ids_list = list(task_ids)
+        placeholders = ",".join("?" * len(ids_list))
+        kanban_status: Dict[str, Dict[str, Any]] = {}
+        data_dir = root / "data"
+        kanban_dbs = sorted(data_dir.glob("kanban*.db")) if data_dir.exists() else []
+        for kanban_db in kanban_dbs:
+            try:
+                conn = sqlite3.connect(str(kanban_db))
+                try:
+                    conn.execute("PRAGMA query_only = 1")
+                    rows = conn.execute(
+                        "SELECT id, status, assigned_to FROM tasks "  # nosec B608
+                        f"WHERE id IN ({placeholders})",
+                        ids_list,
+                    ).fetchall()
+                    try:
+                        blocker_rows = conn.execute(
+                            "SELECT task_id, content FROM comments "  # nosec B608
+                            f"WHERE task_id IN ({placeholders}) "
+                            "AND content LIKE '%AI Suggestions%' "
+                            "ORDER BY created_at ASC",
+                            ids_list,
+                        ).fetchall()
+                    except Exception:
+                        blocker_rows = []
+                finally:
+                    conn.close()
+                for tid, status, assigned in rows:
+                    kanban_status[tid] = {
+                        "status": status,
+                        "assigned_to": assigned,
+                        "blocker_ai_suggestions": None,
+                    }
+                for tid, content in blocker_rows:
+                    if tid in kanban_status:
+                        kanban_status[tid]["blocker_ai_suggestions"] = (
+                            self._parse_ai_suggestions(content)
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"Could not read {kanban_db.name} for filtered status: {e}"
+                )
+        return kanban_status
+
+    def _load_outcomes_and_timings_for_ids(
+        self, task_ids: Set[str], root: Path
+    ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+        """SQL-fetch outcomes and timings filtered to a task ID set.
+
+        Returns ``(outcomes_by_task, timings_by_task)`` already keyed by
+        the canonical task_id (matching what ``enrich_tasks_with_timing``
+        would build via its longest-prefix index). No prefix walk needed
+        because the SQL filter already narrowed the result.
+        """
+        if not task_ids:
+            return {}, {}
+
+        db_path = root / "data" / "marcus.db"
+        if not db_path.exists():
+            return {}, {}
+
+        ids_list = list(task_ids)
+        placeholders = ",".join("?" * len(ids_list))
+        outcomes: Dict[str, Dict[str, Any]] = {}
+        timings: Dict[str, Dict[str, Any]] = {}
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                conn.execute("PRAGMA query_only = 1")
+                outcome_rows = conn.execute(
+                    "SELECT data FROM persistence "  # nosec B608
+                    "WHERE collection = 'task_outcomes' "
+                    f"AND json_extract(data, '$.task_id') IN ({placeholders})",
+                    ids_list,
+                ).fetchall()
+                event_rows = conn.execute(
+                    "SELECT data FROM persistence "  # nosec B608
+                    "WHERE collection = 'events' "
+                    "AND json_extract(data, '$.event_type') = 'task_completed' "
+                    f"AND json_extract(data, '$.data.task_id') IN ({placeholders})",
+                    ids_list,
+                ).fetchall()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error(f"Error loading filtered outcomes/timings: {e}")
+            return {}, {}
+
+        for (data_json,) in outcome_rows:
+            try:
+                outcome = json.loads(data_json)
+            except json.JSONDecodeError:
+                continue
+            tid = outcome.get("task_id")
+            if not tid:
+                continue
+            outcomes[tid] = {
+                "task_id": tid,
+                "task_name": outcome.get("task_name"),
+                "actual_hours": outcome.get("actual_hours", 0.0),
+                "estimated_hours": outcome.get("estimated_hours", 0.0),
+                "created_at": outcome.get("created_at"),
+                "started_at": outcome.get("started_at"),
+                "completed_at": outcome.get("completed_at"),
+                "status": "done",
+            }
+
+        for (data_json,) in event_rows:
+            try:
+                event = json.loads(data_json)
+            except json.JSONDecodeError:
+                continue
+            event_data = event.get("data", {})
+            tid = event_data.get("task_id")
+            started_at = event_data.get("started_at")
+            completed_at = event_data.get("completed_at")
+            if not (tid and started_at and completed_at):
+                continue
+            start_with_tz = (
+                started_at
+                if started_at.endswith(("Z", "+00:00"))
+                else started_at + "+00:00"
+            )
+            end_with_tz = (
+                completed_at
+                if completed_at.endswith(("Z", "+00:00"))
+                else completed_at + "+00:00"
+            )
+            try:
+                start_dt = datetime.fromisoformat(start_with_tz)
+                end_dt = datetime.fromisoformat(end_with_tz)
+                duration_s = (end_dt - start_dt).total_seconds()
+            except (ValueError, TypeError):
+                # Malformed timestamp in a single event row — skip it and
+                # keep loading the rest. Other event rows are independent.
+                continue  # nosec B112
+            timings[tid] = {
+                "start_time": start_with_tz,
+                "end_time": end_with_tz,
+                "task_name": event_data.get("task_name"),
+                "duration_seconds": duration_s,
+                "duration_minutes": duration_s / 60,
+                "duration_hours": duration_s / 3600,
+            }
+
+        return outcomes, timings
+
+    @contextmanager
+    def _override_task_ids(
+        self,
+        persistence: Any,
+        project_id: str,
+        task_ids: Set[str],
+    ) -> Iterator[None]:
+        """Temporarily replace ``persistence._get_task_ids_from_conversations``.
+
+        Marcus's implementation re-globs every conversation file (no cutoff)
+        on each call. When Cato has already loaded messages for the project,
+        we can supply the task_id set directly and skip that scan entirely.
+
+        Restores the original method on exit so the persistence instance is
+        safe to reuse.
+        """
+        original = persistence._get_task_ids_from_conversations
+
+        async def _stub(pid: str) -> Set[str]:
+            if pid == project_id:
+                return task_ids
+            result: Set[str] = await original(pid)
+            return result
+
+        persistence._get_task_ids_from_conversations = _stub
+        try:
+            yield
+        finally:
+            persistence._get_task_ids_from_conversations = original
+
+    @contextmanager
+    def _timed(self, label: str) -> Iterator[None]:
+        """Log wall-clock duration of a block at INFO level."""
+        t0 = time.perf_counter()
+        try:
+            yield
+        finally:
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            logger.info(f"[timing] {label}: {elapsed_ms:.1f}ms")
+
+    def _iter_log_files_post_cutoff(self, logs_dir: Path) -> Iterator[Path]:
+        """
+        Yield .jsonl files in logs_dir, filtering out pre-cutoff files cheaply.
+
+        Filename format: ``{prefix}_{YYYYMMDD}_{HHMMSS}.jsonl``. When a cutoff
+        is set, this uses year-prefixed globs to skip pre-cutoff files at the
+        OS level (avoids stat'ing 49k irrelevant files in a 50k-file dir),
+        then verifies via the filename date component.
+
+        Files are NOT stat'd here — callers that need size should stat after
+        this filter to keep the hot path cheap.
+        """
+        if not logs_dir.exists():
+            return
+
+        if not self._cutoff_compact:
+            yield from logs_dir.glob("*.jsonl")
+            return
+
+        cutoff_year = int(self._cutoff_compact[:4])
+        current_year = datetime.now(timezone.utc).year
+        seen: Set[Path] = set()
+        for year in range(cutoff_year, current_year + 1):
+            for log_file in logs_dir.glob(f"*_{year}*.jsonl"):
+                if log_file in seen:
+                    continue
+                seen.add(log_file)
+                parts = log_file.stem.split("_")
+                if (
+                    len(parts) >= 2
+                    and parts[1].isdigit()
+                    and len(parts[1]) == 8
+                    and parts[1] < self._cutoff_compact
+                ):
+                    continue
+                yield log_file
+
+    @staticmethod
+    def _dir_signature(files: List[Path]) -> Tuple:
+        """Build a cache signature from a list of files using path + mtime + size.
+
+        Stat is the only way to detect content changes without re-reading;
+        accept the cost (one stat per surviving file) in exchange for skipping
+        the JSON parse on cache hit.
+        """
+        sig = []
+        for f in sorted(files):
+            try:
+                st = f.stat()
+                sig.append((str(f), st.st_mtime_ns, st.st_size))
+            except OSError:
+                continue
+        return tuple(sig)
 
     def create_snapshot(
         self,
@@ -222,12 +741,40 @@ class Aggregator:
         )
 
         # Step 1: Load raw data from all sources
-        projects_data = self._load_projects()
-        raw_tasks = self._load_tasks(project_id)
-        raw_messages = self._load_messages()
-        raw_events = self._load_events()
-        raw_decisions = self._load_decisions(project_id)
-        raw_artifacts = self._load_artifacts(project_id)
+        snapshot_t0 = time.perf_counter()
+        with self._timed("_load_projects"):
+            projects_data = self._load_projects()
+        with self._timed("_load_tasks"):
+            raw_tasks = self._load_tasks(project_id)
+        with self._timed("_load_messages"):
+            raw_messages = self._load_messages()
+        with self._timed("_load_events"):
+            raw_events = self._load_events()
+
+        # Pre-compute project task_ids from already-loaded messages so
+        # _load_decisions/_load_artifacts can skip Marcus's per-call
+        # conversation re-glob (`_get_task_ids_from_conversations`).
+        project_task_ids: Optional[Set[str]] = None
+        if project_id:
+            ids: Set[str] = set()
+            for msg in raw_messages:
+                meta = msg.get("metadata") or {}
+                if meta.get("project_id") == project_id and meta.get("task_id"):
+                    ids.add(str(meta["task_id"]))
+            project_task_ids = ids
+
+        with self._timed("_load_decisions"):
+            raw_decisions = self._load_decisions(
+                project_id, project_task_ids=project_task_ids
+            )
+        with self._timed("_load_artifacts"):
+            raw_artifacts = self._load_artifacts(
+                project_id, project_task_ids=project_task_ids
+            )
+        logger.info(
+            f"[timing] load_phase_total: "
+            f"{(time.perf_counter() - snapshot_t0) * 1000:.1f}ms"
+        )
 
         # Step 2: Inherit parent dependencies to first subtasks BEFORE filtering
         # (must happen before parent tasks are filtered out)
@@ -831,6 +1378,165 @@ class Aggregator:
         )
         return tasks
 
+    def _load_tasks_for_project_fast(
+        self, project_id: str, root: Path
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Return enriched tasks for one project without scanning every row.
+
+        Strategy:
+        1. Resolve candidate parent IDs from three cheap sources (SQL filter
+           on metadata.project_id, conversation logs, Planka prefix range).
+        2. SQL-fetch only those parents from ``task_metadata``.
+        3. Read mtime-cached ``subtasks.json``, filter by ``parent_task_id``.
+        4. SQL-fetch outcomes/timings filtered to the candidate task IDs.
+        5. Enrich + resolve dependencies, return.
+
+        Returns ``None`` to signal "fall back to the slow global path"
+        when no candidates can be resolved (e.g. unfamiliar project layout).
+        """
+        try:
+            # Step 1: Gather candidate parent task IDs from the same sources
+            # the slow global path uses, so visible task counts match.
+            # NOTE: deliberately NOT querying ``WHERE project_id = ?`` on
+            # task_metadata — that catches Marcus-internal tasks (e.g.
+            # ``planning_*``, About-cards) that the slow path has always
+            # filtered out. Adding them here would change visible counts.
+            candidates: Set[str] = set()
+
+            # Resolve planka_board_id if available
+            projects_data = self._load_projects()
+            project_info = next(
+                (p for p in projects_data if p.get("id") == project_id), None
+            )
+            planka_board_id = ""
+            planka_project_id = ""
+            if project_info and "provider_config" in project_info:
+                planka_board_id = project_info["provider_config"].get("board_id", "")
+                planka_project_id = project_info["provider_config"].get(
+                    "project_id", ""
+                )
+
+            # Source A: conversation logs (cheap; reuses message scan)
+            try:
+                conv_ids = self.get_parent_task_ids_from_conversations(
+                    project_id=project_id, board_id=planka_board_id
+                )
+                candidates |= {str(i) for i in conv_ids}
+            except Exception as e:
+                logger.debug(f"Conversation parent-id lookup failed: {e}")
+
+            # Source B: Planka prefix fuzzy match (numeric IDs only)
+            if planka_board_id or planka_project_id:
+                candidates |= self._query_parent_ids_by_planka_prefix(
+                    planka_board_id, planka_project_id, root
+                )
+
+            # Source C: parent IDs of subtasks that match Planka prefix.
+            # Replicates the slow path's "matched subtask reveals parent"
+            # heuristic without iterating all 5k subtasks for hex projects.
+            if planka_board_id or planka_project_id:
+                prefixes: List[int] = []
+                for pid in (planka_board_id, planka_project_id):
+                    if pid and len(pid) >= 8:
+                        try:
+                            prefixes.append(int(pid[:8]))
+                        except ValueError:
+                            pass
+                if prefixes:
+                    for sub in self._load_subtasks_json_cached(root):
+                        sub_id = str(sub.get("id", ""))
+                        if not sub_id or len(sub_id) < 8 or not sub_id[0].isdigit():
+                            continue
+                        try:
+                            sub_prefix = int(sub_id[:8])
+                        except ValueError:
+                            continue
+                        if any(abs(sub_prefix - p) <= 20 for p in prefixes):
+                            parent_id = sub.get("parent_task_id")
+                            if parent_id:
+                                candidates.add(str(parent_id))
+
+            if not candidates:
+                logger.info(
+                    f"Fast path: no candidate parent IDs for project {project_id}, "
+                    "falling back to global load"
+                )
+                return None
+
+            # Step 2: Fetch parent task rows for the candidate IDs
+            parent_tasks = self._load_parent_tasks_by_ids(candidates, root)
+
+            # Step 3: Read subtasks.json (mtime-cached) and filter by parent
+            all_subtasks = self._load_subtasks_json_cached(root)
+            candidate_id_strs = {str(c) for c in candidates}
+            project_subtasks = [
+                t
+                for t in all_subtasks
+                if str(t.get("parent_task_id") or "") in candidate_id_strs
+            ]
+
+            project_tasks = parent_tasks + project_subtasks
+
+            # Step 4: SQL-fetch outcomes+timings filtered to project tasks
+            project_task_ids: Set[str] = set()
+            for t in project_tasks:
+                tid = str(t.get("id") or t.get("task_id") or "")
+                if tid:
+                    project_task_ids.add(tid)
+            outcomes_by_task, timings_by_task = self._load_outcomes_and_timings_for_ids(
+                project_task_ids, root
+            )
+
+            # Step 5: Apply enrichment in-place (subset of enrich_tasks_with_timing)
+            for task in project_tasks:
+                task_id = str(task.get("id") or task.get("task_id") or "")
+                outcome = outcomes_by_task.get(task_id)
+                if outcome:
+                    task["actual_hours"] = outcome["actual_hours"]
+                    if outcome.get("started_at"):
+                        task["created_at"] = outcome["started_at"]
+                    if outcome.get("completed_at"):
+                        task["updated_at"] = outcome["completed_at"]
+                timing = timings_by_task.get(task_id)
+                if timing:
+                    if "start_time" in timing:
+                        task["created_at"] = timing["start_time"]
+                    if "end_time" in timing:
+                        task["updated_at"] = timing["end_time"]
+                    if "duration_hours" in timing:
+                        task["actual_hours"] = timing["duration_hours"]
+
+            # Synthetic timestamps for incomplete tasks (mirrors
+            # enrich_tasks_with_timing's tail logic)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for task in project_tasks:
+                status = (task.get("status") or "").lower()
+                if status in (
+                    "todo",
+                    "pending",
+                    "in-progress",
+                    "in_progress",
+                    "blocked",
+                ):
+                    if not task.get("created_at"):
+                        task["created_at"] = now_iso
+                    if not task.get("updated_at"):
+                        task["updated_at"] = task["created_at"]
+
+            logger.info(
+                f"Fast path: {len(parent_tasks)} parents + "
+                f"{len(project_subtasks)} subtasks for project {project_id}"
+            )
+
+            # Resolve slug-based dependencies (cheap on the small set)
+            return self._resolve_slug_dependencies(project_tasks)
+
+        except Exception as e:
+            logger.warning(
+                f"Fast path failed for project {project_id}, falling back: {e}"
+            )
+            return None
+
     def _load_tasks(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Load tasks from subtasks.json and marcus.db, optionally filtered by project.
@@ -849,6 +1555,16 @@ class Aggregator:
             if project_id
             else self.marcus_root
         )
+
+        # Project-scoped fast path: SQL-filter parents and outcomes to the
+        # candidate ID set, read subtasks.json from cache, enrich just this
+        # project's ~10-100 tasks. Avoids the global 11k-row load+enrich.
+        if project_id:
+            fast_tasks = self._load_tasks_for_project_fast(
+                project_id=project_id, root=project_root
+            )
+            if fast_tasks is not None:
+                return fast_tasks
 
         # Load parent tasks from database for this project's root
         parent_tasks = self.load_parent_tasks_from_db(root=project_root)
@@ -884,6 +1600,10 @@ class Aggregator:
 
             # Enrich tasks with actual timing data from marcus.db before filtering
             all_tasks = self.enrich_tasks_with_timing(all_tasks)
+
+            # Pre-bind project_info so the unfiltered fallback path below can
+            # safely reference it when project_id is None.
+            project_info: Optional[Dict[str, Any]] = None
 
             # Filter by project using fuzzy matching (±20 range)
             # Planka creates task IDs that are offset from board IDs
@@ -1244,74 +1964,118 @@ class Aggregator:
         Loads both conversations_*.jsonl and realtime_*.jsonl files from all
         marcus_roots. Realtime entries are normalized to the aggregator's expected
         field names via _normalize_realtime_entry().
-        """
-        messages: List[Dict[str, Any]] = []
-        logs_dirs = [root / "logs" / "conversations" for root in self.marcus_roots]
 
-        for logs_dir in logs_dirs:
+        Cached across calls; invalidated when any post-cutoff file's
+        path/mtime/size changes.
+        """
+        # Collect post-cutoff candidate files (cheap filename filter, no stat)
+        candidate_files: List[Path] = []
+        for root in self.marcus_roots:
+            logs_dir = root / "logs" / "conversations"
             if not logs_dir.exists():
                 logger.warning(f"Conversation logs dir not found: {logs_dir}")
                 continue
-            for log_file in logs_dir.glob("*.jsonl"):
+            candidate_files.extend(self._iter_log_files_post_cutoff(logs_dir))
+
+        # Cache check: stat surviving files only (e.g. ~1.7k vs 50k total)
+        signature = self._dir_signature(candidate_files)
+        if (
+            self._messages_cache is not None
+            and self._messages_cache_signature == signature
+        ):
+            logger.info(
+                f"[timing] _load_messages: cache hit "
+                f"({len(self._messages_cache)} messages, "
+                f"{len(candidate_files)} files)"
+            )
+            return self._messages_cache
+
+        messages: List[Dict[str, Any]] = []
+        for log_file in candidate_files:
+            try:
                 if log_file.stat().st_size == 0:
                     continue
-                if self._cutoff_compact:
-                    parts = log_file.stem.split("_")
-                    if len(parts) >= 2 and parts[1].isdigit() and len(parts[1]) == 8:
-                        if parts[1] < self._cutoff_compact:
+            except OSError:
+                continue
+            is_realtime = log_file.name.startswith("realtime_")
+            try:
+                with open(log_file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
                             continue
-                is_realtime = log_file.name.startswith("realtime_")
-                try:
-                    with open(log_file, "r") as f:
-                        for line in f:
-                            line = line.strip()
-                            if not line:
-                                continue
-                            try:
-                                entry = json.loads(line)
-                                if is_realtime and "from_agent_id" not in entry:
-                                    entry = self._normalize_realtime_entry(entry)
-                                messages.append(entry)
-                            except json.JSONDecodeError:
-                                continue
-                except Exception as e:
-                    logger.error(f"Error loading messages from {log_file}: {e}")
+                        try:
+                            entry = json.loads(line)
+                            if is_realtime and "from_agent_id" not in entry:
+                                entry = self._normalize_realtime_entry(entry)
+                            messages.append(entry)
+                        except json.JSONDecodeError:
+                            continue
+            except Exception as e:
+                logger.error(f"Error loading messages from {log_file}: {e}")
 
-        logger.info(f"Loaded {len(messages)} messages")
+        self._messages_cache = messages
+        self._messages_cache_signature = signature
+        logger.info(
+            f"Loaded {len(messages)} messages from "
+            f"{len(candidate_files)} files (cache miss)"
+        )
         return messages
 
     def _load_events(self) -> List[Dict[str, Any]]:
-        """Load agent events from logs across all marcus_roots."""
-        events: List[Dict[str, Any]] = []
-        events_dirs = [root / "logs" / "agent_events" for root in self.marcus_roots]
+        """Load agent events from logs across all marcus_roots.
 
-        for events_dir in events_dirs:
+        Cached across calls; invalidated when any post-cutoff file's
+        path/mtime/size changes.
+        """
+        candidate_files: List[Path] = []
+        for root in self.marcus_roots:
+            events_dir = root / "logs" / "agent_events"
             if not events_dir.exists():
                 logger.warning(f"Agent events dir not found: {events_dir}")
                 continue
-            for log_file in events_dir.glob("*.jsonl"):
+            candidate_files.extend(self._iter_log_files_post_cutoff(events_dir))
+
+        signature = self._dir_signature(candidate_files)
+        if self._events_cache is not None and self._events_cache_signature == signature:
+            logger.info(
+                f"[timing] _load_events: cache hit "
+                f"({len(self._events_cache)} events, "
+                f"{len(candidate_files)} files)"
+            )
+            return self._events_cache
+
+        events: List[Dict[str, Any]] = []
+        for log_file in candidate_files:
+            try:
                 if log_file.stat().st_size == 0:
                     continue
-                if self._cutoff_compact:
-                    parts = log_file.stem.split("_")
-                    if len(parts) >= 2 and parts[1].isdigit() and len(parts[1]) == 8:
-                        if parts[1] < self._cutoff_compact:
+            except OSError:
+                continue
+            try:
+                with open(log_file, "r") as f:
+                    for line in f:
+                        try:
+                            entry = json.loads(line.strip())
+                            events.append(entry)
+                        except json.JSONDecodeError:
                             continue
-                try:
-                    with open(log_file, "r") as f:
-                        for line in f:
-                            try:
-                                entry = json.loads(line.strip())
-                                events.append(entry)
-                            except json.JSONDecodeError:
-                                continue
-                except Exception as e:
-                    logger.error(f"Error loading events from {log_file}: {e}")
+            except Exception as e:
+                logger.error(f"Error loading events from {log_file}: {e}")
 
-        logger.info(f"Loaded {len(events)} events")
+        self._events_cache = events
+        self._events_cache_signature = signature
+        logger.info(
+            f"Loaded {len(events)} events from "
+            f"{len(candidate_files)} files (cache miss)"
+        )
         return events
 
-    def _load_decisions(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _load_decisions(
+        self,
+        project_id: Optional[str] = None,
+        project_task_ids: Optional[Set[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Load decisions from Marcus persistence layer.
 
@@ -1322,6 +2086,10 @@ class Aggregator:
         ----------
         project_id : Optional[str]
             Specific project to load decisions for (None = all projects)
+        project_task_ids : Optional[Set[str]]
+            Pre-computed task_ids for this project. When provided, skips
+            Marcus's ``_get_task_ids_from_conversations`` re-glob (which has
+            no cutoff filter and re-reads every conversation file).
 
         Returns
         -------
@@ -1331,22 +2099,22 @@ class Aggregator:
         decisions: List[Dict[str, Any]] = []
 
         try:
-            # Try to import Marcus's persistence layer
-            import sys
-
-            if str(self.marcus_root) not in sys.path:
-                sys.path.insert(0, str(self.marcus_root))
-
             import asyncio
 
-            from src.core.project_history import ProjectHistoryPersistence
+            persistence = self._get_marcus_persistence()
+            if persistence is None:
+                raise ImportError("Marcus persistence unavailable")
 
-            persistence = ProjectHistoryPersistence()
+            def _load_for(pid: str) -> List[Dict[str, Any]]:
+                if project_task_ids is not None and pid == project_id:
+                    with self._override_task_ids(persistence, pid, project_task_ids):
+                        objs = asyncio.run(persistence.load_decisions(pid))
+                else:
+                    objs = asyncio.run(persistence.load_decisions(pid))
+                return [d.to_dict() for d in objs]
 
             if project_id:
-                # Load for specific project
-                decision_objects = asyncio.run(persistence.load_decisions(project_id))
-                decisions = [d.to_dict() for d in decision_objects]
+                decisions = _load_for(project_id)
             else:
                 # Load for all projects
                 project_history_dir = self.marcus_root / "data" / "project_history"
@@ -1354,10 +2122,7 @@ class Aggregator:
                     for project_dir in project_history_dir.iterdir():
                         if project_dir.is_dir():
                             try:
-                                proj_decisions = asyncio.run(
-                                    persistence.load_decisions(project_dir.name)
-                                )
-                                decisions.extend([d.to_dict() for d in proj_decisions])
+                                decisions.extend(_load_for(project_dir.name))
                             except Exception as e:
                                 logger.debug(
                                     "Could not load decisions for "
@@ -1410,7 +2175,11 @@ class Aggregator:
         logger.info(f"Loaded {len(decisions)} decisions")
         return decisions
 
-    def _load_artifacts(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _load_artifacts(
+        self,
+        project_id: Optional[str] = None,
+        project_task_ids: Optional[Set[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Load artifacts from Marcus persistence layer.
 
@@ -1421,6 +2190,9 @@ class Aggregator:
         ----------
         project_id : Optional[str]
             Specific project to load artifacts for (None = all projects)
+        project_task_ids : Optional[Set[str]]
+            Pre-computed task_ids for this project. Skips Marcus's
+            conversation re-glob when supplied.
 
         Returns
         -------
@@ -1430,22 +2202,22 @@ class Aggregator:
         artifacts: List[Dict[str, Any]] = []
 
         try:
-            # Try to import Marcus's persistence layer
-            import sys
-
-            if str(self.marcus_root) not in sys.path:
-                sys.path.insert(0, str(self.marcus_root))
-
             import asyncio
 
-            from src.core.project_history import ProjectHistoryPersistence
+            persistence = self._get_marcus_persistence()
+            if persistence is None:
+                raise ImportError("Marcus persistence unavailable")
 
-            persistence = ProjectHistoryPersistence()
+            def _load_for(pid: str) -> List[Dict[str, Any]]:
+                if project_task_ids is not None and pid == project_id:
+                    with self._override_task_ids(persistence, pid, project_task_ids):
+                        objs = asyncio.run(persistence.load_artifacts(pid))
+                else:
+                    objs = asyncio.run(persistence.load_artifacts(pid))
+                return [a.to_dict() for a in objs]
 
             if project_id:
-                # Load for specific project
-                artifact_objects = asyncio.run(persistence.load_artifacts(project_id))
-                artifacts = [a.to_dict() for a in artifact_objects]
+                artifacts = _load_for(project_id)
             else:
                 # Load for all projects
                 project_history_dir = self.marcus_root / "data" / "project_history"
@@ -1453,10 +2225,7 @@ class Aggregator:
                     for project_dir in project_history_dir.iterdir():
                         if project_dir.is_dir():
                             try:
-                                proj_artifacts = asyncio.run(
-                                    persistence.load_artifacts(project_dir.name)
-                                )
-                                artifacts.extend([a.to_dict() for a in proj_artifacts])
+                                artifacts.extend(_load_for(project_dir.name))
                             except Exception as e:
                                 logger.debug(
                                     "Could not load artifacts for "
@@ -2137,41 +2906,48 @@ class Aggregator:
             f"and {len(timings)} timings"
         )
 
-        # Enrich each task
+        # Build prefix→entry indexes once. Marcus stores outcomes/timings keyed
+        # by ``{task_id}_{actor}_{timestamp}``, so we match by reducing the key
+        # to the longest underscore-delimited prefix that exists in the task
+        # set. This replaces the prior O(n×m) startswith() scan (~40M
+        # comparisons on real data) with O(m × avg_underscores).
+        task_id_set = {str(t.get("id", "")) for t in tasks if t.get("id")}
+
+        def _index_by_task_id(
+            entries: Dict[str, Dict[str, Any]],
+        ) -> Dict[str, Dict[str, Any]]:
+            indexed: Dict[str, Dict[str, Any]] = {}
+            for entry_key, entry in entries.items():
+                # Exact match wins
+                if entry_key in task_id_set:
+                    indexed.setdefault(entry_key, entry)
+                    continue
+                # Walk longest→shortest prefix; first hit on a known task wins
+                parts = entry_key.split("_")
+                for i in range(len(parts) - 1, 0, -1):
+                    candidate = "_".join(parts[:i])
+                    if candidate in task_id_set:
+                        indexed.setdefault(candidate, entry)
+                        break
+            return indexed
+
+        outcomes_by_task = _index_by_task_id(outcomes)
+        timings_by_task = _index_by_task_id(timings)
+
+        # Enrich each task with O(1) lookups
         enriched_count = 0
         for task in tasks:
-            task_id = task.get("id", "")
+            task_id = str(task.get("id", ""))
 
-            # Add outcome data if available (try exact match first, then prefix match)
-            if task_id in outcomes:
-                outcome = outcomes[task_id]
+            outcome = outcomes_by_task.get(task_id)
+            if outcome:
                 task["actual_hours"] = outcome["actual_hours"]
                 if outcome["started_at"]:
                     task["created_at"] = outcome["started_at"]
                 if outcome["completed_at"]:
                     task["updated_at"] = outcome["completed_at"]
-            else:
-                # Try prefix match (task IDs in marcus.db have agent suffix)
-                for outcome_id, outcome in outcomes.items():
-                    if outcome_id.startswith(task_id + "_"):
-                        task["actual_hours"] = outcome["actual_hours"]
-                        if outcome["started_at"]:
-                            task["created_at"] = outcome["started_at"]
-                        if outcome["completed_at"]:
-                            task["updated_at"] = outcome["completed_at"]
-                        break
 
-            # Add timing data if available (try exact match first, then prefix match)
-            matched_timing = None
-            if task_id in timings:
-                matched_timing = timings[task_id]
-            else:
-                # Try prefix match
-                for timing_id, timing in timings.items():
-                    if timing_id.startswith(task_id + "_"):
-                        matched_timing = timing
-                        break
-
+            matched_timing = timings_by_task.get(task_id)
             if matched_timing:
                 if "start_time" in matched_timing:
                     task["created_at"] = matched_timing["start_time"]
@@ -3280,14 +4056,14 @@ class Aggregator:
         last_time = events[0][0]
         total_task_time = 0.0
 
-        for time, delta in events:
-            if time > last_time and current_count > 0:
-                duration = time - last_time
+        for ts, delta in events:
+            if ts > last_time and current_count > 0:
+                duration = ts - last_time
                 total_task_time += duration * current_count
                 concurrent_counts.append((duration, current_count))
 
             current_count += delta
-            last_time = time
+            last_time = ts
 
         if not concurrent_counts:
             return 0, 0.0, 0.0
