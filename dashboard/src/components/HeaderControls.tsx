@@ -19,6 +19,8 @@ const HeaderControls = () => {
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
   const setSelectedProject = useVisualizationStore((state) => state.setSelectedProject);
   const refreshData = useVisualizationStore((state) => state.refreshData);
+  const resetTimeOnTabSwitch = useVisualizationStore((state) => state.resetTimeOnTabSwitch);
+  const setResetTimeOnTabSwitch = useVisualizationStore((state) => state.setResetTimeOnTabSwitch);
 
   const handleProjectChange = useCallback(
     async (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -82,15 +84,34 @@ const HeaderControls = () => {
               onFocus={handleDropdownFocus}
               title="Select project to visualize (auto-refreshes on open)"
             >
-              {projects.map((project: any) => {
-                const projectId = project.project_id || project.id;
-                const projectName = project.project_name || project.name;
-                return (
-                  <option key={projectId} value={projectId}>
-                    {projectName}
-                  </option>
-                );
-              })}
+              {(() => {
+                // Count occurrences of each name to detect duplicates
+                const nameCounts: Record<string, number> = {};
+                projects.forEach((p: any) => {
+                  const n = p.project_name || p.name;
+                  nameCounts[n] = (nameCounts[n] || 0) + 1;
+                });
+                return projects.map((project: any) => {
+                  const projectId = project.project_id || project.id;
+                  const projectName = project.project_name || project.name;
+                  const isDuplicate = nameCounts[projectName] > 1;
+                  let label = projectName;
+                  if (isDuplicate && (project.created_at || project.last_used)) {
+                    const ts = project.created_at || project.last_used;
+                    const d = new Date(ts);
+                    const dateStr = d.toLocaleString('en-US', {
+                      month: 'short', day: 'numeric',
+                      hour: '2-digit', minute: '2-digit', hour12: false,
+                    });
+                    label = `${projectName} (${dateStr})`;
+                  }
+                  return (
+                    <option key={projectId} value={projectId}>
+                      {label}
+                    </option>
+                  );
+                });
+              })()}
             </select>
           ) : (
             <div className="project-selector loading" style={{
@@ -153,6 +174,15 @@ const HeaderControls = () => {
                 <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.75rem' }}>
                   Filters both the project list and log files. Leave blank to show all history.
                 </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={resetTimeOnTabSwitch}
+                    onChange={e => setResetTimeOnTabSwitch(e.target.checked)}
+                    style={{ width: '1rem', height: '1rem', accentColor: '#3b82f6' }}
+                  />
+                  <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Reset timeline to 0 on tab switch</span>
+                </label>
                 <button
                   onClick={handleSaveSettings}
                   disabled={settingsSaving}

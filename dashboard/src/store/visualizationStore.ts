@@ -45,6 +45,10 @@ interface VisualizationState {
   showBlockedTasks: boolean;
   filteredAgentIds: string[];
 
+  // UI preferences (persisted in localStorage)
+  resetTimeOnTabSwitch: boolean;
+  setResetTimeOnTabSwitch: (value: boolean) => void;
+
   // Project Info drawer state
   isProjectInfoOpen: boolean;
 
@@ -110,6 +114,11 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
     showBlockedTasks: true,
     filteredAgentIds: [],
     isProjectInfoOpen: false,
+    resetTimeOnTabSwitch: localStorage.getItem('cato_resetTimeOnTabSwitch') === 'true',
+    setResetTimeOnTabSwitch: (value) => {
+      localStorage.setItem('cato_resetTimeOnTabSwitch', String(value));
+      set({ resetTimeOnTabSwitch: value });
+    },
     lifecycleTask: null,
     setLifecycleTask: (task) => set({ lifecycleTask: task }),
     autoRefreshIntervalId: null,
@@ -274,7 +283,17 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
 
     setPlaybackSpeed: (speed) => set({ playbackSpeed: speed }),
 
-    setCurrentLayer: (layer) => set({ currentLayer: layer }),
+    setCurrentLayer: (layer) => {
+      const current = get();
+      if (current.resetTimeOnTabSwitch) {
+        if (current.animationIntervalId) {
+          window.clearInterval(current.animationIntervalId);
+        }
+        set({ currentLayer: layer, currentTime: 0, isPlaying: false, animationIntervalId: null });
+      } else {
+        set({ currentLayer: layer });
+      }
+    },
 
     selectTask: (taskId) => set({ selectedTaskId: taskId }),
 
