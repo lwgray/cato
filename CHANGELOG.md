@@ -12,24 +12,33 @@ minimum compatible Marcus version.
 
 ## [0.3.2] - 2026-05-07
 
-Two regressions from the v0.3.1 project-scoped fast path. Both showed up as
-DAG/Board nodes being absent at project start and only "appearing" once
-Marcus had written enough state to surface them.
+Three regressions from the v0.3.1 project-scoped fast path. All showed up as
+DAG/Board nodes being absent at project start and only "appearing" once an
+agent worked on them.
 
 ### Fixed
-- **Unstarted parent tasks render at creation time again.**
+- **Hex-Planka projects load all parents from creation time.**
+  The slow path has two candidate-resolution strategies depending on whether
+  the Planka board_id has a numeric 8-char prefix. For numeric prefixes it
+  fuzzy-matches task IDs; for non-numeric (hex) prefixes it falls back to
+  filtering by ``metadata.project_id`` directly. The fast path only
+  implemented the prefix-match branch, so for hex-Planka projects (e.g.
+  board_id starts with "05c39bc6") only tasks already mentioned in
+  conversation logs surfaced — typically just the design tasks. Other parent
+  tasks (Implement X, Compose Y, About:, Marcus Planning:) were absent until
+  agents picked them up. Adds the project_id metadata fallback when no
+  Planka ID has a numeric prefix.
+- **Unstarted parent tasks render at creation time.**
   `_load_parent_tasks_by_ids` only set `task["status"]` when an outcome row
   existed, so tasks created in `marcus.db` but not yet started had no status
   field and were treated as filtered/missing downstream. Restores the prior
   `task.setdefault("status", "todo")` default.
 - **Dependency-only parents are pulled into the project's task set.**
-  The slow path collected dependency-implied parents (if a matched task B
-  depends on parent A, then A is included even if A hadn't surfaced via
-  conversations or Planka prefix matching). The fast path skipped that walk,
-  so on fresh projects A was missing, B's edge to A dangled, and the DAG's
-  orphan filter dropped any node that ended up with no edges. Adds a
-  bounded BFS (max 8 levels) over `dependencies` after the initial parent
-  fetch.
+  The slow path also collected dependency-implied parents (if matched task B
+  depends on parent A, A is included even if A hadn't surfaced via
+  conversations or Planka prefix matching). The fast path skipped that walk.
+  Adds a bounded BFS (max 8 levels) over `dependencies` after the initial
+  parent fetch.
 
 ## [0.3.1] - 2026-05-06
 
