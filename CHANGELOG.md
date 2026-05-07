@@ -10,16 +10,51 @@ minimum compatible Marcus version.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-06
+
+**The performance & polish release.** Cuts cold snapshot load from 8s to ~1s on
+large Marcus deployments, scopes conversation logs correctly to project, and
+cleans up several DAG/Board UI rough edges. No API changes.
+
+### Performance
+- Cold snapshot load **8.1s → 1.1s** on real data (~7×, no staleness window).
+  - New project-scoped fast path in `_load_tasks` uses SQL `WHERE key IN (...)`
+    against `marcus.db` plus mtime-validated `subtasks.json`; only the project's
+    ~10 rows are enriched instead of all 11k.
+  - `enrich_tasks_with_timing` replaces O(n×m) prefix scan with longest-prefix
+    index (also fixes a latent bug where parents matched subtask outcomes).
+  - `_load_decisions` / `_load_artifacts` skip Marcus's per-call 50k-file
+    conversation re-glob via a scoped contextmanager that supplies pre-computed
+    task IDs; `ProjectHistoryPersistence` reused across both calls.
+  - Log-file scans pre-filter via year-prefix glob and filename date check
+    before `stat()`, avoiding 49k unnecessary syscalls in 50k-file dirs.
+  - mtime/size-based caches for parsed messages and events.
+- All SQL queries on Marcus's database open with `PRAGMA query_only=1`.
+- `[timing]` log lines added around each load phase for ongoing visibility.
+
 ### Added
 - Multi-path aggregator support for parallel Marcus instances
 - Subtask grouping context surfaced across DAG, Swimlane, and Board views
 - Header pill strip in DAG view showing all design tasks
 - Hover-highlight in DAG and max-3 expand in Board replace cluttered grouping marks
 - Ghost-group column breakdown in DAG layout
+- History cutoff date setting filters projects and log files
+- Parallel kanban enrichment for multi-experiment Marcus setups
+- AI blocker suggestions surfaced in Board view
+- Project Info / About Tasks pane cleanup
+- Opt-in "Reset timeline on tab switch" toggle in header settings (off by default)
+- Header timestamp suffix disambiguates duplicate project names
 
 ### Fixed
 - Board column scroll restored via absolute positioning and fixed flex height chain
 - Aggregator normalizes `realtime_*.jsonl` entries for Conversation view
+- Conversations now scoped to the active project; "general" group always last
+- `UnboundLocalError` on `project_info` in the all-projects code path
+
+### Tooling
+- `cato` launcher renames the backend process to `cato-backend` so `pkill`
+  targets only this project; frontend kill scoped to the project's path
+- `.claude/` added to `.gitignore`
 
 ## [0.3.0] - 2026-04-07
 
