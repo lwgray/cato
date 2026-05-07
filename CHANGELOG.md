@@ -10,6 +10,16 @@ minimum compatible Marcus version.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-06
+
+### Fixed
+- DAG/Board nodes for unstarted parent tasks now appear at task creation
+  time and fill in as work progresses. Regression from the v0.3.1 fast
+  path: `_load_parent_tasks_by_ids` only set `task["status"]` when an
+  outcome row existed, so tasks created in `marcus.db` but not yet picked
+  up had no status field and were treated as filtered/missing. Restores
+  the prior `task.setdefault("status", "todo")` default.
+
 ## [0.3.1] - 2026-05-06
 
 **The performance & polish release.** Cuts cold snapshot load from 8s to ~1s on
