@@ -1429,11 +1429,35 @@ class Aggregator:
             except Exception as e:
                 logger.debug(f"Conversation parent-id lookup failed: {e}")
 
-            # Source B: Planka prefix fuzzy match (numeric IDs only)
-            if planka_board_id or planka_project_id:
+            # Determine whether the slow path would take the Planka prefix
+            # match or its no-prefix project_id fallback. This gate matches
+            # aggregator.py:1656 — non-numeric Planka IDs fall back.
+            has_numeric_planka = False
+            for pid in (planka_board_id, planka_project_id):
+                if pid and len(pid) >= 8:
+                    try:
+                        int(pid[:8])
+                        has_numeric_planka = True
+                        break
+                    except ValueError:
+                        pass
+
+            if has_numeric_planka:
+                # Source B: Planka prefix fuzzy match (numeric IDs only)
                 candidates |= self._query_parent_ids_by_planka_prefix(
                     planka_board_id, planka_project_id, root
                 )
+            else:
+                # Source B': project_id field match — slow-path fallback for
+                # hex-Planka projects (board_id like "f3ae1ca0..."). Without
+                # this every parent except the few in conversations is missing.
+                candidates |= self._query_parent_ids_by_project_metadata(
+                    project_id, root
+                )
+                if planka_project_id and planka_project_id != project_id:
+                    candidates |= self._query_parent_ids_by_project_metadata(
+                        planka_project_id, root
+                    )
 
             # Source C: parent IDs of subtasks that match Planka prefix.
             # Replicates the slow path's "matched subtask reveals parent"
