@@ -19,6 +19,8 @@ const HeaderControls = () => {
   const loadProjects = useVisualizationStore((state) => state.loadProjects);
   const setSelectedProject = useVisualizationStore((state) => state.setSelectedProject);
   const refreshData = useVisualizationStore((state) => state.refreshData);
+  const resetTimeOnTabSwitch = useVisualizationStore((state) => state.resetTimeOnTabSwitch);
+  const setResetTimeOnTabSwitch = useVisualizationStore((state) => state.setResetTimeOnTabSwitch);
 
   const handleProjectChange = useCallback(
     async (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -172,6 +174,15 @@ const HeaderControls = () => {
                 <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.75rem' }}>
                   Filters both the project list and log files. Leave blank to show all history.
                 </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={resetTimeOnTabSwitch}
+                    onChange={e => setResetTimeOnTabSwitch(e.target.checked)}
+                    style={{ width: '1rem', height: '1rem', accentColor: '#3b82f6' }}
+                  />
+                  <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Reset timeline to 0 on tab switch</span>
+                </label>
                 <button
                   onClick={handleSaveSettings}
                   disabled={settingsSaving}
