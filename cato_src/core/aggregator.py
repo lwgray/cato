@@ -433,6 +433,10 @@ class Aggregator:
                 task["assigned_agent_id"] = outcome.get("agent_id")
             if "dependencies" in task:
                 task["dependency_ids"] = task["dependencies"]
+            # Default unstarted parents to "todo". Without this the DAG/Board
+            # treats missing status as filtered/done and the node only shows
+            # up after Marcus writes an outcome. Matches load_parent_tasks_from_db.
+            task.setdefault("status", "todo")
             task.setdefault("parent_task_id", None)
             task.setdefault("is_subtask", False)
             task.setdefault("assigned_agent_name", None)
