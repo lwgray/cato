@@ -10,15 +10,26 @@ minimum compatible Marcus version.
 
 ## [Unreleased]
 
-## [0.3.2] - 2026-05-06
+## [0.3.2] - 2026-05-07
+
+Two regressions from the v0.3.1 project-scoped fast path. Both showed up as
+DAG/Board nodes being absent at project start and only "appearing" once
+Marcus had written enough state to surface them.
 
 ### Fixed
-- DAG/Board nodes for unstarted parent tasks now appear at task creation
-  time and fill in as work progresses. Regression from the v0.3.1 fast
-  path: `_load_parent_tasks_by_ids` only set `task["status"]` when an
-  outcome row existed, so tasks created in `marcus.db` but not yet picked
-  up had no status field and were treated as filtered/missing. Restores
-  the prior `task.setdefault("status", "todo")` default.
+- **Unstarted parent tasks render at creation time again.**
+  `_load_parent_tasks_by_ids` only set `task["status"]` when an outcome row
+  existed, so tasks created in `marcus.db` but not yet started had no status
+  field and were treated as filtered/missing downstream. Restores the prior
+  `task.setdefault("status", "todo")` default.
+- **Dependency-only parents are pulled into the project's task set.**
+  The slow path collected dependency-implied parents (if a matched task B
+  depends on parent A, then A is included even if A hadn't surfaced via
+  conversations or Planka prefix matching). The fast path skipped that walk,
+  so on fresh projects A was missing, B's edge to A dangled, and the DAG's
+  orphan filter dropped any node that ended up with no edges. Adds a
+  bounded BFS (max 8 levels) over `dependencies` after the initial parent
+  fetch.
 
 ## [0.3.1] - 2026-05-06
 
