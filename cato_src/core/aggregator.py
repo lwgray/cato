@@ -433,6 +433,10 @@ class Aggregator:
                 task["assigned_agent_id"] = outcome.get("agent_id")
             if "dependencies" in task:
                 task["dependency_ids"] = task["dependencies"]
+            # Default unstarted parents to "todo". Without this the DAG/Board
+            # treats missing status as filtered/done and the node only shows
+            # up after Marcus writes an outcome. Matches load_parent_tasks_from_db.
+            task.setdefault("status", "todo")
             task.setdefault("parent_task_id", None)
             task.setdefault("is_subtask", False)
             task.setdefault("assigned_agent_name", None)
@@ -1425,11 +1429,35 @@ class Aggregator:
             except Exception as e:
                 logger.debug(f"Conversation parent-id lookup failed: {e}")
 
-            # Source B: Planka prefix fuzzy match (numeric IDs only)
-            if planka_board_id or planka_project_id:
+            # Determine whether the slow path would take the Planka prefix
+            # match or its no-prefix project_id fallback. This gate matches
+            # aggregator.py:1656 — non-numeric Planka IDs fall back.
+            has_numeric_planka = False
+            for pid in (planka_board_id, planka_project_id):
+                if pid and len(pid) >= 8:
+                    try:
+                        int(pid[:8])
+                        has_numeric_planka = True
+                        break
+                    except ValueError:
+                        pass
+
+            if has_numeric_planka:
+                # Source B: Planka prefix fuzzy match (numeric IDs only)
                 candidates |= self._query_parent_ids_by_planka_prefix(
                     planka_board_id, planka_project_id, root
                 )
+            else:
+                # Source B': project_id field match — slow-path fallback for
+                # hex-Planka projects (board_id like "f3ae1ca0..."). Without
+                # this every parent except the few in conversations is missing.
+                candidates |= self._query_parent_ids_by_project_metadata(
+                    project_id, root
+                )
+                if planka_project_id and planka_project_id != project_id:
+                    candidates |= self._query_parent_ids_by_project_metadata(
+                        planka_project_id, root
+                    )
 
             # Source C: parent IDs of subtasks that match Planka prefix.
             # Replicates the slow path's "matched subtask reveals parent"
@@ -1463,8 +1491,31 @@ class Aggregator:
                 )
                 return None
 
-            # Step 2: Fetch parent task rows for the candidate IDs
+            # Step 2: Fetch parent task rows for the candidate IDs, then
+            # follow ``dependencies`` edges to pull in any referenced parents
+            # that didn't surface via conversations / Planka prefix. Without
+            # this expansion, an unstarted task whose dependent appears first
+            # in the logs would be a dangling edge target → orphan-filtered
+            # out of the DAG. The slow path does the same walk inline
+            # (aggregator.py:1771-1789).
             parent_tasks = self._load_parent_tasks_by_ids(candidates, root)
+            seen_ids = set(candidates)
+            for _ in range(8):  # bounded BFS over dep chain depth
+                new_dep_ids: Set[str] = set()
+                for task in parent_tasks:
+                    deps = task.get("dependencies") or task.get("dependency_ids") or []
+                    for dep in deps:
+                        dep_str = str(dep)
+                        if dep_str and dep_str not in seen_ids:
+                            new_dep_ids.add(dep_str)
+                if not new_dep_ids:
+                    break
+                seen_ids |= new_dep_ids
+                extra = self._load_parent_tasks_by_ids(new_dep_ids, root)
+                if not extra:
+                    break
+                parent_tasks.extend(extra)
+            candidates = seen_ids
 
             # Step 3: Read subtasks.json (mtime-cached) and filter by parent
             all_subtasks = self._load_subtasks_json_cached(root)
