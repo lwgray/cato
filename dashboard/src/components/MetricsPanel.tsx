@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useVisualizationStore } from '../store/visualizationStore';
 import './MetricsPanel.css';
 
@@ -5,8 +6,28 @@ const MetricsPanel = () => {
   const snapshot = useVisualizationStore((state) => state.snapshot);
   const getMetrics = useVisualizationStore((state) => state.getMetrics);
   const activeAgents = useVisualizationStore((state) => state.getActiveAgentsAtCurrentTime());
+  const [copied, setCopied] = useState(false);
 
   const metrics = getMetrics();
+
+  const copyProjectId = async () => {
+    if (!snapshot?.project_id) return;
+    try {
+      await navigator.clipboard.writeText(snapshot.project_id);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard API blocked (e.g. insecure context) — fallback select
+      const range = document.createRange();
+      const sel = window.getSelection();
+      const el = document.querySelector('.metric-value.project-id');
+      if (el && sel) {
+        range.selectNodeContents(el);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+  };
 
   if (!snapshot || !metrics) {
     return (
@@ -35,6 +56,21 @@ const MetricsPanel = () => {
             <span className="metric-label">Project Name</span>
             <span className="metric-value">{snapshot.project_name}</span>
           </div>
+          {snapshot.project_id && (
+            <div className="metric-item">
+              <span className="metric-label">Project ID</span>
+              <button
+                type="button"
+                className="metric-value project-id"
+                title={copied ? 'Copied!' : `Copy: ${snapshot.project_id}`}
+                onClick={copyProjectId}
+                aria-label={`Copy project ID ${snapshot.project_id}`}
+              >
+                <span className="project-id-text">{snapshot.project_id}</span>
+                <span className="project-id-icon">{copied ? '✓' : '⧉'}</span>
+              </button>
+            </div>
+          )}
           <div className="metric-item">
             <span className="metric-label">Total Duration</span>
             <span className="metric-value">{snapshot.duration_minutes}m</span>
