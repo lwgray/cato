@@ -3,6 +3,7 @@ import * as d3 from 'd3';
 import { useVisualizationStore } from '../store/visualizationStore';
 import { Task } from '../services/dataService';
 import { getTaskStateAtTime } from '../utils/timelineUtils';
+import ViewModeToggle from './ViewModeToggle';
 import './NetworkGraphView.css';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
@@ -606,6 +607,7 @@ const NetworkGraphView = () => {
 
   return (
     <div className="network-graph-view">
+      <ViewModeToggle />
       {designTasks.length > 0 && (
         <div className="design-origins-strip">
           <div className="strip-label">Design Origins</div>

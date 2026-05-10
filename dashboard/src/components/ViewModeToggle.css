@@ -1,0 +1,42 @@
+.view-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background-color: #0f172a;
+  border-bottom: 1px solid #334155;
+  flex-shrink: 0;
+}
+
+.view-mode-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 0.4rem;
+}
+
+.view-mode-button {
+  appearance: none;
+  background: transparent;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border-radius: 0.3rem;
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.view-mode-button:hover {
+  color: #e2e8f0;
+  border-color: #475569;
+}
+
+.view-mode-button.active {
+  background: #1e3a8a;
+  border-color: #3b82f6;
+  color: #e0e7ff;
+}
