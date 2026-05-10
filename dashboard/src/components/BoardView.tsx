@@ -3,6 +3,7 @@ import { useVisualizationStore } from '../store/visualizationStore';
 import { Task } from '../services/dataService';
 import { getTaskStateAtTime } from '../utils/timelineUtils';
 import ArtifactPreviewModal from './ArtifactPreviewModal';
+import ViewModeToggle from './ViewModeToggle';
 import './BoardView.css';
 
 const COLUMNS: { key: Task['status']; label: string; color: string; icon: string }[] = [
@@ -137,6 +138,7 @@ const BoardView = () => {
   if (!snapshot) {
     return (
       <div className="board-view">
+        <ViewModeToggle />
         <div className="board-empty">No data available</div>
       </div>
     );
@@ -232,6 +234,7 @@ const BoardView = () => {
 
   return (
     <div className={`board-view ${selectedTask ? 'with-detail' : ''}`}>
+      <ViewModeToggle />
       {/* Board columns */}
       <div className="board-columns">
         {COLUMNS.map((col) => {

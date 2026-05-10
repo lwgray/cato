@@ -49,6 +49,12 @@ interface VisualizationState {
   resetTimeOnTabSwitch: boolean;
   setResetTimeOnTabSwitch: (value: boolean) => void;
 
+  // Snapshot view mode — controls whether subtasks, parents, or all tasks
+  // are returned by the backend. Persisted in localStorage; changing it
+  // triggers a snapshot reload.
+  viewMode: 'subtasks' | 'parents' | 'all';
+  setViewMode: (mode: 'subtasks' | 'parents' | 'all') => void;
+
   // Project Info drawer state
   isProjectInfoOpen: boolean;
 
@@ -119,6 +125,16 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
       localStorage.setItem('cato_resetTimeOnTabSwitch', String(value));
       set({ resetTimeOnTabSwitch: value });
     },
+    viewMode:
+      ((localStorage.getItem('cato_viewMode') as 'subtasks' | 'parents' | 'all') ||
+        'parents'),
+    setViewMode: (mode) => {
+      localStorage.setItem('cato_viewMode', mode);
+      set({ viewMode: mode });
+      // Reload current project under the new view
+      const { selectedProjectId, loadData } = get();
+      void loadData(selectedProjectId || undefined);
+    },
     lifecycleTask: null,
     setLifecycleTask: (task) => set({ lifecycleTask: task }),
     autoRefreshIntervalId: null,
@@ -132,7 +148,7 @@ export const useVisualizationStore = create<VisualizationState>((set, get) => {
         console.log('Fetching live snapshot from API...');
         const newSnapshot = await fetchSnapshot(
           projectId,
-          'subtasks', // Always use subtasks view
+          get().viewMode,
           1.0, // Power scale exponent (linear timeline)
           true // Use cache
         );

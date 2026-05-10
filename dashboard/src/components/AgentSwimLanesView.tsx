@@ -1,6 +1,7 @@
 import { useVisualizationStore } from '../store/visualizationStore';
 import { Task as SnapshotTask } from '../services/dataService';
 import { getTaskStateAtTime, timeToLogScale } from '../utils/timelineUtils';
+import ViewModeToggle from './ViewModeToggle';
 import './AgentSwimLanesView.css';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
@@ -16,6 +17,7 @@ const AgentSwimLanesView = () => {
   if (!snapshot || !snapshot.start_time || !snapshot.end_time) {
     return (
       <div className="swimlanes-view">
+        <ViewModeToggle />
         <div className="swimlanes-container">
           <div className="no-data">No snapshot data available</div>
         </div>
@@ -142,6 +144,7 @@ const AgentSwimLanesView = () => {
 
   return (
     <div className="swimlanes-view">
+      <ViewModeToggle />
       <div className="swimlanes-container">
         <div className="swimlanes-content">
           {/* Time axis */}
