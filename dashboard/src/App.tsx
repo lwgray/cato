@@ -6,6 +6,7 @@ import ConversationView from './components/ConversationView';
 import HealthCheckDashboard from './components/HealthCheckDashboard';
 import QualityDashboard from './components/QualityDashboard';
 import BoardView from './components/BoardView';
+import CostDashboard from './components/CostDashboard';
 import TimelineControls from './components/TimelineControls';
 import MetricsPanel from './components/MetricsPanel';
 import ProjectInfoDrawer from './components/ProjectInfoDrawer';
@@ -80,6 +81,12 @@ function App() {
               Quality
             </button>
           )}
+          <button
+            className={currentLayer === 'cost' ? 'active' : ''}
+            onClick={() => setCurrentLayer('cost')}
+          >
+            💰 Cost
+          </button>
           {contextTasks.length > 0 && (
             <button
               className={`project-info-trigger ${isProjectInfoOpen ? 'active' : ''}`}
@@ -93,7 +100,7 @@ function App() {
       </header>
 
       <div className="app-content">
-        <div className={`visualization-container ${currentLayer === 'quality' || currentLayer === 'board' ? 'full-width' : ''}`}>
+        <div className={`visualization-container ${currentLayer === 'quality' || currentLayer === 'board' || currentLayer === 'cost' ? 'full-width' : ''}`}>
           {/* Live mode views */}
           {currentLayer === 'network' && <NetworkGraphView />}
           {currentLayer === 'swimlanes' && <AgentSwimLanesView />}
@@ -101,6 +108,7 @@ function App() {
           {currentLayer === 'board' && <BoardView />}
           {currentLayer === 'health' && <HealthCheckDashboard />}
           {currentLayer === 'quality' && <QualityDashboard />}
+          {currentLayer === 'cost' && <CostDashboard />}
         </div>
 
         {/* Task Lifecycle Panel — inline sidebar, pushes content left */}
