@@ -1,0 +1,107 @@
+.cost-dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+  background: var(--bg-canvas, #f8fafc);
+}
+
+.cost-dashboard-error {
+  padding: 48px;
+  text-align: center;
+  color: var(--text-muted, #64748b);
+}
+
+.cost-dashboard-error h2 {
+  font-size: 18px;
+  margin: 0 0 8px;
+  color: var(--text-color, #1e293b);
+}
+
+.cost-dashboard-error .hint {
+  font-size: 12px;
+  margin-top: 12px;
+  font-style: italic;
+}
+
+.cost-dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-elevated, #ffffff);
+}
+
+.cost-dashboard-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.cost-experiment-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.cost-experiment-picker label {
+  color: var(--text-muted, #64748b);
+}
+
+.cost-experiment-picker select {
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 6px;
+  background: var(--bg-elevated, #ffffff);
+  min-width: 240px;
+}
+
+.cost-tab-strip {
+  display: flex;
+  gap: 4px;
+  padding: 8px 24px 0;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-elevated, #ffffff);
+}
+
+.cost-tab-strip button {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  color: var(--text-muted, #64748b);
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.cost-tab-strip button:hover:not(:disabled) {
+  color: var(--text-color, #1e293b);
+}
+
+.cost-tab-strip button.active {
+  color: var(--accent-color, #0ea5e9);
+  border-bottom-color: var(--accent-color, #0ea5e9);
+}
+
+.cost-tab-strip button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cost-tab-content {
+  flex: 1;
+  overflow: auto;
+}
+
+.cost-empty {
+  padding: 48px;
+  text-align: center;
+  color: var(--text-muted, #64748b);
+  font-size: 14px;
+}

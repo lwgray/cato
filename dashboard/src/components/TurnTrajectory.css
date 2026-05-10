@@ -1,0 +1,44 @@
+.turn-trajectory {
+  font-family: var(--font-mono, ui-monospace, 'SF Mono', monospace);
+}
+
+.turn-trajectory .grid {
+  stroke: var(--border-color, #e2e8f0);
+  stroke-dasharray: 2 4;
+}
+
+.turn-trajectory .area {
+  fill: rgba(14, 165, 233, 0.12);
+}
+
+.turn-trajectory .line {
+  fill: none;
+  stroke: #0ea5e9;
+  stroke-width: 2;
+}
+
+.turn-trajectory .point {
+  fill: #0ea5e9;
+  stroke: white;
+  stroke-width: 1.5;
+}
+
+.turn-trajectory .axis-label,
+.turn-trajectory .axis-caption {
+  font-size: 11px;
+  fill: var(--text-muted, #64748b);
+}
+
+.turn-trajectory .axis-caption {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.turn-trajectory-empty {
+  padding: 24px;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
+}

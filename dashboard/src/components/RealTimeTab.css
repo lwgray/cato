@@ -1,0 +1,194 @@
+.cost-realtime {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 24px;
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+}
+
+.cost-loading,
+.cost-error {
+  padding: 32px;
+  text-align: center;
+  color: var(--text-muted, #64748b);
+}
+
+.cost-error {
+  color: var(--error-color, #dc2626);
+}
+
+/* Headline */
+
+.cost-headline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  background: var(--bg-elevated, #ffffff);
+}
+
+.cost-headline-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cost-experiment-name {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.cost-status-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.cost-status-pill.running {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+
+.cost-status-pill.done {
+  background: rgba(100, 116, 139, 0.15);
+  color: #475569;
+}
+
+.cost-headline-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.cost-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cost-stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #64748b);
+}
+
+.cost-stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-stat-primary .cost-stat-value {
+  color: #0ea5e9;
+}
+
+/* Tokens row */
+
+.cost-tokens-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.cost-token-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 6px;
+  background: var(--bg-elevated, #ffffff);
+}
+
+.cost-token-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #64748b);
+}
+
+.cost-token-value {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Breakdown row */
+
+.cost-breakdown {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 12px;
+}
+
+.cost-panel {
+  padding: 16px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  background: var(--bg-elevated, #ffffff);
+}
+
+.cost-panel h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #475569);
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.cost-session-hint {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted, #64748b);
+  font-weight: 400;
+}
+
+.cost-role-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cost-role-list li {
+  display: grid;
+  grid-template-columns: 12px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.role-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.role-dot.role-planner { background: #7c3aed; }
+.role-dot.role-worker  { background: #0ea5e9; }
+.role-dot.role-creator { background: #10b981; }
+.role-dot.role-monitor { background: #f59e0b; }
+.role-dot.role-subagent{ background: #8b5cf6; }
+
+.role-cost {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.role-events {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+}

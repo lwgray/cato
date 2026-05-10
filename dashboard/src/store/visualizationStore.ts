@@ -12,7 +12,8 @@ export type ViewLayer =
   | 'fidelity'
   | 'decisions'
   | 'failures'
-  | 'redundancy';
+  | 'redundancy'
+  | 'cost';
 export type TaskView = 'subtasks' | 'parents' | 'all';
 
 interface VisualizationState {
