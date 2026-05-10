@@ -1,13 +1,16 @@
 /**
  * Top-level cost dashboard page (Marcus issue #409).
  *
- * Phase 7 ships only Tab 1 — Real-time. Tabs 2-4 (Historical, Budget,
- * Pricing) land in the next PR. The tab strip is rendered now so the
- * picker is in place when those land.
+ * Four sub-tabs: Real-time (current experiment), Historical (all
+ * experiments), Budget (per-experiment projection vs. cap), and
+ * Pricing (current rate table + CRUD form).
  */
 
 import { useEffect, useState } from 'react';
 import { fetchExperiments, type ExperimentRow } from '../services/costService';
+import BudgetTab from './BudgetTab';
+import HistoricalTab from './HistoricalTab';
+import PricingTab from './PricingTab';
 import RealTimeTab from './RealTimeTab';
 import './CostDashboard.css';
 
@@ -93,24 +96,18 @@ const CostDashboard = () => {
         <button
           className={activeTab === 'historical' ? 'active' : ''}
           onClick={() => setActiveTab('historical')}
-          disabled
-          title="Coming in Phase 8"
         >
           Historical
         </button>
         <button
           className={activeTab === 'budget' ? 'active' : ''}
           onClick={() => setActiveTab('budget')}
-          disabled
-          title="Coming in Phase 8"
         >
           Budget
         </button>
         <button
           className={activeTab === 'pricing' ? 'active' : ''}
           onClick={() => setActiveTab('pricing')}
-          disabled
-          title="Coming in Phase 8"
         >
           Pricing
         </button>
@@ -125,6 +122,21 @@ const CostDashboard = () => {
             No experiments yet. Run one with the marcus skill and they'll appear here.
           </div>
         )}
+        {activeTab === 'historical' && (
+          <HistoricalTab onSelectExperiment={(id) => {
+            setSelectedExp(id);
+            setActiveTab('realtime');
+          }} />
+        )}
+        {activeTab === 'budget' && selectedExp && (
+          <BudgetTab experimentId={selectedExp} />
+        )}
+        {activeTab === 'budget' && !selectedExp && (
+          <div className="cost-empty">
+            Select an experiment to see its budget projection.
+          </div>
+        )}
+        {activeTab === 'pricing' && <PricingTab />}
       </div>
     </div>
   );
