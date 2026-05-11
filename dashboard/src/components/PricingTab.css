@@ -27,6 +27,13 @@
   font-size: 13px;
 }
 
+/* Cost table rows previously inherited the muted color so the prices
+   were invisible against the dark theme (user feedback on PR #33).
+   Explicit color anchors all cells to the readable foreground. */
+.cost-pricing .cost-table td {
+  color: var(--text-color, #1e293b);
+}
+
 .cost-pricing .model-cell {
   font-family: var(--font-mono, ui-monospace, 'SF Mono', monospace);
   font-size: 12px;
@@ -35,6 +42,21 @@
 .cost-pricing .price-cell {
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+.cost-pricing .override-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  background: var(--bg-elevated, #ffffff);
+  color: var(--text-color, #1e293b);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cost-pricing .override-btn:hover {
+  border-color: #0ea5e9;
+  color: #0ea5e9;
 }
 
 .source-tag {

@@ -156,6 +156,22 @@ class PriceCreateRequest(BaseModel):
 router = APIRouter(prefix="/api/cost", tags=["cost"])
 
 
+@router.post("/ingest")  # type: ignore[misc]
+def trigger_ingest(
+    store: Any = Depends(get_store),
+) -> Dict[str, Any]:
+    """Sweep ``~/.claude/projects/`` and ingest any new worker session events.
+
+    Marcus's :class:`WorkerJSONLIngester` is idempotent (UUID-dedupes
+    per process) so calling this on every dashboard load is safe.
+    Returns a small summary so the UI can show "X new events ingested
+    from Y files" if it wants.
+    """
+    from backend.cost_ingest import run_ingest
+
+    return run_ingest(store)
+
+
 @router.get("/projects")  # type: ignore[misc]
 def list_projects(
     limit: int = Query(100, ge=1, le=1000),

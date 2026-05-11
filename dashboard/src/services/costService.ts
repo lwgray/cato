@@ -199,6 +199,28 @@ export async function fetchProjectSummary(
   return _get(`/api/cost/projects/${encodeURIComponent(projectId)}`);
 }
 
+/**
+ * Trigger a worker JSONL ingestion sweep on the backend.
+ *
+ * Marcus's WorkerJSONLIngester reads ~/.claude/projects/<dir>/<session>.jsonl
+ * files and writes token_events rows. Calling this is idempotent (UUID
+ * dedup), so the dashboard hits it on mount and on every poll tick to
+ * keep worker cost current without a background daemon.
+ */
+export async function triggerIngest(): Promise<{
+  ingested: number;
+  files: number;
+  skipped_unbound: number;
+}> {
+  const resp = await fetch(`${API_BASE_URL}/api/cost/ingest`, {
+    method: 'POST',
+  });
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status} (ingest)`);
+  }
+  return resp.json();
+}
+
 // ---------------------------------------------------------------------------
 // Pricing
 // ---------------------------------------------------------------------------
