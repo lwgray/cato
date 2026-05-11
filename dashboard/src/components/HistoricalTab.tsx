@@ -1,23 +1,16 @@
 /**
- * Tab 2 — Historical view.
+ * Tab 2 — Historical view (project-first).
  *
- * Aggregates every experiment in the cost store and renders:
- * 1. Headline totals (lifetime cost, total tokens, experiment count).
- * 2. A time-series bar chart of cost per experiment.
- * 3. Per-project rollup table.
- *
- * No new backend endpoint needed — derives everything from
- * ``/api/cost/experiments`` (no project filter, capped at 1000).
+ * Lifetime totals + per-project rollup pulled from
+ * ``/api/cost/projects`` (the project picker's data source). Replaces
+ * the old experiment-based aggregation because Marcus's main code
+ * path doesn't open MLflow experiments — project_id is the universal
+ * identity.
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { fetchExperiments, type ExperimentRow } from '../services/costService';
-import CostTimeSeries from './CostTimeSeries';
+import { fetchProjects, type ProjectRow } from '../services/costService';
 import './HistoricalTab.css';
-
-interface Props {
-  onSelectExperiment?: (id: string) => void;
-}
 
 function formatUsd(v: number, decimals = 2): string {
   return `$${v.toFixed(decimals)}`;
@@ -29,16 +22,26 @@ function formatTokens(v: number): string {
   return String(v);
 }
 
-const HistoricalTab = ({ onSelectExperiment }: Props) => {
-  const [experiments, setExperiments] = useState<ExperimentRow[]>([]);
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+const HistoricalTab = () => {
+  const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetchExperiments(undefined, 1000)
-      .then(({ experiments: exps }) => {
+    fetchProjects(1000)
+      .then(({ projects: ps }) => {
         if (!cancelled) {
-          setExperiments(exps);
+          setProjects(ps);
           setError(null);
         }
       })
@@ -52,33 +55,30 @@ const HistoricalTab = ({ onSelectExperiment }: Props) => {
     };
   }, []);
 
-  // Totals + per-project rollup, computed in-memory.
-  const { totalCost, totalTokens, byProject } = useMemo(() => {
+  const { totalCost, totalTokens, totalEvents, totalAgents } = useMemo(() => {
     let totalCost = 0;
     let totalTokens = 0;
-    const byProject = new Map<
-      string,
-      { project_name: string | null; cost: number; tokens: number; count: number }
-    >();
-    for (const e of experiments) {
-      totalCost += e.total_cost_usd;
-      totalTokens += e.total_tokens;
-      const cur = byProject.get(e.project_id) ?? {
-        project_name: e.project_name,
-        cost: 0,
-        tokens: 0,
-        count: 0,
-      };
-      cur.cost += e.total_cost_usd;
-      cur.tokens += e.total_tokens;
-      cur.count += 1;
-      byProject.set(e.project_id, cur);
+    let totalEvents = 0;
+    const allAgents = new Set<string>();
+    for (const p of projects) {
+      totalCost += p.total_cost_usd;
+      totalTokens += p.total_tokens;
+      totalEvents += p.events;
+      // p.agents is a count, not a list — sum is a fine approximation
+      // here since agent IDs are scoped per-project anyway.
+      allAgents.add(`${p.project_id}:agents:${p.agents}`);
     }
-    const rows = Array.from(byProject.entries())
-      .map(([project_id, v]) => ({ project_id, ...v }))
-      .sort((a, b) => b.cost - a.cost);
-    return { totalCost, totalTokens, byProject: rows };
-  }, [experiments]);
+    // Use the sum of distinct agent counts as the metric — distinct
+    // agent_ids aren't returned on the rollup, but per-project agent
+    // counts summed is a useful "total work performed" metric.
+    const agentSum = projects.reduce((acc, p) => acc + p.agents, 0);
+    return {
+      totalCost,
+      totalTokens,
+      totalEvents,
+      totalAgents: agentSum,
+    };
+  }, [projects]);
 
   if (error) {
     return <div className="cost-error">⚠ {error}</div>;
@@ -96,40 +96,52 @@ const HistoricalTab = ({ onSelectExperiment }: Props) => {
           <span className="cost-stat-value">{formatTokens(totalTokens)}</span>
         </div>
         <div className="cost-stat">
-          <span className="cost-stat-label">Experiments</span>
-          <span className="cost-stat-value">{experiments.length}</span>
+          <span className="cost-stat-label">Events</span>
+          <span className="cost-stat-value">{totalEvents}</span>
+        </div>
+        <div className="cost-stat">
+          <span className="cost-stat-label">Projects</span>
+          <span className="cost-stat-value">{projects.length}</span>
+        </div>
+        <div className="cost-stat">
+          <span className="cost-stat-label">Agent runs</span>
+          <span className="cost-stat-value">{totalAgents}</span>
         </div>
       </header>
 
       <section className="cost-panel">
-        <h3>Cost per experiment</h3>
-        <CostTimeSeries
-          experiments={experiments}
-          onSelect={onSelectExperiment}
-        />
-      </section>
-
-      <section className="cost-panel">
         <h3>By project</h3>
-        {byProject.length === 0 ? (
-          <p className="empty">No experiments yet.</p>
+        {projects.length === 0 ? (
+          <p className="empty">No projects yet.</p>
         ) : (
           <table className="cost-table">
             <thead>
               <tr>
                 <th>Project</th>
-                <th>Runs</th>
+                <th>Events</th>
+                <th>Agents</th>
                 <th>Tokens</th>
                 <th>Cost</th>
+                <th>First seen</th>
+                <th>Last seen</th>
               </tr>
             </thead>
             <tbody>
-              {byProject.map((p) => (
+              {projects.map((p) => (
                 <tr key={p.project_id}>
-                  <td>{p.project_name ?? p.project_id}</td>
-                  <td>{p.count}</td>
-                  <td>{formatTokens(p.tokens)}</td>
-                  <td className="cost-cell">{formatUsd(p.cost)}</td>
+                  <td>
+                    {p.project_name ?? (
+                      <code className="project-id-code">
+                        {p.project_id.slice(0, 12)}…
+                      </code>
+                    )}
+                  </td>
+                  <td>{p.events}</td>
+                  <td>{p.agents}</td>
+                  <td>{formatTokens(p.total_tokens)}</td>
+                  <td className="cost-cell">{formatUsd(p.total_cost_usd)}</td>
+                  <td>{formatDate(p.first_event_at)}</td>
+                  <td>{formatDate(p.last_event_at)}</td>
                 </tr>
               ))}
             </tbody>

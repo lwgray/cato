@@ -1,28 +1,25 @@
 /**
  * Top-level cost dashboard page (Marcus issue #409).
  *
- * Project is the primary axis (per Marcus CLAUDE.md GH-388 and
- * spawn_agents.py) — experiment is a secondary tracking handle that
- * may or may not be set depending on whether the run opted into
- * MLflow tracking. The picker leads with project; once a project is
- * selected, the user can optionally drill into a specific experiment
- * (MLflow run) within it.
+ * Project-first: project_id is the only universal identity in Marcus's
+ * coordination model (Marcus CLAUDE.md GH-388, spawn_agents.py, and
+ * the #503 project-axis refactor). Marcus's main code path doesn't
+ * open MLflow experiments, so the experiment dimension is no longer
+ * surfaced in the UI — every tab renders from project-level data.
  *
- * Sub-tabs:
- *   - Real-time  → live view of the active MLflow run (when one exists)
- *   - Historical → cross-project totals + per-experiment time series
- *   - Budget     → projection vs. cap for the active run
+ * Sub-tabs (all keyed off the selected project):
+ *   - Real-time  → live spend, agents working, per-role breakdown
+ *   - Historical → cross-project totals + per-project time series
+ *   - Budget     → cost so far vs. spend rate / projection
  *   - Pricing    → current rate table + insert form
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  fetchProjectSummary,
   fetchProjects,
   fetchUnassignedTotals,
   triggerIngest,
   type ProjectRow,
-  type ProjectSummary,
   type UnassignedTotals,
 } from '../services/costService';
 import BudgetTab from './BudgetTab';
@@ -48,34 +45,34 @@ const CostDashboard = () => {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedTotals | null>(null);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
-  const [projectSummary, setProjectSummary] = useState<ProjectSummary | null>(null);
-  const [selectedExp, setSelectedExp] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
 
-  // Poll project list + unassigned totals every 30s so new runs appear
-  // without a page reload and the unassigned indicator stays current.
-  //
-  // Kaia PR #33 review:
-  // - Effect no longer depends on selectedProject (the previous version
-  //   re-subscribed on every selection change for no useful reason; the
-  //   auto-select happens via the functional setState below).
-  // - fetchUnassignedTotals is wrapped in a defensive catch so a 503
-  //   from that endpoint doesn't blank the project picker. Worst case:
-  //   the unassigned banner doesn't appear even though there's a gap.
+  // First-paint perf: triggerIngest sweeps ~/.claude/projects/<sess>.jsonl
+  // and was previously awaited *before* fetchProjects, which made the
+  // initial load take 10+ seconds on accounts with many session files.
+  // Now we fire ingest in the background and let the picker render
+  // immediately from whatever is already in costs.db. The next poll
+  // tick picks up any rows ingest added.
+  const ingestInFlight = useRef(false);
   useEffect(() => {
     let cancelled = false;
 
+    const fireIngestInBackground = () => {
+      if (ingestInFlight.current) return;
+      ingestInFlight.current = true;
+      triggerIngest()
+        .catch(() => {
+          // non-fatal — picker still shows whatever was already in the DB
+        })
+        .finally(() => {
+          ingestInFlight.current = false;
+        });
+    };
+
     const load = async () => {
-      // Sweep worker JSONL logs before pulling the project list so the
-      // dashboard reflects the current state of all running experiments.
-      // Idempotent on the backend (UUID dedup), so calling on every
-      // tick is safe. Failure here is non-fatal — fall through to the
-      // project fetch and surface whatever we already have.
-      try {
-        await triggerIngest();
-      } catch {
-        // intentionally swallowed
-      }
+      // Kick off ingest in parallel — do not await.
+      fireIngestInBackground();
 
       try {
         const { projects: ps } = await fetchProjects();
@@ -92,7 +89,8 @@ const CostDashboard = () => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
         }
-        return;
+      } finally {
+        if (!cancelled) setInitialLoading(false);
       }
 
       // Fetch unassigned totals independently; failure here is not
@@ -112,36 +110,6 @@ const CostDashboard = () => {
       window.clearInterval(id);
     };
   }, []);
-
-  // When the selected project changes, fetch its summary (totals +
-  // experiment list) and auto-select the most recent experiment for
-  // the Real-time tab.
-  useEffect(() => {
-    if (!selectedProject) {
-      setProjectSummary(null);
-      setSelectedExp(null);
-      return;
-    }
-    let cancelled = false;
-    fetchProjectSummary(selectedProject)
-      .then((s) => {
-        if (cancelled) return;
-        setProjectSummary(s);
-        if (s.experiments.length > 0) {
-          setSelectedExp(s.experiments[0].experiment_id);
-        } else {
-          setSelectedExp(null);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedProject]);
 
   if (error && projects.length === 0) {
     return (
@@ -170,50 +138,25 @@ const CostDashboard = () => {
               onChange={(e) => setSelectedProject(e.target.value || null)}
             >
               {projects.length === 0 && (
-                <option value="">— none yet —</option>
+                <option value="">
+                  {initialLoading ? '— loading… —' : '— none yet —'}
+                </option>
               )}
               {projects.map((p) => (
                 <option key={p.project_id} value={p.project_id}>
                   {/*
-                    Prefer the human-readable project_name from the
-                    experiments table; fall back to a truncated id only
-                    when no MLflow run ever registered one. (Kaia review
-                    of #33: 12-char IDs of 19-digit numbers were
-                    indistinguishable in the picker.)
+                    Name resolution: experiments.project_name (MLflow) →
+                    Marcus project registry → truncated id. Most Marcus
+                    runs don't use MLflow, so registry is the usual
+                    source. See cost_routes._load_project_names.
                   */}
                   {p.project_name ?? `${p.project_id.slice(0, 12)}…`}
                   {' '}— {formatUsd(p.total_cost_usd)}
-                  {' '}({p.experiments} {p.experiments === 1 ? 'run' : 'runs'})
+                  {' '}({formatTokens(p.total_tokens)} tokens)
                 </option>
               ))}
             </select>
           </div>
-
-          {projectSummary && projectSummary.experiments.length > 0 && (
-            <div className="cost-picker">
-              <label
-                htmlFor="cost-exp-select"
-                title={
-                  'MLflow run within the selected project. Most recent ' +
-                  "first. Empty when the project's runs never called " +
-                  'start_experiment — see Historical for project totals.'
-                }
-              >
-                Run:
-              </label>
-              <select
-                id="cost-exp-select"
-                value={selectedExp ?? ''}
-                onChange={(e) => setSelectedExp(e.target.value || null)}
-              >
-                {projectSummary.experiments.map((exp) => (
-                  <option key={exp.experiment_id} value={exp.experiment_id}>
-                    {exp.experiment_id.slice(0, 16)} — {formatUsd(exp.total_cost_usd)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
         </div>
 
         {unassigned && unassigned.events > 0 && (
@@ -256,35 +199,21 @@ const CostDashboard = () => {
       </div>
 
       <div className="cost-tab-content">
-        {activeTab === 'realtime' && selectedExp && (
-          <RealTimeTab experimentId={selectedExp} />
-        )}
-        {activeTab === 'realtime' && !selectedExp && selectedProject && (
-          <div className="cost-empty">
-            This project has events but no MLflow run was registered.
-            See the project totals on the Historical tab.
-          </div>
+        {activeTab === 'realtime' && selectedProject && (
+          <RealTimeTab projectId={selectedProject} />
         )}
         {activeTab === 'realtime' && !selectedProject && (
           <div className="cost-empty">
             No projects yet. Run one with the marcus skill and it'll appear here.
           </div>
         )}
-        {activeTab === 'historical' && (
-          <HistoricalTab
-            onSelectExperiment={(id) => {
-              setSelectedExp(id);
-              setActiveTab('realtime');
-            }}
-          />
+        {activeTab === 'historical' && <HistoricalTab />}
+        {activeTab === 'budget' && selectedProject && (
+          <BudgetTab projectId={selectedProject} />
         )}
-        {activeTab === 'budget' && selectedExp && (
-          <BudgetTab experimentId={selectedExp} />
-        )}
-        {activeTab === 'budget' && !selectedExp && (
+        {activeTab === 'budget' && !selectedProject && (
           <div className="cost-empty">
-            Select a project (and an MLflow run inside it) to see budget
-            projection.
+            Select a project to see budget projection.
           </div>
         )}
         {activeTab === 'pricing' && <PricingTab />}

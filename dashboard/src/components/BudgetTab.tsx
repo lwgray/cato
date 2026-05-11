@@ -1,46 +1,45 @@
 /**
- * Tab 3 — Budget projection.
+ * Tab 3 — Budget view (project-scoped).
  *
- * Reads the active experiment's running totals plus its declared
- * ``budget_usd`` (set at experiment creation) and shows:
- * 1. Current spend / budget cap / remaining headroom
- * 2. Projected total based on elapsed-vs-completed ratio
- * 3. A threshold-crossing banner once spend exceeds 80% of budget
+ * Project-first (Marcus #503): renders cumulative spend, spend rate,
+ * and time-extrapolated projection for one project. Budget caps were
+ * an experiment-level field; for project view we surface spend
+ * trajectory and let the user judge against their own target (a
+ * project-level budget field can be added later if useful).
  *
- * No backend changes — derives everything from the experiment summary
- * already exposed by ``/api/cost/experiments/{id}``.
+ * Pulls from ``/api/cost/projects/{id}/summary``.
  */
 
 import { useEffect, useState } from 'react';
 import {
-  fetchExperimentSummary,
-  type ExperimentSummary,
+  fetchProjectFullSummary,
+  type ProjectFullSummary,
 } from '../services/costService';
 import './BudgetTab.css';
 
 interface Props {
-  experimentId: string;
+  projectId: string;
 }
 
 function formatUsd(v: number, decimals = 2): string {
   return `$${v.toFixed(decimals)}`;
 }
 
-function elapsedMinutes(startedAt: string, endedAt: string | null): number {
-  const start = new Date(startedAt).getTime();
-  const end = endedAt ? new Date(endedAt).getTime() : Date.now();
+function elapsedMinutes(firstAt: string, lastAt: string): number {
+  const start = new Date(firstAt).getTime();
+  const end = new Date(lastAt).getTime();
   return Math.max(0, (end - start) / 60000);
 }
 
-const BudgetTab = ({ experimentId }: Props) => {
-  const [summary, setSummary] = useState<ExperimentSummary | null>(null);
+const BudgetTab = ({ projectId }: Props) => {
+  const [summary, setSummary] = useState<ProjectFullSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
       try {
-        const s = await fetchExperimentSummary(experimentId);
+        const s = await fetchProjectFullSummary(projectId);
         if (!cancelled) {
           setSummary(s);
           setError(null);
@@ -51,125 +50,103 @@ const BudgetTab = ({ experimentId }: Props) => {
         }
       }
     };
-    tick();
+    void tick();
     const id = window.setInterval(tick, 10_000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [experimentId]);
+  }, [projectId]);
 
   if (error) return <div className="cost-error">⚠ {error}</div>;
   if (!summary) return <div className="cost-loading">Loading budget…</div>;
 
-  // budget_usd is on the experiment metadata returned by the summary;
-  // it is set at creation time (Marcus's Experiment dataclass field).
-  const budget = (summary as unknown as { budget_usd: number | null }).budget_usd;
-  const spent = summary.summary.total_cost_usd;
-  const isRunning = summary.ended_at === null;
-
-  // Projection: linear extrapolation from completed_tasks / total_tasks.
-  // Falls back to "n/a" if neither is known.
-  let projected: number | null = null;
-  if (
-    summary.completed_tasks != null &&
-    summary.total_tasks != null &&
-    summary.completed_tasks > 0
-  ) {
-    projected = spent * (summary.total_tasks / summary.completed_tasks);
-  }
-
-  const pct = budget && budget > 0 ? spent / budget : null;
-  const remaining = budget != null ? budget - spent : null;
-  const alertThreshold = pct != null && pct >= 0.8;
-  const overBudget = pct != null && pct >= 1.0;
-
-  const elapsed = elapsedMinutes(summary.started_at, summary.ended_at);
+  const s = summary.summary;
+  const spent = s.total_cost_usd;
+  const elapsed = elapsedMinutes(s.first_event_at, s.last_event_at);
+  // Spend rate $/min. Guard against zero-elapsed runs (instant single-event).
+  const rate = elapsed > 0 ? spent / elapsed : 0;
+  // Projection: assume same rate for another hour. Crude but useful when
+  // there's no declared budget cap to plan against.
+  const oneHourProjection = spent + rate * 60;
 
   return (
     <div className="cost-budget">
-      {alertThreshold && (
-        <div
-          className={`budget-banner ${
-            overBudget ? 'banner-over' : 'banner-warning'
-          }`}
-        >
-          {overBudget
-            ? `⚠ Over budget — spent ${formatUsd(spent)} of ${formatUsd(
-                budget!,
-              )} cap`
-            : `⚠ At ${(pct! * 100).toFixed(0)}% of budget`}
-        </div>
-      )}
-
       <section className="budget-grid">
         <div className="budget-card">
-          <span className="budget-label">Spent</span>
+          <span className="budget-label">Total spent</span>
           <span className="budget-value">{formatUsd(spent)}</span>
         </div>
         <div className="budget-card">
-          <span className="budget-label">Budget</span>
-          <span className="budget-value">
-            {budget != null ? formatUsd(budget) : '—'}
-          </span>
+          <span className="budget-label">Spend rate</span>
+          <span className="budget-value">{formatUsd(rate, 4)}/min</span>
         </div>
         <div className="budget-card">
-          <span className="budget-label">Remaining</span>
-          <span
-            className={`budget-value ${
-              remaining != null && remaining < 0 ? 'negative' : ''
-            }`}
-          >
-            {remaining != null ? formatUsd(remaining) : '—'}
-          </span>
+          <span className="budget-label">+1h projection</span>
+          <span className="budget-value">{formatUsd(oneHourProjection)}</span>
         </div>
         <div className="budget-card">
-          <span className="budget-label">Projected total</span>
+          <span className="budget-label">Cache savings</span>
           <span className="budget-value">
-            {projected != null ? formatUsd(projected) : '—'}
+            {(s.cache_hit_rate * 100).toFixed(1)}%
           </span>
         </div>
       </section>
 
-      {budget != null && budget > 0 && (
-        <section className="budget-bar-row">
-          <div className="budget-bar">
-            <div
-              className={`budget-bar-fill ${
-                overBudget ? 'fill-over' : alertThreshold ? 'fill-warning' : ''
-              }`}
-              style={{ width: `${Math.min(pct! * 100, 100)}%` }}
-            />
-          </div>
-          <div className="budget-bar-caption">
-            {(pct! * 100).toFixed(1)}% of {formatUsd(budget)}
-          </div>
-        </section>
-      )}
-
       <section className="budget-meta">
         <div>
-          <span className="meta-label">Status</span>
-          <span className="meta-value">{isRunning ? 'running' : 'done'}</span>
+          <span className="meta-label">Events</span>
+          <span className="meta-value">{s.total_events}</span>
+        </div>
+        <div>
+          <span className="meta-label">Agents</span>
+          <span className="meta-value">{s.agents}</span>
+        </div>
+        <div>
+          <span className="meta-label">Sessions</span>
+          <span className="meta-value">{s.sessions}</span>
         </div>
         <div>
           <span className="meta-label">Elapsed</span>
           <span className="meta-value">{elapsed.toFixed(1)} min</span>
         </div>
-        <div>
-          <span className="meta-label">Tasks</span>
-          <span className="meta-value">
-            {summary.completed_tasks ?? '?'} / {summary.total_tasks ?? '?'}
-          </span>
-        </div>
       </section>
 
-      {budget == null && (
-        <p className="budget-hint">
-          No budget set on this experiment. Add a <code>budget_usd</code> when
-          you create the experiment to see projections and alerts.
-        </p>
+      {summary.by_model.length > 0 && (
+        <section className="cost-panel">
+          <h3>Spend by model</h3>
+          <table className="cost-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Provider</th>
+                <th>Events</th>
+                <th>Cost</th>
+                <th>% of total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.by_model.map((m) => (
+                <tr key={`${m.model}-${m.provider}`}>
+                  <td>{m.model}</td>
+                  <td>{m.provider}</td>
+                  <td>{m.events}</td>
+                  <td>{formatUsd(m.cost_usd, 4)}</td>
+                  <td>
+                    {spent > 0 ? ((m.cost_usd / spent) * 100).toFixed(1) : '0'}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
+
+      <p className="budget-hint">
+        Spend rate is computed from first-to-last event timestamp for this
+        project. Project-level budget caps are not yet a Marcus concept;
+        when one lands, this view will surface a vs-cap comparison.
+      </p>
     </div>
   );
 };

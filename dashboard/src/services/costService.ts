@@ -148,10 +148,14 @@ export async function fetchSessionTurns(
 export interface ProjectRow {
   project_id: string;
   /**
-   * Human-readable name pulled from the experiments table when an
-   * MLflow run was registered for this project. NULL for projects
-   * whose runs never called start_experiment — the picker falls back
-   * to a truncated project_id in that case.
+   * Human-readable name. Resolved in order of preference:
+   * 1. experiments.project_name (set explicitly via start_experiment)
+   * 2. Marcus's project registry (data/marcus_state/projects.json),
+   *    which is the same source the regular Cato projects panel uses
+   * 3. NULL — picker falls back to a truncated project_id
+   *
+   * Most Marcus runs never open an MLflow experiment, so #2 is the
+   * usual source.
    */
   project_name: string | null;
   events: number;
@@ -197,6 +201,49 @@ export async function fetchProjectSummary(
   projectId: string,
 ): Promise<ProjectSummary> {
   return _get(`/api/cost/projects/${encodeURIComponent(projectId)}`);
+}
+
+/**
+ * Full per-project breakdown — drives the Real-time / Historical /
+ * Budget tabs in the project-first dashboard.
+ *
+ * Same shape as :func:`fetchExperimentSummary` but scoped to project_id,
+ * which is the only universal identity in Marcus's coordination model
+ * (Marcus #503). Marcus runs that never opened an MLflow experiment
+ * still have project_id on every event, so this is the universal
+ * surface for cost data.
+ */
+export interface ProjectFullSummary {
+  project_id: string;
+  project_name: string | null;
+  summary: {
+    total_events: number;
+    experiments: number;
+    agents: number;
+    sessions: number;
+    total_tokens: number;
+    input_tokens: number;
+    cache_creation_tokens: number;
+    cache_read_tokens: number;
+    output_tokens: number;
+    total_cost_usd: number;
+    cache_hit_rate: number;
+    first_event_at: string;
+    last_event_at: string;
+  };
+  by_role: RoleSlice[];
+  by_agent: AgentSlice[];
+  by_task: TaskSlice[];
+  by_operation: OperationSlice[];
+  by_model: ModelSlice[];
+}
+
+export async function fetchProjectFullSummary(
+  projectId: string,
+): Promise<ProjectFullSummary> {
+  return _get(
+    `/api/cost/projects/${encodeURIComponent(projectId)}/summary`,
+  );
 }
 
 /**

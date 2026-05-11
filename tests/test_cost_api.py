@@ -11,6 +11,7 @@ Tests are skipped if Marcus cost_tracking modules aren't importable.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -265,6 +266,118 @@ class TestProjectSummary:
         assert body["project_id"] == "proj_1"
         assert body["totals"]["events"] == 3
         assert len(body["experiments"]) == 1
+
+
+@requires_marcus
+class TestProjectFullSummary:
+    """``GET /api/cost/projects/{id}/summary`` — drives project-first tabs."""
+
+    def test_returns_full_breakdown(self, client: TestClient) -> None:
+        """Same shape as /experiments/{id} but scoped to project_id."""
+        resp = client.get("/api/cost/projects/proj_1/summary")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["project_id"] == "proj_1"
+        # fixture has 3 events: planner(1500) + worker_turn1(2600) + worker_turn2(350)
+        assert body["summary"]["total_events"] == 3
+        assert body["summary"]["total_tokens"] == 4450
+        roles = {r["role"]: r for r in body["by_role"]}
+        assert "planner" in roles and "worker" in roles
+        assert any(a["agent_id"] == "agent_1" for a in body["by_agent"])
+
+    def test_unknown_returns_404(self, client: TestClient) -> None:
+        """Project with no events → 404, not empty payload."""
+        resp = client.get("/api/cost/projects/no_such_project/summary")
+        assert resp.status_code == 404
+
+
+@requires_marcus
+class TestProjectNameEnrichment:
+    """Picker names come from Marcus's projects.json, not MLflow.
+
+    Marcus's main code path never opens an MLflow experiment, so the
+    ``experiments`` table is usually empty. The project list endpoint
+    must still surface human-readable names by reading Marcus's
+    project registry (same source as Cato's main projects panel).
+    """
+
+    def test_list_projects_overlays_registry_name(
+        self,
+        store: Any,
+        client: TestClient,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A project_id with no MLflow row gets its name from projects.json.
+
+        Simulates production: Marcus's main code path emits token events
+        for a project without ever calling start_experiment. The
+        ``experiments`` table has no row, so list_projects.project_name
+        is NULL — the registry must fill it.
+        """
+        from src.cost_tracking.cost_store import TokenEvent
+
+        from backend import cost_routes
+
+        store.record_event(
+            TokenEvent(
+                experiment_id="exp_orphan",
+                project_id="proj_no_mlflow",
+                agent_id="planner",
+                agent_role="planner",
+                operation="parse_prd",
+                provider="anthropic",
+                model="claude-sonnet-4-6",
+                input_tokens=100,
+                output_tokens=50,
+                request_id="req_orphan",
+            )
+        )
+
+        fake_root = tmp_path / "marcus"
+        state_dir = fake_root / "data" / "marcus_state"
+        state_dir.mkdir(parents=True)
+        (state_dir / "projects.json").write_text(
+            json.dumps(
+                {
+                    "proj_no_mlflow": {
+                        "id": "proj_no_mlflow",
+                        "name": "registry-named-project",
+                    },
+                    "active_project": {"id": "proj_no_mlflow"},
+                }
+            )
+        )
+        monkeypatch.setattr(cost_routes, "_marcus_root", fake_root)
+        cost_routes.clear_project_names_cache()
+
+        resp = client.get("/api/cost/projects")
+        assert resp.status_code == 200
+        projects = resp.json()["projects"]
+        orphan = next(p for p in projects if p["project_id"] == "proj_no_mlflow")
+        assert orphan["project_name"] == "registry-named-project"
+
+    def test_existing_mlflow_name_takes_precedence(
+        self, client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit project_name from start_experiment beats the registry."""
+        from backend import cost_routes
+
+        # The fixture seeds 'hangman' via the experiments table for proj_1.
+        # If registry says something different, MLflow wins (user-explicit).
+        fake_root = tmp_path / "marcus"
+        state_dir = fake_root / "data" / "marcus_state"
+        state_dir.mkdir(parents=True)
+        (state_dir / "projects.json").write_text(
+            json.dumps({"proj_1": {"id": "proj_1", "name": "different-name"}})
+        )
+        monkeypatch.setattr(cost_routes, "_marcus_root", fake_root)
+        cost_routes.clear_project_names_cache()
+
+        resp = client.get("/api/cost/projects")
+        projects = resp.json()["projects"]
+        proj_1 = next(p for p in projects if p["project_id"] == "proj_1")
+        assert proj_1["project_name"] == "hangman"  # from experiments table
 
 
 @requires_marcus
