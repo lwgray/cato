@@ -156,6 +156,43 @@ class PriceCreateRequest(BaseModel):
 router = APIRouter(prefix="/api/cost", tags=["cost"])
 
 
+@router.get("/projects")  # type: ignore[misc]
+def list_projects(
+    limit: int = Query(100, ge=1, le=1000),
+    aggregator: Any = Depends(get_aggregator),
+) -> Dict[str, Any]:
+    """List every project that has cost activity, sorted by spend desc.
+
+    Project is Marcus's primary identity (GH-388 + spawn_agents.py), so
+    this is the dashboard's main entry point. Each row carries event
+    count, experiment count, agent count, tokens, cost, and first/last
+    activity timestamps. Excludes the ``'unassigned'`` bucket — surfaced
+    separately via ``/api/cost/projects/unassigned``.
+
+    Parameters
+    ----------
+    limit : int
+        Cap at 1000. Default 100.
+    """
+    rows = aggregator.list_projects(limit=limit)
+    return {"projects": rows, "count": len(rows)}
+
+
+@router.get("/projects/unassigned")  # type: ignore[misc]
+def unassigned_totals(
+    aggregator: Any = Depends(get_aggregator),
+) -> Dict[str, Any]:
+    """Cost of LLM calls Marcus made without an active PlannerContext.
+
+    Surfaces the "no project resolved" bucket as a first-class panel so
+    the gap is observable rather than silent. A high number here means
+    a code path is making LLM calls outside the MCP request lifecycle
+    (or a project-creation tool ran without a target project_id).
+    """
+    totals: Dict[str, Any] = aggregator.unassigned_totals()
+    return totals
+
+
 @router.get("/experiments")  # type: ignore[misc]
 def list_experiments(
     project_id: Optional[str] = Query(None),

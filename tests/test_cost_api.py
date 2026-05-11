@@ -136,6 +136,82 @@ def client(store: Any) -> TestClient:
 
 
 @requires_marcus
+class TestProjectsList:
+    """/api/cost/projects — primary entry point for the dashboard."""
+
+    def test_lists_projects_with_totals(self, client: TestClient) -> None:
+        """One row per distinct project_id, derived from token_events."""
+        resp = client.get("/api/cost/projects")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["count"] == 1
+        assert body["projects"][0]["project_id"] == "proj_1"
+        assert (
+            body["projects"][0]["total_tokens"]
+            == 1000 + 500 + 2000 + 500 + 100 + 300 + 50
+        )
+
+    def test_excludes_unassigned_from_project_list(
+        self, store: Any, client: TestClient
+    ) -> None:
+        """Events in the 'unassigned' bucket do not appear as a project."""
+        from src.cost_tracking.cost_store import TokenEvent
+
+        store.record_event(
+            TokenEvent(
+                experiment_id="unassigned",
+                project_id="unassigned",
+                agent_id="planner",
+                agent_role="planner",
+                operation="parse_prd",
+                provider="anthropic",
+                model="claude-sonnet-4-6",
+                input_tokens=10,
+                output_tokens=10,
+            )
+        )
+        resp = client.get("/api/cost/projects")
+        ids = {p["project_id"] for p in resp.json()["projects"]}
+        assert "unassigned" not in ids
+
+
+@requires_marcus
+class TestUnassignedTotals:
+    """/api/cost/projects/unassigned — gap visibility."""
+
+    def test_returns_zeros_when_empty(self, client: TestClient) -> None:
+        """No unassigned events → zero totals (200, not 404)."""
+        resp = client.get("/api/cost/projects/unassigned")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["events"] == 0
+        assert body["total_cost_usd"] == 0.0
+
+    def test_sums_unassigned_events(self, store: Any, client: TestClient) -> None:
+        """An event tagged 'unassigned' shows up in the totals."""
+        from src.cost_tracking.cost_store import TokenEvent
+
+        store.record_event(
+            TokenEvent(
+                experiment_id="unassigned",
+                project_id="unassigned",
+                agent_id="planner",
+                agent_role="planner",
+                operation="parse_prd",
+                provider="anthropic",
+                model="claude-sonnet-4-6",
+                input_tokens=1_000_000,
+                output_tokens=0,
+            )
+        )
+        resp = client.get("/api/cost/projects/unassigned")
+        body = resp.json()
+        assert body["events"] == 1
+        # 1M input * $3/M = $3
+        assert body["total_cost_usd"] == pytest.approx(3.0, rel=1e-6)
+
+
+@requires_marcus
 class TestExperimentsList:
     def test_lists_experiments(self, client: TestClient) -> None:
         """Endpoint returns the seeded experiment with totals."""
