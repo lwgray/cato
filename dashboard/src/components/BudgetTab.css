@@ -123,3 +123,122 @@
   border-radius: 4px;
   font-size: 12px;
 }
+
+/* Budget cap form */
+.budget-set-form {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--bg-elevated, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 6px;
+}
+
+.budget-current-cap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.budget-cap-label {
+  font-size: 13px;
+  color: var(--text-muted, #475569);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.budget-cap-value {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+.budget-cap-note {
+  font-size: 13px;
+  color: var(--text-muted, #475569);
+  font-style: italic;
+}
+
+.budget-cap-empty {
+  font-size: 13px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.budget-edit-btn {
+  margin-left: auto;
+  padding: 4px 12px;
+  font-size: 13px;
+  background: var(--bg-canvas, #f8fafc);
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.budget-edit-btn:hover {
+  background: var(--bg-hover, #e2e8f0);
+}
+
+.budget-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.budget-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted, #475569);
+}
+
+.budget-form input {
+  padding: 6px 10px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 160px;
+}
+
+.budget-form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.budget-form-actions button {
+  padding: 6px 14px;
+  font-size: 13px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  cursor: pointer;
+}
+
+.budget-form-actions button[type="submit"] {
+  background: var(--primary, #3b82f6);
+  color: white;
+  border-color: var(--primary, #3b82f6);
+}
+
+.budget-form-actions button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.budget-form-hint {
+  margin-left: 8px;
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+}
+
+.budget-form-msg {
+  width: 100%;
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  color: var(--text-muted, #475569);
+}
+
+.budget-form-msg.success {
+  color: var(--success, #16a34a);
+}

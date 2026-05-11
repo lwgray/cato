@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -119,8 +121,126 @@ def get_aggregator(store: Any = Depends(get_store)) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Project-name resolution
+# ---------------------------------------------------------------------------
+#
+# Marcus's main code path never calls ``start_experiment``, so the
+# ``experiments`` table is usually empty and we can't get a human-
+# readable project_name from there. Instead we read Marcus's project
+# registry directly — ``data/marcus_state/projects.json`` — which is
+# the same source Cato's regular projects panel uses
+# (``aggregator._load_projects()`` in cato_src/core/aggregator.py).
+#
+# Cached with a 30s TTL: the file is small but reading it on every
+# dashboard tick is wasteful, and 30s matches the dashboard's poll
+# interval so the cache effectively no-ops repeat requests within a
+# poll.
+
+_PROJECT_NAMES_CACHE: Dict[str, str] = {}
+_PROJECT_NAMES_CACHE_AT: float = 0.0
+_PROJECT_NAMES_TTL_SEC = 30.0
+
+
+def _load_project_names() -> Dict[str, str]:
+    """Map ``project_id`` → ``name`` from Marcus's project registry.
+
+    Reads ``<marcus_root>/data/marcus_state/projects.json`` (the same
+    file Marcus's :class:`ProjectRegistry` writes). Returns an empty
+    dict on any read failure — the dashboard then falls back to a
+    truncated project_id in the picker, which is the pre-existing
+    behavior.
+
+    Cached for ``_PROJECT_NAMES_TTL_SEC`` to keep poll loops cheap.
+    """
+    global _PROJECT_NAMES_CACHE, _PROJECT_NAMES_CACHE_AT
+
+    now = time.monotonic()
+    if (
+        _PROJECT_NAMES_CACHE
+        and (now - _PROJECT_NAMES_CACHE_AT) < _PROJECT_NAMES_TTL_SEC
+    ):
+        return _PROJECT_NAMES_CACHE
+
+    if _marcus_root is None:
+        return {}
+
+    projects_file = _marcus_root / "data" / "marcus_state" / "projects.json"
+    if not projects_file.exists():
+        return {}
+
+    try:
+        with projects_file.open("r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.debug("projects.json unreadable: %s", exc)
+        return {}
+
+    out: Dict[str, str] = {}
+    for key, value in raw.items():
+        # projects.json is a dict keyed by project_id with a sentinel
+        # 'active_project' entry. Skip non-dict values and unkeyed rows.
+        if key == "active_project" or not isinstance(value, dict):
+            continue
+        pid = value.get("id")
+        name = value.get("name")
+        if pid and name:
+            # Marcus normalizes project_id to dashless hex at the write
+            # path now (see canonical_project_id in cost_recorder.py), so
+            # all new token_events rows match the second key below. We
+            # index both variants anyway:
+            #   - dashless covers new writes + legacy .hex auto-discovery
+            #   - dashed covers the projects.json key itself (some Cato
+            #     code paths look it up by registry id directly)
+            # Cheap defense-in-depth against drift.
+            out[pid] = name
+            out[pid.replace("-", "")] = name
+
+    _PROJECT_NAMES_CACHE = out
+    _PROJECT_NAMES_CACHE_AT = now
+    return out
+
+
+def clear_project_names_cache() -> None:
+    """Drop the project-name cache. Used by tests."""
+    global _PROJECT_NAMES_CACHE, _PROJECT_NAMES_CACHE_AT
+    _PROJECT_NAMES_CACHE = {}
+    _PROJECT_NAMES_CACHE_AT = 0.0
+
+
+def _enrich_project_names(rows: list) -> list:
+    """Overlay registry names on cost rows when no MLflow name exists.
+
+    Mutates each row in-place: if ``project_name`` is None / missing,
+    fill it from the registry. Otherwise leave it (an MLflow run with
+    an explicit project_name wins because it was set by the user).
+    """
+    names = _load_project_names()
+    for row in rows:
+        if not row.get("project_name") and row.get("project_id") in names:
+            row["project_name"] = names[row["project_id"]]
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
+
+
+class ProjectBudgetRequest(BaseModel):
+    """Payload for ``PUT /api/cost/projects/{id}/budget``.
+
+    Sending ``budget_usd <= 0`` removes the cap (Marcus side deletes
+    the row); the dashboard then reverts to the "no budget set" hint.
+    """
+
+    budget_usd: float = Field(
+        ...,
+        description="USD ceiling. <= 0 clears the cap.",
+    )
+    note: Optional[str] = Field(
+        None,
+        description="Free-text annotation (e.g., 'PoC cap', 'Q2 budget').",
+    )
 
 
 class PriceCreateRequest(BaseModel):
@@ -191,6 +311,7 @@ def list_projects(
         Cap at 1000. Default 100.
     """
     rows = aggregator.list_projects(limit=limit)
+    _enrich_project_names(rows)
     return {"projects": rows, "count": len(rows)}
 
 
@@ -254,12 +375,81 @@ def project_summary(
     project_id: str,
     aggregator: Any = Depends(get_aggregator),
 ) -> Dict[str, Any]:
-    """Project rollup + list of experiment summaries."""
+    """Project rollup + list of experiment summaries.
+
+    Legacy thin shape kept for backwards compatibility with the old
+    project picker; the project-first dashboard tabs use
+    ``/projects/{id}/summary`` for the full per-project breakdown.
+    """
+    names = _load_project_names()
     return {
         "project_id": project_id,
+        "project_name": names.get(project_id),
         "totals": aggregator.project_totals(project_id),
         "experiments": aggregator.list_experiments(project_id=project_id),
     }
+
+
+@router.get("/projects/{project_id}/budget")  # type: ignore[misc]
+def get_project_budget(
+    project_id: str,
+    store: Any = Depends(get_store),
+) -> Dict[str, Any]:
+    """Return the budget cap set for a project, or null if none.
+
+    Surfaced to the dashboard's Budget tab so it can render
+    spend-vs-cap when a ceiling is set, falling back to spend-only
+    when not.
+    """
+    row = store.get_project_budget(project_id)
+    return {"project_id": project_id, "budget": row}
+
+
+@router.put("/projects/{project_id}/budget")  # type: ignore[misc]
+def put_project_budget(
+    project_id: str,
+    payload: ProjectBudgetRequest,
+    store: Any = Depends(get_store),
+) -> Dict[str, Any]:
+    """Set or clear a project's budget cap.
+
+    Idempotent upsert on Marcus's side; the cap survives Cato
+    restarts because it's persisted to costs.db. Passing
+    ``budget_usd <= 0`` clears the cap (deletes the row).
+    """
+    store.set_project_budget(
+        project_id=project_id,
+        budget_usd=payload.budget_usd,
+        note=payload.note,
+    )
+    row = store.get_project_budget(project_id)
+    return {"project_id": project_id, "budget": row}
+
+
+@router.get("/projects/{project_id}/summary")  # type: ignore[misc]
+def project_full_summary(
+    project_id: str,
+    aggregator: Any = Depends(get_aggregator),
+) -> Dict[str, Any]:
+    """Full per-project breakdown — drives Real-time/Historical/Budget tabs.
+
+    Same shape as ``/experiments/{id}`` (summary + by_role / by_agent /
+    by_task / by_operation / by_model) but scoped to project_id, the
+    only universal identity in Marcus's coordination model (#503).
+    Project-name is overlaid from Marcus's project registry (same
+    source the regular projects panel uses).
+
+    Raises
+    ------
+    HTTPException
+        404 if the project has no token events.
+    """
+    summary: Optional[Dict[str, Any]] = aggregator.project_summary(project_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    names = _load_project_names()
+    summary["project_name"] = names.get(project_id)
+    return summary
 
 
 @router.get("/sessions/{session_id}/turns")  # type: ignore[misc]

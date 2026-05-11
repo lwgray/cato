@@ -1,29 +1,25 @@
 /**
- * Tab 1 — Real-time experiment view.
+ * Tab 1 — Real-time project view.
  *
- * Polls Cato's ``/api/cost/experiments/{id}`` every 5s for the active
- * experiment and renders the headline numbers plus two D3 charts:
- * per-agent spend bars and a per-turn cost trajectory for the most
- * recent session.
+ * Project-first (Marcus #503): renders the cost breakdown for one
+ * project across all agents, roles, sessions, and turns. Replaces the
+ * old experiment-keyed view because Marcus's main code path doesn't
+ * open MLflow experiments — project_id is the universal identity.
  *
- * Why polling, not SSE: Marcus's coordination model is board-mediated
- * and pull-based; polling fits that paradigm and is much simpler to
- * debug. We can layer SSE on later if real time matters more.
+ * Pulls from ``/api/cost/projects/{id}/summary`` which mirrors the
+ * shape ``/api/cost/experiments/{id}`` used to return.
  */
 
 import { useEffect, useState } from 'react';
 import {
-  fetchExperimentSummary,
-  fetchSessionTurns,
-  type ExperimentSummary,
-  type TurnPoint,
+  fetchProjectFullSummary,
+  type ProjectFullSummary,
 } from '../services/costService';
 import AgentSpendBars from './AgentSpendBars';
-import TurnTrajectory from './TurnTrajectory';
 import './RealTimeTab.css';
 
 interface Props {
-  experimentId: string;
+  projectId: string;
   /** Poll interval in ms. Default 5000. Set to 0 to disable polling. */
   pollIntervalMs?: number;
 }
@@ -42,45 +38,44 @@ function formatPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
 
-const RealTimeTab = ({ experimentId, pollIntervalMs = 5000 }: Props) => {
-  const [summary, setSummary] = useState<ExperimentSummary | null>(null);
-  const [turns, setTurns] = useState<TurnPoint[]>([]);
-  const [selectedSession, setSelectedSession] = useState<string | null>(null);
+const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
+  const [summary, setSummary] = useState<ProjectFullSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 404 from /summary means the project exists in the picker (it has a
+  // ProjectRow entry from /projects) but has zero token_events. Distinct
+  // from a generic error — render a friendly empty state.
+  const [noActivity, setNoActivity] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
-  // Poll the experiment summary.
   useEffect(() => {
     let cancelled = false;
+    setLoaded(false);
+    setNoActivity(false);
+    setSummary(null);
 
     const tick = async () => {
       try {
-        const s = await fetchExperimentSummary(experimentId);
+        const s = await fetchProjectFullSummary(projectId);
         if (!cancelled) {
           setSummary(s);
+          setNoActivity(false);
           setError(null);
-          // Pick the agent with the most turns as default session source.
-          // This is a heuristic — we surface a session picker once
-          // sessions become a first-class concept in the UI.
-          if (selectedSession === null) {
-            const topAgent = s.by_agent.find((a) => a.sessions > 0);
-            if (topAgent) {
-              // Use the agent_id-keyed convention: agents working a task
-              // commonly run one session. The session list isn't in the
-              // summary today; the trajectory chart stays empty until
-              // the user picks one via /api/cost/sessions/{id}/turns.
-              // For Phase 7, we leave selectedSession null until the
-              // session picker lands in Tabs 2-4.
-            }
-          }
         }
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("HTTP 404")) {
+          setNoActivity(true);
+          setError(null);
+        } else {
+          setError(msg);
         }
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
     };
 
-    tick();
+    void tick();
     if (pollIntervalMs > 0) {
       const id = window.setInterval(tick, pollIntervalMs);
       return () => {
@@ -91,51 +86,37 @@ const RealTimeTab = ({ experimentId, pollIntervalMs = 5000 }: Props) => {
     return () => {
       cancelled = true;
     };
-  }, [experimentId, pollIntervalMs, selectedSession]);
-
-  // Fetch turns when a session is selected.
-  useEffect(() => {
-    if (!selectedSession) {
-      setTurns([]);
-      return;
-    }
-    let cancelled = false;
-    fetchSessionTurns(selectedSession)
-      .then((d) => {
-        if (!cancelled) setTurns(d.turns);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedSession]);
+  }, [projectId, pollIntervalMs]);
 
   if (error) {
     return <div className="cost-error">⚠ {error}</div>;
   }
-  if (!summary) {
+  if (noActivity) {
+    return (
+      <div className="cost-empty">
+        <p>No LLM activity recorded for this project yet.</p>
+        <p className="hint">
+          Cost data appears here as soon as Marcus or an agent makes its
+          first LLM call against this project.
+        </p>
+      </div>
+    );
+  }
+  if (!summary && !loaded) {
     return <div className="cost-loading">Loading cost data…</div>;
+  }
+  if (!summary) {
+    return <div className="cost-empty">No data.</div>;
   }
 
   const s = summary.summary;
-  const isRunning = summary.ended_at === null;
 
   return (
     <div className="cost-realtime">
-      {/* Headline strip */}
       <header className="cost-headline">
         <div className="cost-headline-title">
           <span className="cost-experiment-name">
-            {summary.project_name ?? summary.experiment_id}
-          </span>
-          <span
-            className={`cost-status-pill ${isRunning ? 'running' : 'done'}`}
-          >
-            {isRunning ? '● running' : '✓ done'}
+            {summary.project_name ?? summary.project_id}
           </span>
         </div>
         <div className="cost-headline-metrics">
@@ -155,10 +136,13 @@ const RealTimeTab = ({ experimentId, pollIntervalMs = 5000 }: Props) => {
             <span className="cost-stat-label">Events</span>
             <span className="cost-stat-value">{s.total_events}</span>
           </div>
+          <div className="cost-stat">
+            <span className="cost-stat-label">Agents</span>
+            <span className="cost-stat-value">{s.agents}</span>
+          </div>
         </div>
       </header>
 
-      {/* Token breakdown row */}
       <section className="cost-tokens-row">
         <div className="cost-token-card">
           <span className="cost-token-label">Input</span>
@@ -182,7 +166,6 @@ const RealTimeTab = ({ experimentId, pollIntervalMs = 5000 }: Props) => {
         </div>
       </section>
 
-      {/* Role + agent breakdowns */}
       <section className="cost-breakdown">
         <div className="cost-panel">
           <h3>Cost by role</h3>
@@ -200,31 +183,109 @@ const RealTimeTab = ({ experimentId, pollIntervalMs = 5000 }: Props) => {
 
         <div className="cost-panel cost-panel-wide">
           <h3>Cost by agent</h3>
-          <AgentSpendBars
-            agents={summary.by_agent}
-            onAgentClick={(agentId) => {
-              // First-pass: clicking an agent sets the session source
-              // to the agent_id. The session_id is not in the summary
-              // payload today; for Phase 7 we leave the chart empty
-              // until the session-picker lands in Tabs 2-4.
-              setSelectedSession(agentId);
-            }}
-          />
+          <AgentSpendBars agents={summary.by_agent} />
         </div>
       </section>
 
-      {/* Turn trajectory */}
-      <section className="cost-panel">
-        <h3>
-          Per-turn trajectory
-          {selectedSession && (
-            <span className="cost-session-hint">session: {selectedSession}</span>
-          )}
-        </h3>
-        <TurnTrajectory turns={turns} />
-      </section>
+      {summary.by_operation.length > 0 && (
+        <section className="cost-panel">
+          <h3>
+            Tokens by operation{' '}
+            <small className="cost-panel-hint">
+              Sorted by total tokens — the heaviest call is the prompt-
+              tightening target. Low cache-hit % on a heavy row means
+              that operation isn't benefiting from the prompt cache.
+            </small>
+          </h3>
+          <table className="cost-table cost-table-dense">
+            <thead>
+              <tr>
+                <th>Operation</th>
+                <th>Calls</th>
+                <th>Input</th>
+                <th>Cache create</th>
+                <th>Cache read</th>
+                <th>Output</th>
+                <th>Cache %</th>
+                <th>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.by_operation.map((op) => (
+                <tr key={op.operation}>
+                  <td>{op.operation}</td>
+                  <td>{op.events}</td>
+                  <td>{formatTokens(op.input_tokens ?? 0)}</td>
+                  <td>{formatTokens(op.cache_creation_tokens ?? 0)}</td>
+                  <td>{formatTokens(op.cache_read_tokens ?? 0)}</td>
+                  <td>{formatTokens(op.output_tokens ?? 0)}</td>
+                  <td className={cacheCellClass(op.cache_hit_rate ?? 0)}>
+                    {formatPct(op.cache_hit_rate ?? 0)}
+                  </td>
+                  <td>{formatUsd(op.cost_usd, 4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {summary.by_model.length > 0 && (
+        <section className="cost-panel">
+          <h3>
+            Tokens by model{' '}
+            <small className="cost-panel-hint">
+              Each provider/model with its cache effectiveness.
+            </small>
+          </h3>
+          <table className="cost-table cost-table-dense">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Provider</th>
+                <th>Calls</th>
+                <th>Input</th>
+                <th>Cache create</th>
+                <th>Cache read</th>
+                <th>Output</th>
+                <th>Cache %</th>
+                <th>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.by_model.map((m) => (
+                <tr key={`${m.model}-${m.provider}`}>
+                  <td>{m.model}</td>
+                  <td>{m.provider}</td>
+                  <td>{m.events}</td>
+                  <td>{formatTokens(m.input_tokens ?? 0)}</td>
+                  <td>{formatTokens(m.cache_creation_tokens ?? 0)}</td>
+                  <td>{formatTokens(m.cache_read_tokens ?? 0)}</td>
+                  <td>{formatTokens(m.output_tokens ?? 0)}</td>
+                  <td className={cacheCellClass(m.cache_hit_rate ?? 0)}>
+                    {formatPct(m.cache_hit_rate ?? 0)}
+                  </td>
+                  <td>{formatUsd(m.cost_usd, 4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
     </div>
   );
 };
+
+/**
+ * Color-code the cache-hit cell so low-cache rows pop out.
+ * Below 30%: amber (the row that needs prompt-tightening attention).
+ * 30–70%: neutral.
+ * Above 70%: green (cache is working).
+ */
+function cacheCellClass(rate: number): string {
+  if (rate < 0.3) return 'cache-cell cache-cold';
+  if (rate > 0.7) return 'cache-cell cache-hot';
+  return 'cache-cell';
+}
 
 export default RealTimeTab;
