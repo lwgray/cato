@@ -41,21 +41,37 @@ function formatPct(v: number): string {
 const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
   const [summary, setSummary] = useState<ProjectFullSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 404 from /summary means the project exists in the picker (it has a
+  // ProjectRow entry from /projects) but has zero token_events. Distinct
+  // from a generic error — render a friendly empty state.
+  const [noActivity, setNoActivity] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setLoaded(false);
+    setNoActivity(false);
+    setSummary(null);
 
     const tick = async () => {
       try {
         const s = await fetchProjectFullSummary(projectId);
         if (!cancelled) {
           setSummary(s);
+          setNoActivity(false);
           setError(null);
         }
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("HTTP 404")) {
+          setNoActivity(true);
+          setError(null);
+        } else {
+          setError(msg);
         }
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
     };
 
@@ -75,8 +91,22 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
   if (error) {
     return <div className="cost-error">⚠ {error}</div>;
   }
-  if (!summary) {
+  if (noActivity) {
+    return (
+      <div className="cost-empty">
+        <p>No LLM activity recorded for this project yet.</p>
+        <p className="hint">
+          Cost data appears here as soon as Marcus or an agent makes its
+          first LLM call against this project.
+        </p>
+      </div>
+    );
+  }
+  if (!summary && !loaded) {
     return <div className="cost-loading">Loading cost data…</div>;
+  }
+  if (!summary) {
+    return <div className="cost-empty">No data.</div>;
   }
 
   const s = summary.summary;

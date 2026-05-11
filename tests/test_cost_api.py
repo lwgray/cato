@@ -269,6 +269,45 @@ class TestProjectSummary:
 
 
 @requires_marcus
+class TestProjectBudget:
+    """``GET/PUT /api/cost/projects/{id}/budget`` — project-level cap."""
+
+    def test_get_returns_null_when_unset(self, client: TestClient) -> None:
+        """A project with no cap returns ``budget: null``."""
+        resp = client.get("/api/cost/projects/proj_1/budget")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["project_id"] == "proj_1"
+        assert body["budget"] is None
+
+    def test_put_then_get_roundtrips(self, client: TestClient) -> None:
+        """Setting a cap persists across a fresh GET."""
+        resp = client.put(
+            "/api/cost/projects/proj_1/budget",
+            json={"budget_usd": 25.5, "note": "poc"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["budget"]["budget_usd"] == 25.5
+        assert body["budget"]["note"] == "poc"
+
+        resp2 = client.get("/api/cost/projects/proj_1/budget")
+        assert resp2.json()["budget"]["budget_usd"] == 25.5
+
+    def test_put_zero_clears_the_cap(self, client: TestClient) -> None:
+        """PUT with budget_usd=0 removes the row (no cap)."""
+        client.put(
+            "/api/cost/projects/proj_1/budget",
+            json={"budget_usd": 25.0},
+        )
+        resp = client.put(
+            "/api/cost/projects/proj_1/budget",
+            json={"budget_usd": 0},
+        )
+        assert resp.json()["budget"] is None
+
+
+@requires_marcus
 class TestProjectFullSummary:
     """``GET /api/cost/projects/{id}/summary`` — drives project-first tabs."""
 

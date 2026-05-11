@@ -184,11 +184,14 @@ def _load_project_names() -> Dict[str, str]:
         pid = value.get("id")
         name = value.get("name")
         if pid and name:
-            # token_events.project_id stores UUIDs without dashes (the
-            # cost recorder calls .hex), but projects.json stores them
-            # in canonical dashed form (a18b...-...). Index both
-            # variants so the lookup matches whichever form the cost
-            # row carries.
+            # Marcus normalizes project_id to dashless hex at the write
+            # path now (see canonical_project_id in cost_recorder.py), so
+            # all new token_events rows match the second key below. We
+            # index both variants anyway:
+            #   - dashless covers new writes + legacy .hex auto-discovery
+            #   - dashed covers the projects.json key itself (some Cato
+            #     code paths look it up by registry id directly)
+            # Cheap defense-in-depth against drift.
             out[pid] = name
             out[pid.replace("-", "")] = name
 
@@ -221,6 +224,23 @@ def _enrich_project_names(rows: list) -> list:
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
+
+
+class ProjectBudgetRequest(BaseModel):
+    """Payload for ``PUT /api/cost/projects/{id}/budget``.
+
+    Sending ``budget_usd <= 0`` removes the cap (Marcus side deletes
+    the row); the dashboard then reverts to the "no budget set" hint.
+    """
+
+    budget_usd: float = Field(
+        ...,
+        description="USD ceiling. <= 0 clears the cap.",
+    )
+    note: Optional[str] = Field(
+        None,
+        description="Free-text annotation (e.g., 'PoC cap', 'Q2 budget').",
+    )
 
 
 class PriceCreateRequest(BaseModel):
@@ -368,6 +388,42 @@ def project_summary(
         "totals": aggregator.project_totals(project_id),
         "experiments": aggregator.list_experiments(project_id=project_id),
     }
+
+
+@router.get("/projects/{project_id}/budget")  # type: ignore[misc]
+def get_project_budget(
+    project_id: str,
+    store: Any = Depends(get_store),
+) -> Dict[str, Any]:
+    """Return the budget cap set for a project, or null if none.
+
+    Surfaced to the dashboard's Budget tab so it can render
+    spend-vs-cap when a ceiling is set, falling back to spend-only
+    when not.
+    """
+    row = store.get_project_budget(project_id)
+    return {"project_id": project_id, "budget": row}
+
+
+@router.put("/projects/{project_id}/budget")  # type: ignore[misc]
+def put_project_budget(
+    project_id: str,
+    payload: ProjectBudgetRequest,
+    store: Any = Depends(get_store),
+) -> Dict[str, Any]:
+    """Set or clear a project's budget cap.
+
+    Idempotent upsert on Marcus's side; the cap survives Cato
+    restarts because it's persisted to costs.db. Passing
+    ``budget_usd <= 0`` clears the cap (deletes the row).
+    """
+    store.set_project_budget(
+        project_id=project_id,
+        budget_usd=payload.budget_usd,
+        note=payload.note,
+    )
+    row = store.get_project_budget(project_id)
+    return {"project_id": project_id, "budget": row}
 
 
 @router.get("/projects/{project_id}/summary")  # type: ignore[misc]

@@ -246,6 +246,55 @@ export async function fetchProjectFullSummary(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Project budget caps
+// ---------------------------------------------------------------------------
+
+export interface ProjectBudget {
+  budget_usd: number;
+  set_at: string;
+  note: string | null;
+}
+
+export interface ProjectBudgetResponse {
+  project_id: string;
+  /** Null when no cap is set. */
+  budget: ProjectBudget | null;
+}
+
+/** Read the budget cap (if any) for a project. */
+export async function fetchProjectBudget(
+  projectId: string,
+): Promise<ProjectBudgetResponse> {
+  return _get(`/api/cost/projects/${encodeURIComponent(projectId)}/budget`);
+}
+
+/**
+ * Set (or clear) a project's budget cap.
+ *
+ * Pass ``budget_usd <= 0`` to remove the cap entirely. The Marcus side
+ * upserts in place — the cap survives across Cato restarts since it
+ * persists to costs.db.
+ */
+export async function setProjectBudget(
+  projectId: string,
+  budgetUsd: number,
+  note?: string,
+): Promise<ProjectBudgetResponse> {
+  const resp = await fetch(
+    `${API_BASE_URL}/api/cost/projects/${encodeURIComponent(projectId)}/budget`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ budget_usd: budgetUsd, note: note ?? null }),
+    },
+  );
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status} (set budget)`);
+  }
+  return resp.json();
+}
+
 /**
  * Trigger a worker JSONL ingestion sweep on the backend.
  *
