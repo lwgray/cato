@@ -40,10 +40,35 @@ function formatTokens(v: number): string {
   return String(v);
 }
 
+function formatProjectDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Render a project label for the picker. Order of preference:
+ * 1. explicit project_name (MLflow / registry overlay)
+ * 2. "Unnamed · <first-event date>" — gives temporal context for
+ *    projects deleted from the registry but still in token_events
+ * Tokens are appended to either so users can identify by spend.
+ */
+function projectLabel(p: ProjectRow): string {
+  const tokens = formatTokens(p.total_tokens);
+  const cost = formatUsd(p.total_cost_usd);
+  if (p.project_name) {
+    return `${p.project_name} — ${cost} (${tokens} tokens)`;
+  }
+  const date = formatProjectDate(p.first_event_at);
+  const prefix = date ? `Unnamed · ${date}` : 'Unnamed';
+  return `${prefix} — ${cost} (${tokens} tokens)`;
+}
+
 const CostDashboard = () => {
   const [activeTab, setActiveTab] = useState<CostTab>('realtime');
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedTotals | null>(null);
+  const [unassignedOpen, setUnassignedOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -146,27 +171,61 @@ const CostDashboard = () => {
                 <option key={p.project_id} value={p.project_id}>
                   {/*
                     Name resolution: experiments.project_name (MLflow) →
-                    Marcus project registry → truncated id. Most Marcus
-                    runs don't use MLflow, so registry is the usual
-                    source. See cost_routes._load_project_names.
+                    Marcus project registry → "Unnamed · <date>" fallback
+                    for projects deleted from the registry but still in
+                    token_events. See cost_routes._load_project_names.
                   */}
-                  {p.project_name ?? `${p.project_id.slice(0, 12)}…`}
-                  {' '}— {formatUsd(p.total_cost_usd)}
-                  {' '}({formatTokens(p.total_tokens)} tokens)
+                  {projectLabel(p)}
                 </option>
               ))}
             </select>
           </div>
+
+          {unassigned && unassigned.events > 0 && (
+            <button
+              type="button"
+              className="cost-unassigned-icon"
+              onClick={() => setUnassignedOpen((v) => !v)}
+              title={
+                'Unassigned cost — LLM calls Marcus made without an ' +
+                'active project context. Click for details.'
+              }
+              aria-label="Unassigned cost details"
+            >
+              ⚠
+            </button>
+          )}
         </div>
 
-        {unassigned && unassigned.events > 0 && (
-          <div
-            className="cost-unassigned-banner"
-            title="LLM calls Marcus made without an active project context. Usually a code path running outside the MCP request lifecycle, or a project-creation tool. Investigate the gap."
-          >
-            ⚠ Unassigned: {unassigned.events} events,{' '}
-            {formatTokens(unassigned.total_tokens)} tokens,{' '}
-            {formatUsd(unassigned.total_cost_usd, 4)}
+        {unassignedOpen && unassigned && (
+          <div className="cost-unassigned-popover" role="dialog">
+            <h4>Unassigned LLM activity</h4>
+            <p className="hint">
+              Calls Marcus made without an active project context — usually
+              a code path running outside the MCP request lifecycle, or a
+              project-creation tool.
+            </p>
+            <dl className="cost-unassigned-stats">
+              <div>
+                <dt>Events</dt>
+                <dd>{unassigned.events}</dd>
+              </div>
+              <div>
+                <dt>Tokens</dt>
+                <dd>{formatTokens(unassigned.total_tokens)}</dd>
+              </div>
+              <div>
+                <dt>Cost</dt>
+                <dd>{formatUsd(unassigned.total_cost_usd, 4)}</dd>
+              </div>
+            </dl>
+            <button
+              type="button"
+              className="cost-unassigned-close"
+              onClick={() => setUnassignedOpen(false)}
+            >
+              Close
+            </button>
           </div>
         )}
       </div>

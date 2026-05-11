@@ -189,13 +189,24 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
 
       {summary.by_operation.length > 0 && (
         <section className="cost-panel">
-          <h3>Cost by operation</h3>
-          <table className="cost-table">
+          <h3>
+            Tokens by operation{' '}
+            <small className="cost-panel-hint">
+              Sorted by total tokens — the heaviest call is the prompt-
+              tightening target. Low cache-hit % on a heavy row means
+              that operation isn't benefiting from the prompt cache.
+            </small>
+          </h3>
+          <table className="cost-table cost-table-dense">
             <thead>
               <tr>
                 <th>Operation</th>
-                <th>Events</th>
-                <th>Tokens</th>
+                <th>Calls</th>
+                <th>Input</th>
+                <th>Cache create</th>
+                <th>Cache read</th>
+                <th>Output</th>
+                <th>Cache %</th>
                 <th>Cost</th>
               </tr>
             </thead>
@@ -204,8 +215,57 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
                 <tr key={op.operation}>
                   <td>{op.operation}</td>
                   <td>{op.events}</td>
-                  <td>{formatTokens(op.tokens)}</td>
+                  <td>{formatTokens(op.input_tokens ?? 0)}</td>
+                  <td>{formatTokens(op.cache_creation_tokens ?? 0)}</td>
+                  <td>{formatTokens(op.cache_read_tokens ?? 0)}</td>
+                  <td>{formatTokens(op.output_tokens ?? 0)}</td>
+                  <td className={cacheCellClass(op.cache_hit_rate ?? 0)}>
+                    {formatPct(op.cache_hit_rate ?? 0)}
+                  </td>
                   <td>{formatUsd(op.cost_usd, 4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {summary.by_model.length > 0 && (
+        <section className="cost-panel">
+          <h3>
+            Tokens by model{' '}
+            <small className="cost-panel-hint">
+              Each provider/model with its cache effectiveness.
+            </small>
+          </h3>
+          <table className="cost-table cost-table-dense">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Provider</th>
+                <th>Calls</th>
+                <th>Input</th>
+                <th>Cache create</th>
+                <th>Cache read</th>
+                <th>Output</th>
+                <th>Cache %</th>
+                <th>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.by_model.map((m) => (
+                <tr key={`${m.model}-${m.provider}`}>
+                  <td>{m.model}</td>
+                  <td>{m.provider}</td>
+                  <td>{m.events}</td>
+                  <td>{formatTokens(m.input_tokens ?? 0)}</td>
+                  <td>{formatTokens(m.cache_creation_tokens ?? 0)}</td>
+                  <td>{formatTokens(m.cache_read_tokens ?? 0)}</td>
+                  <td>{formatTokens(m.output_tokens ?? 0)}</td>
+                  <td className={cacheCellClass(m.cache_hit_rate ?? 0)}>
+                    {formatPct(m.cache_hit_rate ?? 0)}
+                  </td>
+                  <td>{formatUsd(m.cost_usd, 4)}</td>
                 </tr>
               ))}
             </tbody>
@@ -215,5 +275,17 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
     </div>
   );
 };
+
+/**
+ * Color-code the cache-hit cell so low-cache rows pop out.
+ * Below 30%: amber (the row that needs prompt-tightening attention).
+ * 30–70%: neutral.
+ * Above 70%: green (cache is working).
+ */
+function cacheCellClass(rate: number): string {
+  if (rate < 0.3) return 'cache-cell cache-cold';
+  if (rate > 0.7) return 'cache-cell cache-hot';
+  return 'cache-cell';
+}
 
 export default RealTimeTab;

@@ -192,3 +192,48 @@
   font-size: 11px;
   color: var(--text-muted, #64748b);
 }
+
+/* Dense token-breakdown table (Tokens by operation / Tokens by model).
+   Tighter padding so the 8-column layout doesn't wrap. */
+.cost-table-dense {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-table-dense th,
+.cost-table-dense td {
+  padding: 6px 10px;
+  text-align: right;
+}
+
+.cost-table-dense th:first-child,
+.cost-table-dense td:first-child,
+.cost-table-dense th:nth-child(2),
+.cost-table-dense td:nth-child(2) {
+  text-align: left;
+}
+
+/* Cache-hit % cell color coding so cold-cache rows pop out.
+   <30% (cold) = the prompt-tightening target. >70% (hot) = cache is
+   doing its job. */
+.cache-cell {
+  font-weight: 500;
+}
+
+.cache-cell.cache-cold {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.cache-cell.cache-hot {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.cost-panel-hint {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+}

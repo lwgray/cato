@@ -55,6 +55,17 @@ export interface OperationSlice {
   operation: string;
   events: number;
   tokens: number;
+  /**
+   * Full token-type split (Marcus #513 followup): lets users see
+   * which operations are heavy on uncached input vs. cache reads.
+   * cache_hit_rate is computed server-side as
+   * cache_read / (input + cache_creation + cache_read).
+   */
+  input_tokens?: number;
+  cache_creation_tokens?: number;
+  cache_read_tokens?: number;
+  output_tokens?: number;
+  cache_hit_rate?: number;
   cost_usd: number;
 }
 
@@ -63,6 +74,11 @@ export interface ModelSlice {
   provider: string;
   events: number;
   tokens: number;
+  input_tokens?: number;
+  cache_creation_tokens?: number;
+  cache_read_tokens?: number;
+  output_tokens?: number;
+  cache_hit_rate?: number;
   cost_usd: number;
 }
 
