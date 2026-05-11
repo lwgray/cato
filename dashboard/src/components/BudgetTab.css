@@ -1,0 +1,125 @@
+.cost-budget {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 24px;
+}
+
+.budget-banner {
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.budget-banner.banner-warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.budget-banner.banner-over {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+  border: 1px solid rgba(220, 38, 38, 0.4);
+}
+
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.budget-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  background: var(--bg-elevated, #ffffff);
+}
+
+.budget-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #64748b);
+}
+
+.budget-value {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-value.negative {
+  color: #dc2626;
+}
+
+.budget-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.budget-bar {
+  height: 10px;
+  background: var(--border-color, #e2e8f0);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.budget-bar-fill {
+  height: 100%;
+  background: #0ea5e9;
+  transition: width 0.3s ease-out;
+}
+
+.budget-bar-fill.fill-warning {
+  background: #f59e0b;
+}
+
+.budget-bar-fill.fill-over {
+  background: #dc2626;
+}
+
+.budget-bar-caption {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-meta {
+  display: flex;
+  gap: 24px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+  font-size: 13px;
+}
+
+.budget-meta .meta-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #64748b);
+  margin-right: 6px;
+}
+
+.budget-meta .meta-value {
+  font-weight: 500;
+}
+
+.budget-hint {
+  padding: 12px 16px;
+  background: var(--bg-canvas, #f8fafc);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-muted, #475569);
+}
+
+.budget-hint code {
+  background: var(--bg-elevated, #ffffff);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}

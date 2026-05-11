@@ -140,3 +140,60 @@ export async function fetchSessionTurns(
 ): Promise<{ session_id: string; turns: TurnPoint[] }> {
   return _get(`/api/cost/sessions/${encodeURIComponent(sessionId)}/turns`);
 }
+
+// ---------------------------------------------------------------------------
+// Pricing
+// ---------------------------------------------------------------------------
+
+export interface ModelPriceRow {
+  model: string;
+  provider: string;
+  effective_from: string;
+  input_per_million: number;
+  output_per_million: number;
+  cache_creation_per_million: number | null;
+  cache_read_per_million: number | null;
+  source: string | null;
+}
+
+export interface PriceCreatePayload {
+  model: string;
+  provider: string;
+  effective_from?: string; // ISO; defaults to "now" server-side
+  input_per_million: number;
+  output_per_million: number;
+  cache_creation_per_million?: number | null;
+  cache_read_per_million?: number | null;
+  source?: string;
+}
+
+/** Current pricing table (latest ``effective_from`` per model+provider). */
+export async function fetchCurrentPrices(): Promise<{ prices: ModelPriceRow[] }> {
+  return _get('/api/cost/prices');
+}
+
+/** Full price history, optionally filtered to one model. */
+export async function fetchPriceHistory(
+  model?: string,
+): Promise<{ prices: ModelPriceRow[] }> {
+  const params = new URLSearchParams();
+  if (model) params.set('model', model);
+  const qs = params.toString();
+  return _get(`/api/cost/prices/history${qs ? `?${qs}` : ''}`);
+}
+
+/** Insert a new versioned price row. Throws on 409 (duplicate effective_from). */
+export async function createPrice(
+  payload: PriceCreatePayload,
+): Promise<{ status: string; effective_from: string }> {
+  const resp = await fetch(`${API_BASE_URL}/api/cost/prices`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(`HTTP ${resp.status}: ${detail}`);
+  }
+  return resp.json();
+}

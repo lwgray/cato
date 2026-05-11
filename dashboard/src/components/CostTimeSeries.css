@@ -1,0 +1,25 @@
+.cost-timeseries {
+  font-family: var(--font-mono, ui-monospace, 'SF Mono', monospace);
+}
+
+.cost-timeseries .grid {
+  stroke: var(--border-color, #e2e8f0);
+  stroke-dasharray: 2 4;
+}
+
+.cost-timeseries .axis-label {
+  font-size: 11px;
+  fill: var(--text-muted, #64748b);
+}
+
+.cost-timeseries .bar-group:hover rect {
+  opacity: 1;
+}
+
+.cost-timeseries-empty {
+  padding: 32px;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
+}
