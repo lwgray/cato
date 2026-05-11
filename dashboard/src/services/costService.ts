@@ -263,6 +263,39 @@ export async function fetchProjectFullSummary(
 }
 
 // ---------------------------------------------------------------------------
+// Operation taxonomy (per-LLM-call drill-down labels + descriptions)
+// ---------------------------------------------------------------------------
+
+/**
+ * One entry in the operation catalog returned by ``/api/cost/operations``.
+ *
+ * Sourced from Marcus's ``src/cost_tracking/operations.py``. The
+ * dashboard joins ``OperationSlice.operation`` keys against this
+ * mapping to render hover-tooltips that explain what each LLM call
+ * does and why it spent tokens.
+ */
+export interface OperationCatalogEntry {
+  label: string;
+  description: string;
+  category: 'decomposition' | 'runtime' | 'monitoring' | 'other';
+}
+
+export interface OperationCatalog {
+  operations: Record<string, OperationCatalogEntry>;
+}
+
+/**
+ * Fetch the operation taxonomy once on page load.
+ *
+ * Older Marcus checkouts may not ship the operations module — in
+ * that case the endpoint returns ``{operations: {}}`` and the UI
+ * falls back to the raw operation key as the label.
+ */
+export async function fetchOperationCatalog(): Promise<OperationCatalog> {
+  return _get('/api/cost/operations');
+}
+
+// ---------------------------------------------------------------------------
 // Project budget caps
 // ---------------------------------------------------------------------------
 

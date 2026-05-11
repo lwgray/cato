@@ -12,7 +12,9 @@
 
 import { useEffect, useState } from 'react';
 import {
+  fetchOperationCatalog,
   fetchProjectFullSummary,
+  type OperationCatalogEntry,
   type ProjectFullSummary,
 } from '../services/costService';
 import AgentSpendBars from './AgentSpendBars';
@@ -46,6 +48,26 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
   // from a generic error — render a friendly empty state.
   const [noActivity, setNoActivity] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  // Operation taxonomy (label + description per operation key). Loaded
+  // once on first render; survives polling. Empty when Marcus is older
+  // and lacks the operations module — falls through to raw keys.
+  const [opCatalog, setOpCatalog] = useState<
+    Record<string, OperationCatalogEntry>
+  >({});
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchOperationCatalog()
+      .then((c) => {
+        if (!cancelled) setOpCatalog(c.operations);
+      })
+      .catch(() => {
+        // intentionally swallowed — endpoint may not exist on old Marcus
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -211,20 +233,43 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
               </tr>
             </thead>
             <tbody>
-              {summary.by_operation.map((op) => (
-                <tr key={op.operation}>
-                  <td>{op.operation}</td>
-                  <td>{op.events}</td>
-                  <td>{formatTokens(op.input_tokens ?? 0)}</td>
-                  <td>{formatTokens(op.cache_creation_tokens ?? 0)}</td>
-                  <td>{formatTokens(op.cache_read_tokens ?? 0)}</td>
-                  <td>{formatTokens(op.output_tokens ?? 0)}</td>
-                  <td className={cacheCellClass(op.cache_hit_rate ?? 0)}>
-                    {formatPct(op.cache_hit_rate ?? 0)}
-                  </td>
-                  <td>{formatUsd(op.cost_usd, 4)}</td>
-                </tr>
-              ))}
+              {summary.by_operation.map((op) => {
+                const entry = opCatalog[op.operation];
+                const label = entry?.label ?? op.operation;
+                const tooltip = entry
+                  ? `${entry.label} — ${entry.description}`
+                  : `Unregistered operation '${op.operation}'. ` +
+                    'Add it to Marcus operations.py for a description.';
+                return (
+                  <tr key={op.operation}>
+                    <td>
+                      <span
+                        className="cost-operation-label"
+                        title={tooltip}
+                      >
+                        {label}
+                      </span>
+                      {entry && (
+                        <span
+                          className={`cost-operation-cat cat-${entry.category}`}
+                          title={`Category: ${entry.category}`}
+                        >
+                          {entry.category}
+                        </span>
+                      )}
+                    </td>
+                    <td>{op.events}</td>
+                    <td>{formatTokens(op.input_tokens ?? 0)}</td>
+                    <td>{formatTokens(op.cache_creation_tokens ?? 0)}</td>
+                    <td>{formatTokens(op.cache_read_tokens ?? 0)}</td>
+                    <td>{formatTokens(op.output_tokens ?? 0)}</td>
+                    <td className={cacheCellClass(op.cache_hit_rate ?? 0)}>
+                      {formatPct(op.cache_hit_rate ?? 0)}
+                    </td>
+                    <td>{formatUsd(op.cost_usd, 4)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </section>

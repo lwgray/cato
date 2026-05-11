@@ -237,3 +237,46 @@
   font-size: 11px;
   color: var(--text-muted, #94a3b8);
 }
+
+/* Operation drill-down cells: `.cost-operation-label` is the primary
+   human label (hover for full description from the catalog).
+   `.cost-operation-cat` is a small tag chip showing which category
+   (decomposition / runtime / monitoring / other) the call belongs to,
+   so users can scan for "which setup-time call burned all those
+   cache-creation tokens?" without expanding rows. */
+.cost-operation-label {
+  cursor: help;
+  border-bottom: 1px dotted var(--text-muted, #94a3b8);
+}
+
+.cost-operation-cat {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+.cost-operation-cat.cat-decomposition {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.cost-operation-cat.cat-runtime {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.cost-operation-cat.cat-monitoring {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+
+.cost-operation-cat.cat-other {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-muted, #94a3b8);
+}

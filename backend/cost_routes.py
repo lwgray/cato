@@ -72,6 +72,19 @@ try:
             ModelPrice,
         )
 
+        # Operation taxonomy: imported defensively so older Marcus
+        # checkouts without this module still load the cost routes.
+        # ``all_operations`` is None when unavailable; the
+        # ``/api/cost/operations`` endpoint returns an empty mapping
+        # in that case so the dashboard degrades gracefully to "no
+        # tooltip" instead of crashing.
+        try:
+            from src.cost_tracking.operations import (
+                all_operations as _marcus_all_operations,  # type: ignore[no-redef]
+            )
+        except ImportError:
+            _marcus_all_operations = None  # type: ignore[assignment]
+
         COST_TRACKING_AVAILABLE = True
         logger.info("Cato cost-tracking enabled (Marcus at %s)", _marcus_root)
     else:
@@ -474,6 +487,33 @@ def session_turns(
 
 
 # -- pricing endpoints -------------------------------------------------------
+
+
+@router.get("/operations")  # type: ignore[misc]
+def list_operations() -> Dict[str, Any]:
+    """Return the canonical operation taxonomy for cost-event drill-down.
+
+    Sourced from ``src.cost_tracking.operations`` in Marcus. Returns an
+    empty mapping when Marcus is older and lacks the module — the
+    dashboard treats unknown operation keys gracefully (synthesized
+    label, generic tooltip).
+
+    The mapping shape is::
+
+        {
+            "operations": {
+                "<key>": {
+                    "label": "Human label",
+                    "description": "What this LLM call does and why.",
+                    "category": "decomposition" | "runtime" | "monitoring" | "other",
+                },
+                ...
+            }
+        }
+    """
+    if _marcus_all_operations is None:
+        return {"operations": {}}
+    return {"operations": _marcus_all_operations()}
 
 
 @router.get("/prices")  # type: ignore[misc]

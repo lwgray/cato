@@ -510,6 +510,38 @@ class TestSessionTurns:
 
 
 # ---------------------------------------------------------------------------
+# /api/cost/operations
+# ---------------------------------------------------------------------------
+
+
+@requires_marcus
+class TestOperationsTaxonomy:
+    """``GET /api/cost/operations`` exposes the Marcus operation catalog.
+
+    The dashboard reads this once on load to populate per-event
+    tooltips that explain what each LLM call does.
+    """
+
+    def test_returns_known_operations(self, client: TestClient) -> None:
+        """Catalog includes the well-known keys used by call sites."""
+        resp = client.get("/api/cost/operations")
+        assert resp.status_code == 200
+        ops = resp.json()["operations"]
+        # Spot-check a handful of high-traffic operations
+        for key in ("decompose_prd", "analyze_blocker", "extract_outcomes"):
+            assert key in ops, f"missing {key} from taxonomy"
+            entry = ops[key]
+            assert entry["label"]
+            assert entry["description"]
+            assert entry["category"] in {
+                "decomposition",
+                "runtime",
+                "monitoring",
+                "other",
+            }
+
+
+# ---------------------------------------------------------------------------
 # /api/cost/prices  (GET + POST)
 # ---------------------------------------------------------------------------
 
