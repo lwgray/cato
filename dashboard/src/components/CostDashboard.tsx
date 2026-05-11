@@ -53,26 +53,43 @@ const CostDashboard = () => {
 
   // Poll project list + unassigned totals every 30s so new runs appear
   // without a page reload and the unassigned indicator stays current.
+  //
+  // Kaia PR #33 review:
+  // - Effect no longer depends on selectedProject (the previous version
+  //   re-subscribed on every selection change for no useful reason; the
+  //   auto-select happens via the functional setState below).
+  // - fetchUnassignedTotals is wrapped in a defensive catch so a 503
+  //   from that endpoint doesn't blank the project picker. Worst case:
+  //   the unassigned banner doesn't appear even though there's a gap.
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
       try {
-        const [{ projects: ps }, una] = await Promise.all([
-          fetchProjects(),
-          fetchUnassignedTotals(),
-        ]);
+        const { projects: ps } = await fetchProjects();
         if (cancelled) return;
         setProjects(ps);
-        setUnassigned(una);
         setError(null);
-        if (selectedProject === null && ps.length > 0) {
-          setSelectedProject(ps[0].project_id);
-        }
+        // Auto-select the most expensive project the first time we see
+        // any. Functional setState avoids depending on selectedProject
+        // in the effect's deps array.
+        setSelectedProject((current) =>
+          current === null && ps.length > 0 ? ps[0].project_id : current,
+        );
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
         }
+        return;
+      }
+
+      // Fetch unassigned totals independently; failure here is not
+      // fatal — we just skip the banner this tick.
+      try {
+        const una = await fetchUnassignedTotals();
+        if (!cancelled) setUnassigned(una);
+      } catch {
+        // intentionally swallowed
       }
     };
 
@@ -82,7 +99,7 @@ const CostDashboard = () => {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [selectedProject]);
+  }, []);
 
   // When the selected project changes, fetch its summary (totals +
   // experiment list) and auto-select the most recent experiment for
@@ -145,7 +162,15 @@ const CostDashboard = () => {
               )}
               {projects.map((p) => (
                 <option key={p.project_id} value={p.project_id}>
-                  {p.project_id.slice(0, 12)} — {formatUsd(p.total_cost_usd)}
+                  {/*
+                    Prefer the human-readable project_name from the
+                    experiments table; fall back to a truncated id only
+                    when no MLflow run ever registered one. (Kaia review
+                    of #33: 12-char IDs of 19-digit numbers were
+                    indistinguishable in the picker.)
+                  */}
+                  {p.project_name ?? `${p.project_id.slice(0, 12)}…`}
+                  {' '}— {formatUsd(p.total_cost_usd)}
                   {' '}({p.experiments} {p.experiments === 1 ? 'run' : 'runs'})
                 </option>
               ))}
@@ -154,7 +179,16 @@ const CostDashboard = () => {
 
           {projectSummary && projectSummary.experiments.length > 0 && (
             <div className="cost-picker">
-              <label htmlFor="cost-exp-select">Run:</label>
+              <label
+                htmlFor="cost-exp-select"
+                title={
+                  'MLflow run within the selected project. Most recent ' +
+                  "first. Empty when the project's runs never called " +
+                  'start_experiment — see Historical for project totals.'
+                }
+              >
+                Run:
+              </label>
               <select
                 id="cost-exp-select"
                 value={selectedExp ?? ''}

@@ -147,6 +147,13 @@ export async function fetchSessionTurns(
 
 export interface ProjectRow {
   project_id: string;
+  /**
+   * Human-readable name pulled from the experiments table when an
+   * MLflow run was registered for this project. NULL for projects
+   * whose runs never called start_experiment — the picker falls back
+   * to a truncated project_id in that case.
+   */
+  project_name: string | null;
   events: number;
   experiments: number;
   agents: number;
