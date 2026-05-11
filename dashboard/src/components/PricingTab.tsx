@@ -118,6 +118,7 @@ const PricingTab = () => {
                 <th>Cache read / M</th>
                 <th>Output / M</th>
                 <th>Source</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -138,6 +139,38 @@ const PricingTab = () => {
                     <span className={`source-tag source-${p.source ?? 'default'}`}>
                       {p.source ?? 'default'}
                     </span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="override-btn"
+                      title={
+                        'Pre-fill the form below with this row, bumped to ' +
+                        'effective now. Pricing is versioned — old experiments ' +
+                        'keep their cost; new events use the override going ' +
+                        'forward.'
+                      }
+                      onClick={() => {
+                        setForm({
+                          model: p.model,
+                          provider: p.provider,
+                          input_per_million: p.input_per_million,
+                          output_per_million: p.output_per_million,
+                          cache_creation_per_million: p.cache_creation_per_million,
+                          cache_read_per_million: p.cache_read_per_million,
+                          source: 'cato_user',
+                          // Default effective_from to "now" so the override
+                          // wins for subsequent events. User can adjust.
+                          effective_from: new Date().toISOString(),
+                        });
+                        // Scroll the form into view so the prefill is obvious.
+                        document
+                          .querySelector('.price-form')
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }}
+                    >
+                      Override
+                    </button>
                   </td>
                 </tr>
               ))}

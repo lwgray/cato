@@ -20,6 +20,7 @@ import {
   fetchProjectSummary,
   fetchProjects,
   fetchUnassignedTotals,
+  triggerIngest,
   type ProjectRow,
   type ProjectSummary,
   type UnassignedTotals,
@@ -65,6 +66,17 @@ const CostDashboard = () => {
     let cancelled = false;
 
     const load = async () => {
+      // Sweep worker JSONL logs before pulling the project list so the
+      // dashboard reflects the current state of all running experiments.
+      // Idempotent on the backend (UUID dedup), so calling on every
+      // tick is safe. Failure here is non-fatal — fall through to the
+      // project fetch and surface whatever we already have.
+      try {
+        await triggerIngest();
+      } catch {
+        // intentionally swallowed
+      }
+
       try {
         const { projects: ps } = await fetchProjects();
         if (cancelled) return;
