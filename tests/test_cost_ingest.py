@@ -179,6 +179,55 @@ class TestRunIngest:
         ).fetchone()
         assert row == ("proj_42", "agent_1", 100, 50)
 
+    def test_run_ingest_is_idempotent_across_calls(
+        self,
+        store: Any,
+        experiment_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Sweeping the same JSONL twice must not duplicate token_events.
+
+        Cato's dashboard polls run_ingest every 30s with a fresh
+        WorkerJSONLIngester whose in-memory dedup set is empty. The
+        Marcus side enforces dedup at the DB layer (partial UNIQUE
+        INDEX on request_id + INSERT OR IGNORE), so calling run_ingest
+        repeatedly on the same files inserts the row only once.
+        """
+        sess_dir = tmp_path / ".claude" / "projects" / "fake-project"
+        sess_dir.mkdir(parents=True)
+        record = {
+            "type": "assistant",
+            "uuid": "u1",
+            "sessionId": "s1",
+            "requestId": "req_idem_1",
+            "timestamp": "2026-05-10T14:00:00.000Z",
+            "cwd": str(experiment_dir / "worktrees" / "agent_1"),
+            "message": {
+                "model": "claude-sonnet-4-6",
+                "usage": {
+                    "input_tokens": 100,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 50,
+                },
+            },
+        }
+        (sess_dir / "s1.jsonl").write_text(json.dumps(record) + "\n")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        first = run_ingest(store)
+        second = run_ingest(store)
+
+        assert first["ingested"] == 1
+        # Second sweep may report ingested>0 from the library's perspective,
+        # but the DB-level UNIQUE constraint guarantees no duplicate rows.
+        count = store.conn.execute(
+            "SELECT COUNT(*) FROM token_events WHERE request_id = 'req_idem_1'"
+        ).fetchone()[0]
+        assert count == 1, f"expected 1 row after 2 sweeps, got {count}"
+        assert second["files"] == 1
+
     def test_returns_zeros_when_claude_projects_missing(
         self,
         store: Any,

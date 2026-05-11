@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import json
 import logging
-from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -45,15 +44,14 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=256)
 def _read_project_info(experiment_dir: str) -> Optional[Dict[str, Any]]:
-    """Read ``project_info.json`` from an experiment directory, cached.
+    """Read ``project_info.json`` from an experiment directory.
 
-    Cached to avoid re-reading the same file once per JSONL record. The
-    file is written exactly once by Marcus at experiment creation, so
-    caching for the process lifetime is fine. If the user re-runs an
-    experiment with the same directory but a different project_id, they
-    need to restart Cato — that's an acceptable footgun for v1.
+    Reads from disk every call. An earlier ``lru_cache`` here returned
+    stale data when a user re-ran an experiment in the same directory
+    with a different ``project_id``, since the cache had process
+    lifetime. Disk hits are cheap (small JSON, OS page cache) and
+    correctness matters more than the saved syscalls.
 
     Returns
     -------
@@ -182,5 +180,12 @@ def run_ingest(store: Any) -> Dict[str, Any]:
 
 
 def clear_project_info_cache() -> None:
-    """Drop the lru_cache so tests / re-runs can re-read project_info.json."""
-    _read_project_info.cache_clear()
+    """No-op kept for API compatibility.
+
+    Earlier versions cached :func:`_read_project_info` via ``lru_cache``;
+    tests called this between cases to drop the cache. The cache has
+    been removed (it caused stale reads on experiment re-runs), but
+    callers may still invoke this helper — keep the symbol so they
+    don't break.
+    """
+    return None
