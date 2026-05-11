@@ -142,6 +142,57 @@ export async function fetchSessionTurns(
 }
 
 // ---------------------------------------------------------------------------
+// Projects (primary axis — Marcus #409)
+// ---------------------------------------------------------------------------
+
+export interface ProjectRow {
+  project_id: string;
+  events: number;
+  experiments: number;
+  agents: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  first_event_at: string;
+  last_event_at: string;
+}
+
+export interface UnassignedTotals {
+  events: number;
+  total_tokens: number;
+  total_cost_usd: number;
+}
+
+export interface ProjectSummary {
+  project_id: string;
+  totals: {
+    experiments: number;
+    events: number;
+    total_tokens: number;
+    total_cost_usd: number;
+  };
+  experiments: ExperimentRow[];
+}
+
+/** List projects with cost rollups (primary picker for the dashboard). */
+export async function fetchProjects(
+  limit = 100,
+): Promise<{ projects: ProjectRow[]; count: number }> {
+  return _get(`/api/cost/projects?limit=${limit}`);
+}
+
+/** Totals for events without an active PlannerContext. */
+export async function fetchUnassignedTotals(): Promise<UnassignedTotals> {
+  return _get('/api/cost/projects/unassigned');
+}
+
+/** Project rollup + per-experiment list. */
+export async function fetchProjectSummary(
+  projectId: string,
+): Promise<ProjectSummary> {
+  return _get(`/api/cost/projects/${encodeURIComponent(projectId)}`);
+}
+
+// ---------------------------------------------------------------------------
 // Pricing
 // ---------------------------------------------------------------------------
 

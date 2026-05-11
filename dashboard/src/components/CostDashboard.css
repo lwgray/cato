@@ -105,3 +105,44 @@
   color: var(--text-muted, #64748b);
   font-size: 14px;
 }
+
+/* Phase-9 project-axis additions */
+
+.cost-pickers {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.cost-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.cost-picker label {
+  color: var(--text-muted, #64748b);
+}
+
+.cost-picker select {
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 6px;
+  background: var(--bg-elevated, #ffffff);
+  min-width: 220px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-unassigned-banner {
+  margin-left: auto;
+  padding: 6px 10px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #b45309;
+  border-radius: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
