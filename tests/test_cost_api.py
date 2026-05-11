@@ -396,6 +396,86 @@ class TestProjectNameEnrichment:
         orphan = next(p for p in projects if p["project_id"] == "proj_no_mlflow")
         assert orphan["project_name"] == "registry-named-project"
 
+    def test_project_names_table_overrides_registry(
+        self,
+        store: Any,
+        client: TestClient,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Snapshotted name (project_names table) wins over registry.
+
+        After Marcus PR #515 lands, project_names captures the name as
+        of when work was attributed. The dashboard should prefer that
+        snapshot over the registry so renames / deletions don't break
+        the display.
+        """
+        from src.cost_tracking.cost_store import TokenEvent
+
+        from backend import cost_routes
+
+        # Seed an event + a snapshotted name for a project not in the
+        # registry.
+        store.record_event(
+            TokenEvent(
+                experiment_id="exp_snap",
+                project_id="snap_proj",
+                agent_id="planner",
+                agent_role="planner",
+                operation="parse_prd",
+                provider="anthropic",
+                model="claude-sonnet-4-6",
+                input_tokens=10,
+                output_tokens=5,
+                request_id="req_snap",
+            )
+        )
+        store.upsert_project_name("snap_proj", "snapshotted-name")
+
+        fake_root = tmp_path / "marcus"
+        (fake_root / "data" / "marcus_state").mkdir(parents=True)
+        (fake_root / "data" / "marcus_state" / "projects.json").write_text("{}")
+        monkeypatch.setattr(cost_routes, "_marcus_root", fake_root)
+        cost_routes.clear_project_names_cache()
+
+        resp = client.get("/api/cost/projects")
+        assert resp.status_code == 200
+        names = {p["project_id"]: p["project_name"] for p in resp.json()["projects"]}
+        assert names["snap_proj"] == "snapshotted-name"
+
+    def test_cache_is_keyed_by_store_identity(
+        self,
+        store: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Different stores don't share cache entries (Kaia review on #36).
+
+        The module-level cache used to be a single dict; tests using
+        ``app.dependency_overrides[get_store]`` with tmp stores could
+        leak names across tests. Keying by ``id(store)`` isolates them.
+        """
+        from src.cost_tracking.cost_store import CostStore
+
+        from backend import cost_routes
+
+        # First store sees one name.
+        store.upsert_project_name("p1", "from-store-1")
+        cost_routes.clear_project_names_cache()
+        names_a = cost_routes._load_project_names(store=store)
+        assert names_a.get("p1") == "from-store-1"
+
+        # Second store has a different (or no) name for the same id.
+        # Without per-store keying, the cache would return store-1's
+        # entry here.
+        other_store = CostStore(db_path=tmp_path / "other.db")
+        other_store.upsert_project_name("p1", "from-store-2")
+        names_b = cost_routes._load_project_names(store=other_store)
+        assert names_b.get("p1") == "from-store-2"
+        # And the first store's cache still resolves to its own value.
+        names_a_again = cost_routes._load_project_names(store=store)
+        assert names_a_again.get("p1") == "from-store-1"
+
     def test_existing_mlflow_name_takes_precedence(
         self, client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
