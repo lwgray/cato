@@ -141,14 +141,20 @@ _PROJECT_NAMES_CACHE_AT: float = 0.0
 _PROJECT_NAMES_TTL_SEC = 30.0
 
 
-def _load_project_names() -> Dict[str, str]:
-    """Map ``project_id`` → ``name`` from Marcus's project registry.
+def _load_project_names(store: Optional[Any] = None) -> Dict[str, str]:
+    """Map ``project_id`` → ``name`` for cost-row enrichment.
 
-    Reads ``<marcus_root>/data/marcus_state/projects.json`` (the same
-    file Marcus's :class:`ProjectRegistry` writes). Returns an empty
-    dict on any read failure — the dashboard then falls back to a
-    truncated project_id in the picker, which is the pre-existing
-    behavior.
+    Sources (merged, later wins):
+    1. Marcus's project registry (``data/marcus_state/projects.json``)
+       — names of *currently registered* projects. Same source the
+       regular Cato projects panel uses.
+    2. costs.db ``project_names`` table — snapshotted at every
+       ``PlannerContext`` push by Marcus PR #515. Names persist even
+       after the project is deleted from the registry, so this table
+       is the source of truth for everything else and overrides #1
+       when both have a name (the snapshot reflects the name as it
+       was when work was attributed; the registry may have been
+       renamed since).
 
     Cached for ``_PROJECT_NAMES_TTL_SEC`` to keep poll loops cheap.
     """
@@ -161,39 +167,38 @@ def _load_project_names() -> Dict[str, str]:
     ):
         return _PROJECT_NAMES_CACHE
 
-    if _marcus_root is None:
-        return {}
-
-    projects_file = _marcus_root / "data" / "marcus_state" / "projects.json"
-    if not projects_file.exists():
-        return {}
-
-    try:
-        with projects_file.open("r", encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.debug("projects.json unreadable: %s", exc)
-        return {}
-
     out: Dict[str, str] = {}
-    for key, value in raw.items():
-        # projects.json is a dict keyed by project_id with a sentinel
-        # 'active_project' entry. Skip non-dict values and unkeyed rows.
-        if key == "active_project" or not isinstance(value, dict):
-            continue
-        pid = value.get("id")
-        name = value.get("name")
-        if pid and name:
-            # Marcus normalizes project_id to dashless hex at the write
-            # path now (see canonical_project_id in cost_recorder.py), so
-            # all new token_events rows match the second key below. We
-            # index both variants anyway:
-            #   - dashless covers new writes + legacy .hex auto-discovery
-            #   - dashed covers the projects.json key itself (some Cato
-            #     code paths look it up by registry id directly)
-            # Cheap defense-in-depth against drift.
-            out[pid] = name
-            out[pid.replace("-", "")] = name
+
+    # Source 1: projects.json (live registry).
+    if _marcus_root is not None:
+        projects_file = _marcus_root / "data" / "marcus_state" / "projects.json"
+        if projects_file.exists():
+            try:
+                with projects_file.open("r", encoding="utf-8") as fh:
+                    raw = json.load(fh)
+                for key, value in raw.items():
+                    if key == "active_project" or not isinstance(value, dict):
+                        continue
+                    pid = value.get("id")
+                    name = value.get("name")
+                    if pid and name:
+                        # Index both dashed + dashless variants because
+                        # legacy data has both forms (see canonical_project_id).
+                        out[pid] = name
+                        out[pid.replace("-", "")] = name
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.debug("projects.json unreadable: %s", exc)
+
+    # Source 2: costs.db project_names table (snapshot — overrides
+    # registry for projects that were deleted but still have cost data).
+    if store is not None:
+        try:
+            for pid, name in store.conn.execute(
+                "SELECT project_id, name FROM project_names"
+            ):
+                out[pid] = name
+        except Exception as exc:  # pragma: no cover - sqlite errors logged
+            logger.debug("project_names table unreadable: %s", exc)
 
     _PROJECT_NAMES_CACHE = out
     _PROJECT_NAMES_CACHE_AT = now
@@ -207,14 +212,15 @@ def clear_project_names_cache() -> None:
     _PROJECT_NAMES_CACHE_AT = 0.0
 
 
-def _enrich_project_names(rows: list) -> list:
-    """Overlay registry names on cost rows when no MLflow name exists.
+def _enrich_project_names(rows: list, store: Optional[Any] = None) -> list:
+    """Overlay snapshotted/registry names on cost rows.
 
     Mutates each row in-place: if ``project_name`` is None / missing,
-    fill it from the registry. Otherwise leave it (an MLflow run with
-    an explicit project_name wins because it was set by the user).
+    fill it from the merged name sources (project_names table first,
+    then projects.json). MLflow-explicit names from the aggregator
+    still win because we only fill missing rows.
     """
-    names = _load_project_names()
+    names = _load_project_names(store=store)
     for row in rows:
         if not row.get("project_name") and row.get("project_id") in names:
             row["project_name"] = names[row["project_id"]]
@@ -296,6 +302,7 @@ def trigger_ingest(
 def list_projects(
     limit: int = Query(100, ge=1, le=1000),
     aggregator: Any = Depends(get_aggregator),
+    store: Any = Depends(get_store),
 ) -> Dict[str, Any]:
     """List every project that has cost activity, sorted by spend desc.
 
@@ -311,7 +318,7 @@ def list_projects(
         Cap at 1000. Default 100.
     """
     rows = aggregator.list_projects(limit=limit)
-    _enrich_project_names(rows)
+    _enrich_project_names(rows, store=store)
     return {"projects": rows, "count": len(rows)}
 
 
@@ -374,6 +381,7 @@ def experiment_summary(
 def project_summary(
     project_id: str,
     aggregator: Any = Depends(get_aggregator),
+    store: Any = Depends(get_store),
 ) -> Dict[str, Any]:
     """Project rollup + list of experiment summaries.
 
@@ -381,7 +389,7 @@ def project_summary(
     project picker; the project-first dashboard tabs use
     ``/projects/{id}/summary`` for the full per-project breakdown.
     """
-    names = _load_project_names()
+    names = _load_project_names(store=store)
     return {
         "project_id": project_id,
         "project_name": names.get(project_id),
@@ -430,14 +438,15 @@ def put_project_budget(
 def project_full_summary(
     project_id: str,
     aggregator: Any = Depends(get_aggregator),
+    store: Any = Depends(get_store),
 ) -> Dict[str, Any]:
     """Full per-project breakdown — drives Real-time/Historical/Budget tabs.
 
     Same shape as ``/experiments/{id}`` (summary + by_role / by_agent /
     by_task / by_operation / by_model) but scoped to project_id, the
     only universal identity in Marcus's coordination model (#503).
-    Project-name is overlaid from Marcus's project registry (same
-    source the regular projects panel uses).
+    Project-name is overlaid from Marcus's project_names snapshot
+    (PR #515) with fallback to projects.json.
 
     Raises
     ------
@@ -447,7 +456,7 @@ def project_full_summary(
     summary: Optional[Dict[str, Any]] = aggregator.project_summary(project_id)
     if summary is None:
         raise HTTPException(status_code=404, detail="project not found")
-    names = _load_project_names()
+    names = _load_project_names(store=store)
     summary["project_name"] = names.get(project_id)
     return summary
 
