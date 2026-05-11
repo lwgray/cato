@@ -443,6 +443,39 @@ class TestProjectNameEnrichment:
         names = {p["project_id"]: p["project_name"] for p in resp.json()["projects"]}
         assert names["snap_proj"] == "snapshotted-name"
 
+    def test_cache_is_keyed_by_store_identity(
+        self,
+        store: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Different stores don't share cache entries (Kaia review on #36).
+
+        The module-level cache used to be a single dict; tests using
+        ``app.dependency_overrides[get_store]`` with tmp stores could
+        leak names across tests. Keying by ``id(store)`` isolates them.
+        """
+        from src.cost_tracking.cost_store import CostStore
+
+        from backend import cost_routes
+
+        # First store sees one name.
+        store.upsert_project_name("p1", "from-store-1")
+        cost_routes.clear_project_names_cache()
+        names_a = cost_routes._load_project_names(store=store)
+        assert names_a.get("p1") == "from-store-1"
+
+        # Second store has a different (or no) name for the same id.
+        # Without per-store keying, the cache would return store-1's
+        # entry here.
+        other_store = CostStore(db_path=tmp_path / "other.db")
+        other_store.upsert_project_name("p1", "from-store-2")
+        names_b = cost_routes._load_project_names(store=other_store)
+        assert names_b.get("p1") == "from-store-2"
+        # And the first store's cache still resolves to its own value.
+        names_a_again = cost_routes._load_project_names(store=store)
+        assert names_a_again.get("p1") == "from-store-1"
+
     def test_existing_mlflow_name_takes_precedence(
         self, client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

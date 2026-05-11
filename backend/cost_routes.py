@@ -131,14 +131,18 @@ def get_aggregator(store: Any = Depends(get_store)) -> Any:
 # the same source Cato's regular projects panel uses
 # (``aggregator._load_projects()`` in cato_src/core/aggregator.py).
 #
-# Cached with a 30s TTL: the file is small but reading it on every
-# dashboard tick is wasteful, and 30s matches the dashboard's poll
-# interval so the cache effectively no-ops repeat requests within a
-# poll.
+# Cache: 5s TTL keyed by the store identity. Was 30s — dropped after
+# Kaia review on PR #36 flagged that rename / fresh-snapshot lag was
+# user-visible at that TTL. 5s keeps poll loops cheap (one dashboard
+# poll = ~1 file read + 1 SQL scan) while making updates near-instant.
+# Keying by ``id(store)`` prevents test cross-talk: tests use
+# ``app.dependency_overrides[get_store]`` with tmp stores, and a
+# module-level cache without store keying would leak the previous
+# store's names into the next test.
 
-_PROJECT_NAMES_CACHE: Dict[str, str] = {}
-_PROJECT_NAMES_CACHE_AT: float = 0.0
-_PROJECT_NAMES_TTL_SEC = 30.0
+_PROJECT_NAMES_CACHES: Dict[int, Dict[str, str]] = {}
+_PROJECT_NAMES_CACHE_AT: Dict[int, float] = {}
+_PROJECT_NAMES_TTL_SEC = 5.0
 
 
 def _load_project_names(store: Optional[Any] = None) -> Dict[str, str]:
@@ -156,16 +160,15 @@ def _load_project_names(store: Optional[Any] = None) -> Dict[str, str]:
        was when work was attributed; the registry may have been
        renamed since).
 
-    Cached for ``_PROJECT_NAMES_TTL_SEC`` to keep poll loops cheap.
+    Cached for ``_PROJECT_NAMES_TTL_SEC`` per store identity.
     """
-    global _PROJECT_NAMES_CACHE, _PROJECT_NAMES_CACHE_AT
+    cache_key = id(store) if store is not None else 0
 
     now = time.monotonic()
-    if (
-        _PROJECT_NAMES_CACHE
-        and (now - _PROJECT_NAMES_CACHE_AT) < _PROJECT_NAMES_TTL_SEC
-    ):
-        return _PROJECT_NAMES_CACHE
+    cached = _PROJECT_NAMES_CACHES.get(cache_key)
+    cached_at = _PROJECT_NAMES_CACHE_AT.get(cache_key, 0.0)
+    if cached and (now - cached_at) < _PROJECT_NAMES_TTL_SEC:
+        return cached
 
     out: Dict[str, str] = {}
 
@@ -200,16 +203,15 @@ def _load_project_names(store: Optional[Any] = None) -> Dict[str, str]:
         except Exception as exc:  # pragma: no cover - sqlite errors logged
             logger.debug("project_names table unreadable: %s", exc)
 
-    _PROJECT_NAMES_CACHE = out
-    _PROJECT_NAMES_CACHE_AT = now
+    _PROJECT_NAMES_CACHES[cache_key] = out
+    _PROJECT_NAMES_CACHE_AT[cache_key] = now
     return out
 
 
 def clear_project_names_cache() -> None:
-    """Drop the project-name cache. Used by tests."""
-    global _PROJECT_NAMES_CACHE, _PROJECT_NAMES_CACHE_AT
-    _PROJECT_NAMES_CACHE = {}
-    _PROJECT_NAMES_CACHE_AT = 0.0
+    """Drop every project-name cache entry. Used by tests."""
+    _PROJECT_NAMES_CACHES.clear()
+    _PROJECT_NAMES_CACHE_AT.clear()
 
 
 def _enrich_project_names(rows: list, store: Optional[Any] = None) -> list:
