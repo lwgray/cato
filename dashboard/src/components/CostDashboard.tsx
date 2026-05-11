@@ -1,34 +1,30 @@
 /**
  * Top-level cost dashboard page (Marcus issue #409).
  *
- * Project-first: project_id is the only universal identity in Marcus's
- * coordination model (Marcus CLAUDE.md GH-388, spawn_agents.py, and
- * the #503 project-axis refactor). Marcus's main code path doesn't
- * open MLflow experiments, so the experiment dimension is no longer
- * surfaced in the UI — every tab renders from project-level data.
+ * Project-first (Marcus #503): project_id is the only universal
+ * identity. The picker is unified with Cato's main header dropdown —
+ * pick a project once at the top of the page and the Cost view
+ * reflects that choice. There is no local picker.
  *
- * Sub-tabs (all keyed off the selected project):
- *   - Real-time  → live spend, agents working, per-role breakdown
- *   - Historical → cross-project totals + per-project time series
- *   - Budget     → cost so far vs. spend rate / projection
- *   - Pricing    → current rate table + insert form
+ * The view now contains only two tabs: Real-time (live spend +
+ * per-call breakdown) and Budget (cap + projection). Historical and
+ * Pricing are accessed from the settings gear in the header (full-
+ * screen modals) since they're cross-project / global views, not
+ * tied to the active project.
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useVisualizationStore } from '../store/visualizationStore';
 import {
-  fetchProjects,
   fetchUnassignedTotals,
   triggerIngest,
-  type ProjectRow,
   type UnassignedTotals,
 } from '../services/costService';
 import BudgetTab from './BudgetTab';
-import HistoricalTab from './HistoricalTab';
-import PricingTab from './PricingTab';
 import RealTimeTab from './RealTimeTab';
 import './CostDashboard.css';
 
-type CostTab = 'realtime' | 'historical' | 'budget' | 'pricing';
+type CostTab = 'realtime' | 'budget';
 
 function formatUsd(v: number, decimals = 2): string {
   return `$${v.toFixed(decimals)}`;
@@ -40,45 +36,33 @@ function formatTokens(v: number): string {
   return String(v);
 }
 
-function formatProjectDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
 /**
- * Render a project label for the picker. Order of preference:
- * 1. explicit project_name (MLflow / registry overlay)
- * 2. "Unnamed · <first-event date>" — gives temporal context for
- *    projects deleted from the registry but still in token_events
- * Tokens are appended to either so users can identify by spend.
+ * Normalize a project_id to the canonical (dashless hex) form the
+ * cost DB uses. Cato's main picker emits Marcus's project_id in
+ * whichever form the registry stored it (often dashed UUID); the
+ * cost data is dashless. See Marcus canonical_project_id.
  */
-function projectLabel(p: ProjectRow): string {
-  const tokens = formatTokens(p.total_tokens);
-  const cost = formatUsd(p.total_cost_usd);
-  if (p.project_name) {
-    return `${p.project_name} — ${cost} (${tokens} tokens)`;
-  }
-  const date = formatProjectDate(p.first_event_at);
-  const prefix = date ? `Unnamed · ${date}` : 'Unnamed';
-  return `${prefix} — ${cost} (${tokens} tokens)`;
+function canonicalProjectId(pid: string | null): string | null {
+  if (!pid) return null;
+  return pid.replace(/-/g, '');
 }
 
 const CostDashboard = () => {
   const [activeTab, setActiveTab] = useState<CostTab>('realtime');
-  const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedTotals | null>(null);
   const [unassignedOpen, setUnassignedOpen] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [initialLoading, setInitialLoading] = useState(true);
+
+  // Unified picker: read the active project from the global store.
+  // No local selectedProject state, no local <select>. Switching the
+  // main header picker propagates here automatically.
+  const globalProjectId = useVisualizationStore(
+    (state) => state.selectedProjectId,
+  );
+  const projectId = canonicalProjectId(globalProjectId);
 
   // First-paint perf: triggerIngest sweeps ~/.claude/projects/<sess>.jsonl
-  // and was previously awaited *before* fetchProjects, which made the
-  // initial load take 10+ seconds on accounts with many session files.
-  // Now we fire ingest in the background and let the picker render
-  // immediately from whatever is already in costs.db. The next poll
-  // tick picks up any rows ingest added.
+  // and was previously awaited before initial render. Now we fire in
+  // the background; the next 30s poll picks up any new rows.
   const ingestInFlight = useRef(false);
   useEffect(() => {
     let cancelled = false;
@@ -96,30 +80,7 @@ const CostDashboard = () => {
     };
 
     const load = async () => {
-      // Kick off ingest in parallel — do not await.
       fireIngestInBackground();
-
-      try {
-        const { projects: ps } = await fetchProjects();
-        if (cancelled) return;
-        setProjects(ps);
-        setError(null);
-        // Auto-select the most expensive project the first time we see
-        // any. Functional setState avoids depending on selectedProject
-        // in the effect's deps array.
-        setSelectedProject((current) =>
-          current === null && ps.length > 0 ? ps[0].project_id : current,
-        );
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (!cancelled) setInitialLoading(false);
-      }
-
-      // Fetch unassigned totals independently; failure here is not
-      // fatal — we just skip the banner this tick.
       try {
         const una = await fetchUnassignedTotals();
         if (!cancelled) setUnassigned(una);
@@ -136,66 +97,25 @@ const CostDashboard = () => {
     };
   }, []);
 
-  if (error && projects.length === 0) {
-    return (
-      <div className="cost-dashboard cost-dashboard-error">
-        <h2>Cost dashboard unavailable</h2>
-        <p>{error}</p>
-        <p className="hint">
-          The cost backend may be disabled — check that Marcus is running and
-          ~/.marcus/costs.db exists.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="cost-dashboard">
       <div className="cost-dashboard-header">
         <h2>Cost</h2>
 
-        <div className="cost-pickers">
-          <div className="cost-picker">
-            <label htmlFor="cost-project-select">Project:</label>
-            <select
-              id="cost-project-select"
-              value={selectedProject ?? ''}
-              onChange={(e) => setSelectedProject(e.target.value || null)}
-            >
-              {projects.length === 0 && (
-                <option value="">
-                  {initialLoading ? '— loading… —' : '— none yet —'}
-                </option>
-              )}
-              {projects.map((p) => (
-                <option key={p.project_id} value={p.project_id}>
-                  {/*
-                    Name resolution: experiments.project_name (MLflow) →
-                    Marcus project registry → "Unnamed · <date>" fallback
-                    for projects deleted from the registry but still in
-                    token_events. See cost_routes._load_project_names.
-                  */}
-                  {projectLabel(p)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {unassigned && unassigned.events > 0 && (
-            <button
-              type="button"
-              className="cost-unassigned-icon"
-              onClick={() => setUnassignedOpen((v) => !v)}
-              title={
-                'Unassigned cost — LLM calls Marcus made without an ' +
-                'active project context. Click for details.'
-              }
-              aria-label="Unassigned cost details"
-            >
-              ⚠
-            </button>
-          )}
-        </div>
+        {unassigned && unassigned.events > 0 && (
+          <button
+            type="button"
+            className="cost-unassigned-icon"
+            onClick={() => setUnassignedOpen((v) => !v)}
+            title={
+              'Unassigned cost — LLM calls Marcus made without an ' +
+              'active project context. Click for details.'
+            }
+            aria-label="Unassigned cost details"
+          >
+            ⚠
+          </button>
+        )}
 
         {unassignedOpen && unassigned && (
           <div className="cost-unassigned-popover" role="dialog">
@@ -203,7 +123,8 @@ const CostDashboard = () => {
             <p className="hint">
               Calls Marcus made without an active project context — usually
               a code path running outside the MCP request lifecycle, or a
-              project-creation tool.
+              project-creation tool. Historical view in Settings shows
+              project-by-project breakdown including deleted projects.
             </p>
             <dl className="cost-unassigned-stats">
               <div>
@@ -238,44 +159,40 @@ const CostDashboard = () => {
           Real-time
         </button>
         <button
-          className={activeTab === 'historical' ? 'active' : ''}
-          onClick={() => setActiveTab('historical')}
-        >
-          Historical
-        </button>
-        <button
           className={activeTab === 'budget' ? 'active' : ''}
           onClick={() => setActiveTab('budget')}
         >
           Budget
         </button>
-        <button
-          className={activeTab === 'pricing' ? 'active' : ''}
-          onClick={() => setActiveTab('pricing')}
-        >
-          Pricing
-        </button>
       </div>
 
       <div className="cost-tab-content">
-        {activeTab === 'realtime' && selectedProject && (
-          <RealTimeTab projectId={selectedProject} />
+        {activeTab === 'realtime' && projectId && (
+          <RealTimeTab projectId={projectId} />
         )}
-        {activeTab === 'realtime' && !selectedProject && (
+        {activeTab === 'realtime' && !projectId && (
           <div className="cost-empty">
-            No projects yet. Run one with the marcus skill and it'll appear here.
+            <p>No project selected.</p>
+            <p className="hint">
+              Pick a project from the dropdown at the top of the page to
+              see its live cost data. Historical totals (including deleted
+              projects) are available in <strong>Settings → Historical
+              Cost</strong>.
+            </p>
           </div>
         )}
-        {activeTab === 'historical' && <HistoricalTab />}
-        {activeTab === 'budget' && selectedProject && (
-          <BudgetTab projectId={selectedProject} />
+        {activeTab === 'budget' && projectId && (
+          <BudgetTab projectId={projectId} />
         )}
-        {activeTab === 'budget' && !selectedProject && (
+        {activeTab === 'budget' && !projectId && (
           <div className="cost-empty">
-            Select a project to see budget projection.
+            <p>No project selected.</p>
+            <p className="hint">
+              Pick a project at the top to see its budget cap and spend
+              projection.
+            </p>
           </div>
         )}
-        {activeTab === 'pricing' && <PricingTab />}
       </div>
     </div>
   );
