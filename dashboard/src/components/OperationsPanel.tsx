@@ -22,26 +22,13 @@ import type {
   OperationCatalogEntry,
   OperationSlice,
 } from '../services/costService';
-
-type CategoryKey =
-  | 'decomposition'
-  | 'runtime'
-  | 'monitoring'
-  | 'other';
-
-const ALL_CATEGORIES: CategoryKey[] = [
-  'decomposition',
-  'runtime',
-  'monitoring',
-  'other',
-];
-
-const CATEGORY_LABELS: Record<CategoryKey, string> = {
-  decomposition: 'Decomposition',
-  runtime: 'Runtime',
-  monitoring: 'Monitoring',
-  other: 'Other',
-};
+import {
+  ALL_CATEGORIES,
+  CATEGORY_LABELS,
+  bucketByCategory,
+  pickColdOffender,
+  type CategoryKey,
+} from './operationsPanel.logic';
 
 interface Props {
   operations: OperationSlice[];
@@ -68,28 +55,6 @@ function cacheCellClass(rate: number): string {
   return 'cache-cell';
 }
 
-/**
- * Compute the "cold-cache opportunity" for one operation.
- *
- * ``cache_creation_tokens * (1 - cache_hit_rate)`` approximates
- * tokens we'd save by tightening the prompt so it hits the cache.
- * The row with the highest score is the best prompt-tightening
- * target — heavy AND cold.
- */
-function coldCacheScore(op: OperationSlice): number {
-  const creation = op.cache_creation_tokens ?? 0;
-  const rate = op.cache_hit_rate ?? 0;
-  return creation * (1 - rate);
-}
-
-interface CategoryGroup {
-  category: CategoryKey;
-  ops: OperationSlice[];
-  totalCost: number;
-  totalTokens: number;
-  totalCalls: number;
-}
-
 const OperationsPanel = ({ operations, catalog }: Props) => {
   // Default: all categories visible. Pills toggle off-states.
   const [visibleCategories, setVisibleCategories] = useState<
@@ -98,53 +63,31 @@ const OperationsPanel = ({ operations, catalog }: Props) => {
   // Default: all categories expanded. Headers toggle collapse.
   const [collapsed, setCollapsed] = useState<Set<CategoryKey>>(new Set());
 
-  // Map operations into category groups. Operations whose key isn't
-  // in the catalog fall into 'other' so they're still visible — the
-  // recorder logs a WARNING for those, so they're rare and worth
-  // surfacing.
-  const groups = useMemo<CategoryGroup[]>(() => {
-    const buckets: Record<CategoryKey, OperationSlice[]> = {
-      decomposition: [],
-      runtime: [],
-      monitoring: [],
-      other: [],
-    };
-    for (const op of operations) {
-      const cat =
-        (catalog[op.operation]?.category as CategoryKey | undefined) ??
-        'other';
-      buckets[cat].push(op);
-    }
-    return ALL_CATEGORIES.map((cat) => {
-      const ops = buckets[cat];
-      return {
-        category: cat,
-        ops,
-        totalCost: ops.reduce((s, o) => s + o.cost_usd, 0),
-        totalTokens: ops.reduce((s, o) => s + o.tokens, 0),
-        totalCalls: ops.reduce((s, o) => s + o.events, 0),
-      };
-    }).filter((g) => g.ops.length > 0);
-  }, [operations, catalog]);
+  // Map operations into category groups. Pure logic in
+  // ``operationsPanel.logic.ts`` — see that file's docstring for the
+  // ``'other'`` fallback semantics and the rationale for empty-bucket
+  // filtering.
+  const groups = useMemo(
+    () => bucketByCategory(operations, catalog),
+    [operations, catalog],
+  );
 
-  // Find the worst cold-cache offender across all visible operations.
-  // Compute *before* filtering so the badge always points at the
-  // global worst, even if the user has the relevant category off
-  // (avoids the chip jumping around as filters change).
-  const coldOffenderKey = useMemo<string | null>(() => {
-    let bestKey: string | null = null;
-    let bestScore = 0;
-    for (const op of operations) {
-      const score = coldCacheScore(op);
-      // Threshold: only badge rows with > 1k saveable tokens. Below
-      // that the "biggest offender" is noise.
-      if (score > bestScore && score > 1000) {
-        bestScore = score;
-        bestKey = op.operation;
-      }
-    }
-    return bestKey;
-  }, [operations]);
+  // Find the worst cold-cache offender across all operations.
+  // Compute *before* visibility filtering so the badge always points
+  // at the global worst, even if the user has the relevant category
+  // off (avoids the chip jumping around as filters change). The
+  // pure logic is in ``operationsPanel.logic.ts``; it skips
+  // unregistered/typo operations and applies the 1000-token
+  // threshold.
+  const coldOffenderKey = useMemo(
+    () => pickColdOffender(operations, catalog),
+    [operations, catalog],
+  );
+
+  // ID prefix for table elements so aria-controls on each group
+  // header points at the correct table. Using a stable per-category
+  // suffix means the relationship is stable across re-renders.
+  const tableIdFor = (cat: CategoryKey) => `cost-operations-table-${cat}`;
 
   const toggleCategory = (cat: CategoryKey) => {
     setVisibleCategories((prev) => {
@@ -200,10 +143,24 @@ const OperationsPanel = ({ operations, catalog }: Props) => {
         })}
       </div>
 
-      {groups
-        .filter((g) => visibleCategories.has(g.category))
-        .map((g) => {
+      {(() => {
+        const visibleGroups = groups.filter((g) =>
+          visibleCategories.has(g.category),
+        );
+        if (visibleGroups.length === 0) {
+          // All categories filtered off — keep the toolbar usable but
+          // tell the user why the table area is empty. Kaia review on
+          // PR #39.
+          return (
+            <p className="cost-panel-hint cost-operation-empty">
+              No operations match the active filters. Click a category
+              pill above to bring its rows back.
+            </p>
+          );
+        }
+        return visibleGroups.map((g) => {
           const isCollapsed = collapsed.has(g.category);
+          const tableId = tableIdFor(g.category);
           return (
             <div key={g.category} className="cost-operation-group">
               <button
@@ -211,6 +168,7 @@ const OperationsPanel = ({ operations, catalog }: Props) => {
                 className={`cost-operation-group-header cat-${g.category}`}
                 onClick={() => toggleCollapsed(g.category)}
                 aria-expanded={!isCollapsed}
+                aria-controls={tableId}
               >
                 <span className="cost-operation-group-chevron">
                   {isCollapsed ? '▶' : '▼'}
@@ -226,7 +184,10 @@ const OperationsPanel = ({ operations, catalog }: Props) => {
               </button>
 
               {!isCollapsed && (
-                <table className="cost-table cost-table-dense">
+                <table
+                  id={tableId}
+                  className="cost-table cost-table-dense"
+                >
                   <thead>
                     <tr>
                       <th>Operation</th>
@@ -294,7 +255,8 @@ const OperationsPanel = ({ operations, catalog }: Props) => {
               )}
             </div>
           );
-        })}
+        });
+      })()}
     </section>
   );
 };

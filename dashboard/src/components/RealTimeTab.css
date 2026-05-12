@@ -432,3 +432,14 @@
 .cost-operation-cold-offender:hover {
   background: rgba(239, 68, 68, 0.1);
 }
+
+/* Empty state when all category filter pills are toggled off. Keeps
+   the toolbar visible (so the user can flip a pill back on) but
+   replaces the table area with a hint. */
+.cost-operation-empty {
+  margin: 12px 0;
+  padding: 16px;
+  text-align: center;
+  border: 1px dashed var(--border-color, #e2e8f0);
+  border-radius: 6px;
+}
