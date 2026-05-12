@@ -111,10 +111,11 @@ def resolve_binding_from_cwd(record: Dict[str, Any]) -> Optional["AgentBinding"]
 
     return AgentBinding(
         agent_id=cwd.name,
-        # experiment_id is an MLflow handle; we don't have it from
-        # project_info.json, so leave it 'unassigned'. The project_id
-        # is what the dashboard joins on.
-        experiment_id="unassigned",
+        # run_id isn't recorded in project_info.json, so leave it
+        # 'unassigned'. The project_id is what the dashboard joins
+        # on. Renamed from experiment_id alongside Marcus's
+        # ``runs`` table rename (Simon ``7ed3074d``).
+        run_id="unassigned",
         project_id=str(project_id),
     )
 

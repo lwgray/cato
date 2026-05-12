@@ -40,8 +40,8 @@ def store(tmp_path: Path) -> Any:
     """Tmp CostStore seeded with one Anthropic price and a few events."""
     from src.cost_tracking.cost_store import (
         CostStore,
-        Experiment,
         ModelPrice,
+        Run,
         TokenEvent,
     )
 
@@ -58,9 +58,9 @@ def store(tmp_path: Path) -> Any:
             source="default",
         )
     )
-    s.record_experiment(
-        Experiment(
-            experiment_id="exp_1",
+    s.record_run(
+        Run(
+            run_id="exp_1",
             project_id="proj_1",
             project_name="hangman",
             started_at=datetime(2026, 5, 10, tzinfo=timezone.utc),
@@ -70,7 +70,7 @@ def store(tmp_path: Path) -> Any:
         )
     )
     base = dict(
-        experiment_id="exp_1",
+        run_id="exp_1",
         project_id="proj_1",
         provider="anthropic",
         model="claude-sonnet-4-6",
@@ -132,7 +132,7 @@ def client(store: Any) -> TestClient:
 
 
 # ---------------------------------------------------------------------------
-# /api/cost/experiments
+# /api/cost/runs
 # ---------------------------------------------------------------------------
 
 
@@ -160,7 +160,7 @@ class TestProjectsList:
 
         store.record_event(
             TokenEvent(
-                experiment_id="unassigned",
+                run_id="unassigned",
                 project_id="unassigned",
                 agent_id="planner",
                 agent_role="planner",
@@ -194,7 +194,7 @@ class TestUnassignedTotals:
 
         store.record_event(
             TokenEvent(
-                experiment_id="unassigned",
+                run_id="unassigned",
                 project_id="unassigned",
                 agent_id="planner",
                 agent_role="planner",
@@ -213,34 +213,33 @@ class TestUnassignedTotals:
 
 
 @requires_marcus
-class TestExperimentsList:
-    def test_lists_experiments(self, client: TestClient) -> None:
-        """Endpoint returns the seeded experiment with totals."""
-        resp = client.get("/api/cost/experiments")
+class TestRunsList:
+    def test_lists_runs(self, client: TestClient) -> None:
+        """Endpoint returns the seeded run with totals."""
+        resp = client.get("/api/cost/runs")
         assert resp.status_code == 200
         body = resp.json()
         assert body["count"] == 1
-        assert body["experiments"][0]["experiment_id"] == "exp_1"
+        assert body["runs"][0]["run_id"] == "exp_1"
         assert (
-            body["experiments"][0]["total_tokens"]
-            == 1000 + 500 + 2000 + 500 + 100 + 300 + 50
+            body["runs"][0]["total_tokens"] == 1000 + 500 + 2000 + 500 + 100 + 300 + 50
         )
 
     def test_filter_by_project(self, client: TestClient) -> None:
         """Unknown project returns empty list, not 404."""
-        resp = client.get("/api/cost/experiments?project_id=nope")
+        resp = client.get("/api/cost/runs?project_id=nope")
         assert resp.status_code == 200
         assert resp.json()["count"] == 0
 
 
 @requires_marcus
-class TestExperimentSummary:
+class TestRunSummary:
     def test_returns_full_breakdown(self, client: TestClient) -> None:
-        """Endpoint returns the same shape as CostAggregator.experiment_summary."""
-        resp = client.get("/api/cost/experiments/exp_1")
+        """Endpoint returns the same shape as CostAggregator.run_summary."""
+        resp = client.get("/api/cost/runs/exp_1")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["experiment_id"] == "exp_1"
+        assert body["run_id"] == "exp_1"
         assert {
             "summary",
             "by_role",
@@ -251,21 +250,21 @@ class TestExperimentSummary:
         } <= set(body.keys())
 
     def test_unknown_returns_404(self, client: TestClient) -> None:
-        """Missing experiment_id yields a 404."""
-        resp = client.get("/api/cost/experiments/nope")
+        """Missing run_id yields a 404."""
+        resp = client.get("/api/cost/runs/nope")
         assert resp.status_code == 404
 
 
 @requires_marcus
 class TestProjectSummary:
     def test_returns_project_totals(self, client: TestClient) -> None:
-        """Project endpoint returns totals + experiments list."""
+        """Project endpoint returns totals + runs list."""
         resp = client.get("/api/cost/projects/proj_1")
         assert resp.status_code == 200
         body = resp.json()
         assert body["project_id"] == "proj_1"
         assert body["totals"]["events"] == 3
-        assert len(body["experiments"]) == 1
+        assert len(body["runs"]) == 1
 
 
 @requires_marcus
@@ -360,7 +359,7 @@ class TestProjectNameEnrichment:
 
         store.record_event(
             TokenEvent(
-                experiment_id="exp_orphan",
+                run_id="exp_orphan",
                 project_id="proj_no_mlflow",
                 agent_id="planner",
                 agent_role="planner",
@@ -418,7 +417,7 @@ class TestProjectNameEnrichment:
         # registry.
         store.record_event(
             TokenEvent(
-                experiment_id="exp_snap",
+                run_id="exp_snap",
                 project_id="snap_proj",
                 agent_id="planner",
                 agent_role="planner",

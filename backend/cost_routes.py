@@ -9,13 +9,20 @@ in ``backend/api.py``.
 
 Endpoints
 ---------
-- ``GET  /api/cost/experiments`` — list experiments with totals
-- ``GET  /api/cost/experiments/{exp_id}`` — full per-experiment breakdown
-- ``GET  /api/cost/projects/{project_id}`` — project rollup + experiments
+- ``GET  /api/cost/runs`` — list runs with totals
+- ``GET  /api/cost/runs/{run_id}`` — full per-run breakdown
+- ``GET  /api/cost/projects/{project_id}`` — project rollup + runs
 - ``GET  /api/cost/sessions/{session_id}/turns`` — per-turn trajectory
 - ``GET  /api/cost/prices`` — current pricing table (latest per model)
 - ``POST /api/cost/prices`` — insert a new price row (versioned by ``effective_from``)
-- ``GET  /api/cost/export/{exp_id}`` — CSV export of all events
+- ``GET  /api/cost/export/{run_id}`` — CSV export of all events
+
+Terminology note
+----------------
+Endpoints renamed from ``/experiments`` → ``/runs`` in coordination
+with Marcus's ``experiment_id`` → ``run_id`` rename. The MLflow
+experiment concept is unrelated and stays where it lives in
+Marcus's ``start_experiment`` MCP tool.
 """
 
 from __future__ import annotations
@@ -363,13 +370,18 @@ def unassigned_totals(
     return totals
 
 
-@router.get("/experiments")  # type: ignore[misc]
-def list_experiments(
+@router.get("/runs")  # type: ignore[misc]
+def list_runs(
     project_id: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     aggregator: Any = Depends(get_aggregator),
 ) -> Dict[str, Any]:
-    """List experiments with token + cost totals attached.
+    """List runs with token + cost totals attached.
+
+    Renamed from ``/experiments`` in coordination with the Marcus
+    rename (Simon ``7ed3074d``). The legacy ``experiment`` term
+    clashed with MLflow's separate concept; ``run`` accurately
+    describes a single project traversal.
 
     Parameters
     ----------
@@ -378,28 +390,30 @@ def list_experiments(
     limit : int
         Cap at 1000. Default 100.
     """
-    rows = aggregator.list_experiments(project_id=project_id, limit=limit)
-    return {"experiments": rows, "count": len(rows)}
+    rows = aggregator.list_runs(project_id=project_id, limit=limit)
+    return {"runs": rows, "count": len(rows)}
 
 
-@router.get("/experiments/{experiment_id}")  # type: ignore[misc]
-def experiment_summary(
-    experiment_id: str,
+@router.get("/runs/{run_id}")  # type: ignore[misc]
+def run_summary(
+    run_id: str,
     aggregator: Any = Depends(get_aggregator),
 ) -> Dict[str, Any]:
-    """Full per-experiment breakdown (summary + by_role / agent / task / etc.).
+    """Full per-run breakdown (summary + by_role / agent / task / etc.).
 
     Returns the exact dict shape documented in Marcus #409. Cato's
     frontend renders the result without further transformation.
 
+    Renamed from ``/experiments/{experiment_id}``.
+
     Raises
     ------
     HTTPException
-        404 if the experiment does not exist.
+        404 if the run does not exist.
     """
-    summary: Optional[Dict[str, Any]] = aggregator.experiment_summary(experiment_id)
+    summary: Optional[Dict[str, Any]] = aggregator.run_summary(run_id)
     if summary is None:
-        raise HTTPException(status_code=404, detail="experiment not found")
+        raise HTTPException(status_code=404, detail="run not found")
     return summary
 
 
@@ -409,7 +423,7 @@ def project_summary(
     aggregator: Any = Depends(get_aggregator),
     store: Any = Depends(get_store),
 ) -> Dict[str, Any]:
-    """Project rollup + list of experiment summaries.
+    """Project rollup + list of run summaries.
 
     Legacy thin shape kept for backwards compatibility with the old
     project picker; the project-first dashboard tabs use
@@ -420,7 +434,7 @@ def project_summary(
         "project_id": project_id,
         "project_name": names.get(project_id),
         "totals": aggregator.project_totals(project_id),
-        "experiments": aggregator.list_experiments(project_id=project_id),
+        "runs": aggregator.list_runs(project_id=project_id),
     }
 
 
@@ -639,12 +653,12 @@ def create_price(
 # -- export ------------------------------------------------------------------
 
 
-@router.get("/export/{experiment_id}")  # type: ignore[misc]
-def export_experiment_csv(
-    experiment_id: str,
+@router.get("/export/{run_id}")  # type: ignore[misc]
+def export_run_csv(
+    run_id: str,
     store: Any = Depends(get_store),
 ) -> StreamingResponse:
-    """CSV export of every ``token_events`` row for one experiment."""
+    """CSV export of every ``token_events`` row for one run."""
     cursor = store.conn.execute(
         """
         SELECT event_id, timestamp, agent_id, agent_role, operation,
@@ -652,10 +666,10 @@ def export_experiment_csv(
                input_tokens, cache_creation_tokens, cache_read_tokens,
                output_tokens, total_tokens, cost_usd, request_id, status
         FROM v_event_cost
-        WHERE experiment_id = ?
+        WHERE run_id = ?
         ORDER BY timestamp, event_id
         """,
-        (experiment_id,),
+        (run_id,),
     )
     headers = [d[0] for d in cursor.description]
     buf = io.StringIO()
@@ -667,7 +681,5 @@ def export_experiment_csv(
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="text/csv",
-        headers={
-            "Content-Disposition": (f'attachment; filename="cost_{experiment_id}.csv"')
-        },
+        headers={"Content-Disposition": (f'attachment; filename="cost_{run_id}.csv"')},
     )

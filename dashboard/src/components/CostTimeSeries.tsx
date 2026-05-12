@@ -1,21 +1,22 @@
 /**
- * Per-experiment cost time series.
+ * Per-run cost time series.
  *
- * Renders one bar per experiment along an absolute time axis (started_at).
- * Bars are colored by project so multi-project history is legible at a
- * glance. Used by the Historical tab.
+ * Renders one bar per run along an absolute time axis (started_at).
+ * Bars are colored by project so multi-project history is legible at
+ * a glance. Used by the Historical tab. Renamed from
+ * "per-experiment" in coordination with Marcus's ``runs`` rename.
  */
 
 import { useMemo } from 'react';
 import * as d3 from 'd3';
-import type { ExperimentRow } from '../services/costService';
+import type { RunRow } from '../services/costService';
 import './CostTimeSeries.css';
 
 interface Props {
-  experiments: ExperimentRow[];
+  runs: RunRow[];
   width?: number;
   height?: number;
-  onSelect?: (experimentId: string) => void;
+  onSelect?: (runId: string) => void;
 }
 
 const MARGIN = { top: 16, right: 16, bottom: 40, left: 56 };
@@ -26,7 +27,7 @@ function formatUsd(v: number): string {
 }
 
 const CostTimeSeries = ({
-  experiments,
+  runs,
   width = 800,
   height = 260,
   onSelect,
@@ -36,13 +37,13 @@ const CostTimeSeries = ({
 
   const parsed = useMemo(
     () =>
-      experiments
+      runs
         .map((e) => ({
           ...e,
           ts: new Date(e.started_at).getTime(),
         }))
         .sort((a, b) => a.ts - b.ts),
-    [experiments],
+    [runs],
   );
 
   const xScale = useMemo(() => {
@@ -67,7 +68,7 @@ const CostTimeSeries = ({
   if (parsed.length === 0) {
     return (
       <div className="cost-timeseries-empty">
-        No experiments to chart yet.
+        No runs to chart yet.
       </div>
     );
   }
@@ -106,9 +107,9 @@ const CostTimeSeries = ({
           const barH = innerH - y;
           return (
             <g
-              key={d.experiment_id}
+              key={d.run_id}
               transform={`translate(${x - barW / 2},${y})`}
-              onClick={() => onSelect?.(d.experiment_id)}
+              onClick={() => onSelect?.(d.run_id)}
               style={{ cursor: onSelect ? 'pointer' : 'default' }}
               className="bar-group"
             >
@@ -120,7 +121,7 @@ const CostTimeSeries = ({
                 rx={2}
               >
                 <title>
-                  {d.project_name ?? d.experiment_id}
+                  {d.project_name ?? d.run_id}
                   {'\n'}
                   {new Date(d.ts).toLocaleString()}
                   {'\n'}
