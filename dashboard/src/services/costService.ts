@@ -12,10 +12,18 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4301';
 // Response types
 // ---------------------------------------------------------------------------
 
-export interface ExperimentRow {
-  experiment_id: string;
+export interface RunRow {
+  run_id: string;
   project_id: string;
   project_name: string | null;
+  /**
+   * Entry point that produced this run. ``'direct'`` for human MCP
+   * users, ``'marcus'`` for ``/marcus`` runs, ``'posidonius'`` for
+   * Posidonius automated trials, ``'unknown'`` for legacy rows.
+   * Renamed from the old ExperimentRow shape in coordination with
+   * Marcus's ``experiments`` → ``runs`` rename.
+   */
+  path: string;
   started_at: string;
   ended_at: string | null;
   num_agents: number | null;
@@ -82,8 +90,8 @@ export interface ModelSlice {
   cost_usd: number;
 }
 
-export interface ExperimentSummary {
-  experiment_id: string;
+export interface RunSummary {
+  run_id: string;
   project_id: string;
   project_name: string | null;
   started_at: string;
@@ -129,25 +137,29 @@ async function _get<T>(path: string): Promise<T> {
 }
 
 /**
- * List experiments with token + cost totals attached.
+ * List runs with token + cost totals attached.
+ *
+ * Renamed from ``fetchExperiments`` in coordination with Marcus's
+ * ``runs`` table rename (Simon ``7ed3074d``); the term "experiment"
+ * was colliding with MLflow's separate concept.
  *
  * @param projectId Optional project filter.
  * @param limit Cap at 1000. Default 100.
  */
-export async function fetchExperiments(
+export async function fetchRuns(
   projectId?: string,
   limit = 100,
-): Promise<{ experiments: ExperimentRow[]; count: number }> {
+): Promise<{ runs: RunRow[]; count: number }> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (projectId) params.set('project_id', projectId);
-  return _get(`/api/cost/experiments?${params}`);
+  return _get(`/api/cost/runs?${params}`);
 }
 
-/** Full per-experiment breakdown (summary + by_role / agent / task / etc.). */
-export async function fetchExperimentSummary(
-  experimentId: string,
-): Promise<ExperimentSummary> {
-  return _get(`/api/cost/experiments/${encodeURIComponent(experimentId)}`);
+/** Full per-run breakdown (summary + by_role / agent / task / etc.). */
+export async function fetchRunSummary(
+  runId: string,
+): Promise<RunSummary> {
+  return _get(`/api/cost/runs/${encodeURIComponent(runId)}`);
 }
 
 /** Per-turn cost trajectory for one Claude Code session. */
@@ -165,17 +177,14 @@ export interface ProjectRow {
   project_id: string;
   /**
    * Human-readable name. Resolved in order of preference:
-   * 1. experiments.project_name (set explicitly via start_experiment)
+   * 1. runs.project_name (the wrapper-recorded primary run)
    * 2. Marcus's project registry (data/marcus_state/projects.json),
    *    which is the same source the regular Cato projects panel uses
    * 3. NULL — picker falls back to a truncated project_id
-   *
-   * Most Marcus runs never open an MLflow experiment, so #2 is the
-   * usual source.
    */
   project_name: string | null;
   events: number;
-  experiments: number;
+  runs: number;
   agents: number;
   total_tokens: number;
   total_cost_usd: number;
@@ -192,12 +201,12 @@ export interface UnassignedTotals {
 export interface ProjectSummary {
   project_id: string;
   totals: {
-    experiments: number;
+    runs: number;
     events: number;
     total_tokens: number;
     total_cost_usd: number;
   };
-  experiments: ExperimentRow[];
+  runs: RunRow[];
 }
 
 /** List projects with cost rollups (primary picker for the dashboard). */
@@ -223,18 +232,17 @@ export async function fetchProjectSummary(
  * Full per-project breakdown — drives the Real-time / Historical /
  * Budget tabs in the project-first dashboard.
  *
- * Same shape as :func:`fetchExperimentSummary` but scoped to project_id,
- * which is the only universal identity in Marcus's coordination model
- * (Marcus #503). Marcus runs that never opened an MLflow experiment
- * still have project_id on every event, so this is the universal
- * surface for cost data.
+ * Same shape as :func:`fetchRunSummary` but scoped to project_id,
+ * which is the only universal identity in Marcus's coordination
+ * model (Marcus #503). Every cost event carries a project_id, so
+ * this is the universal surface for cost data.
  */
 export interface ProjectFullSummary {
   project_id: string;
   project_name: string | null;
   summary: {
     total_events: number;
-    experiments: number;
+    runs: number;
     agents: number;
     sessions: number;
     total_tokens: number;
