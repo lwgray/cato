@@ -45,6 +45,13 @@ COST_TRACKING_AVAILABLE = False
 CostStore: Any = None
 CostAggregator: Any = None
 ModelPrice: Any = None
+# Bound at module scope (not just inside the success branch) so that
+# ``list_operations()`` can reference it unconditionally. If Marcus
+# discovery fails entirely — outer try raises, or no _marcus_root is
+# found — this stays ``None`` and the endpoint returns an empty
+# mapping instead of crashing with NameError. Kaia review on
+# ``feat/marcus-409-operations-taxonomy``.
+_marcus_all_operations: Any = None
 
 try:
     import sys
@@ -71,6 +78,23 @@ try:
             CostStore,
             ModelPrice,
         )
+
+        # Operation taxonomy: imported defensively so older Marcus
+        # checkouts without this module still load the cost routes.
+        # ``_marcus_all_operations`` stays ``None`` (its module-scope
+        # default) when unavailable; the ``/api/cost/operations``
+        # endpoint returns an empty mapping in that case so the
+        # dashboard degrades gracefully to "no tooltip" instead of
+        # crashing. The two-step import-then-assign pattern (rather
+        # than ``import ... as _marcus_all_operations``) avoids a
+        # mypy ``no-redef`` error against the module-scope
+        # declaration on line 54.
+        try:
+            from src.cost_tracking.operations import all_operations
+
+            _marcus_all_operations = all_operations
+        except ImportError:
+            pass  # leave as None (set at module scope)
 
         COST_TRACKING_AVAILABLE = True
         logger.info("Cato cost-tracking enabled (Marcus at %s)", _marcus_root)
@@ -474,6 +498,33 @@ def session_turns(
 
 
 # -- pricing endpoints -------------------------------------------------------
+
+
+@router.get("/operations")  # type: ignore[misc]
+def list_operations() -> Dict[str, Any]:
+    """Return the canonical operation taxonomy for cost-event drill-down.
+
+    Sourced from ``src.cost_tracking.operations`` in Marcus. Returns an
+    empty mapping when Marcus is older and lacks the module — the
+    dashboard treats unknown operation keys gracefully (synthesized
+    label, generic tooltip).
+
+    The mapping shape is::
+
+        {
+            "operations": {
+                "<key>": {
+                    "label": "Human label",
+                    "description": "What this LLM call does and why.",
+                    "category": "decomposition" | "runtime" | "monitoring" | "other",
+                },
+                ...
+            }
+        }
+    """
+    if _marcus_all_operations is None:
+        return {"operations": {}}
+    return {"operations": _marcus_all_operations()}
 
 
 @router.get("/prices")  # type: ignore[misc]

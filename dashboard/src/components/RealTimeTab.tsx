@@ -12,10 +12,13 @@
 
 import { useEffect, useState } from 'react';
 import {
+  fetchOperationCatalog,
   fetchProjectFullSummary,
+  type OperationCatalogEntry,
   type ProjectFullSummary,
 } from '../services/costService';
 import AgentSpendBars from './AgentSpendBars';
+import OperationsPanel from './OperationsPanel';
 import './RealTimeTab.css';
 
 interface Props {
@@ -46,6 +49,26 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
   // from a generic error — render a friendly empty state.
   const [noActivity, setNoActivity] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  // Operation taxonomy (label + description per operation key). Loaded
+  // once on first render; survives polling. Empty when Marcus is older
+  // and lacks the operations module — falls through to raw keys.
+  const [opCatalog, setOpCatalog] = useState<
+    Record<string, OperationCatalogEntry>
+  >({});
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchOperationCatalog()
+      .then((c) => {
+        if (!cancelled) setOpCatalog(c.operations);
+      })
+      .catch(() => {
+        // intentionally swallowed — endpoint may not exist on old Marcus
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -187,48 +210,11 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
         </div>
       </section>
 
-      {summary.by_operation.length > 0 && (
-        <section className="cost-panel">
-          <h3>
-            Tokens by operation{' '}
-            <small className="cost-panel-hint">
-              Sorted by total tokens — the heaviest call is the prompt-
-              tightening target. Low cache-hit % on a heavy row means
-              that operation isn't benefiting from the prompt cache.
-            </small>
-          </h3>
-          <table className="cost-table cost-table-dense">
-            <thead>
-              <tr>
-                <th>Operation</th>
-                <th>Calls</th>
-                <th>Input</th>
-                <th>Cache create</th>
-                <th>Cache read</th>
-                <th>Output</th>
-                <th>Cache %</th>
-                <th>Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summary.by_operation.map((op) => (
-                <tr key={op.operation}>
-                  <td>{op.operation}</td>
-                  <td>{op.events}</td>
-                  <td>{formatTokens(op.input_tokens ?? 0)}</td>
-                  <td>{formatTokens(op.cache_creation_tokens ?? 0)}</td>
-                  <td>{formatTokens(op.cache_read_tokens ?? 0)}</td>
-                  <td>{formatTokens(op.output_tokens ?? 0)}</td>
-                  <td className={cacheCellClass(op.cache_hit_rate ?? 0)}>
-                    {formatPct(op.cache_hit_rate ?? 0)}
-                  </td>
-                  <td>{formatUsd(op.cost_usd, 4)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
+      <OperationsPanel
+        operations={summary.by_operation}
+        catalog={opCatalog}
+      />
+
 
       {summary.by_model.length > 0 && (
         <section className="cost-panel">
