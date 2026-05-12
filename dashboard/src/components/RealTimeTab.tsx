@@ -18,6 +18,7 @@ import {
   type ProjectFullSummary,
 } from '../services/costService';
 import AgentSpendBars from './AgentSpendBars';
+import OperationsPanel from './OperationsPanel';
 import './RealTimeTab.css';
 
 interface Props {
@@ -209,71 +210,11 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
         </div>
       </section>
 
-      {summary.by_operation.length > 0 && (
-        <section className="cost-panel">
-          <h3>
-            Tokens by operation{' '}
-            <small className="cost-panel-hint">
-              Sorted by total tokens — the heaviest call is the prompt-
-              tightening target. Low cache-hit % on a heavy row means
-              that operation isn't benefiting from the prompt cache.
-            </small>
-          </h3>
-          <table className="cost-table cost-table-dense">
-            <thead>
-              <tr>
-                <th>Operation</th>
-                <th>Calls</th>
-                <th>Input</th>
-                <th>Cache create</th>
-                <th>Cache read</th>
-                <th>Output</th>
-                <th>Cache %</th>
-                <th>Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summary.by_operation.map((op) => {
-                const entry = opCatalog[op.operation];
-                const label = entry?.label ?? op.operation;
-                const tooltip = entry
-                  ? `${entry.label} — ${entry.description}`
-                  : `Unregistered operation '${op.operation}'. ` +
-                    'Add it to Marcus operations.py for a description.';
-                return (
-                  <tr key={op.operation}>
-                    <td>
-                      <span
-                        className="cost-operation-label"
-                        title={tooltip}
-                      >
-                        {label}
-                      </span>
-                      {entry && (
-                        <span
-                          className={`cost-operation-cat cat-${entry.category}`}
-                          title={`Category: ${entry.category}`}
-                        >
-                          {entry.category}
-                        </span>
-                      )}
-                    </td>
-                    <td>{op.events}</td>
-                    <td>{formatTokens(op.input_tokens ?? 0)}</td>
-                    <td>{formatTokens(op.cache_creation_tokens ?? 0)}</td>
-                    <td>{formatTokens(op.cache_read_tokens ?? 0)}</td>
-                    <td>{formatTokens(op.output_tokens ?? 0)}</td>
-                    <td className={cacheCellClass(op.cache_hit_rate ?? 0)}>
-                      {formatPct(op.cache_hit_rate ?? 0)}
-                    </td>
-                    <td>{formatUsd(op.cost_usd, 4)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
-      )}
+      <OperationsPanel
+        operations={summary.by_operation}
+        catalog={opCatalog}
+      />
+
 
       {summary.by_model.length > 0 && (
         <section className="cost-panel">

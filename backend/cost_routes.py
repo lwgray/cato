@@ -45,6 +45,13 @@ COST_TRACKING_AVAILABLE = False
 CostStore: Any = None
 CostAggregator: Any = None
 ModelPrice: Any = None
+# Bound at module scope (not just inside the success branch) so that
+# ``list_operations()`` can reference it unconditionally. If Marcus
+# discovery fails entirely — outer try raises, or no _marcus_root is
+# found — this stays ``None`` and the endpoint returns an empty
+# mapping instead of crashing with NameError. Kaia review on
+# ``feat/marcus-409-operations-taxonomy``.
+_marcus_all_operations: Any = None
 
 try:
     import sys
@@ -74,16 +81,20 @@ try:
 
         # Operation taxonomy: imported defensively so older Marcus
         # checkouts without this module still load the cost routes.
-        # ``all_operations`` is None when unavailable; the
-        # ``/api/cost/operations`` endpoint returns an empty mapping
-        # in that case so the dashboard degrades gracefully to "no
-        # tooltip" instead of crashing.
+        # ``_marcus_all_operations`` stays ``None`` (its module-scope
+        # default) when unavailable; the ``/api/cost/operations``
+        # endpoint returns an empty mapping in that case so the
+        # dashboard degrades gracefully to "no tooltip" instead of
+        # crashing. The two-step import-then-assign pattern (rather
+        # than ``import ... as _marcus_all_operations``) avoids a
+        # mypy ``no-redef`` error against the module-scope
+        # declaration on line 54.
         try:
-            from src.cost_tracking.operations import (
-                all_operations as _marcus_all_operations,  # type: ignore[no-redef]
-            )
+            from src.cost_tracking.operations import all_operations
+
+            _marcus_all_operations = all_operations
         except ImportError:
-            _marcus_all_operations = None  # type: ignore[assignment]
+            pass  # leave as None (set at module scope)
 
         COST_TRACKING_AVAILABLE = True
         logger.info("Cato cost-tracking enabled (Marcus at %s)", _marcus_root)
