@@ -54,6 +54,15 @@ export interface AgentSlice {
 
 export interface TaskSlice {
   task_id: string;
+  /**
+   * Human-readable kanban task name (Marcus #530). Snapshotted from
+   * Marcus's task_metadata into costs.db::task_names at the moment
+   * the task is created on the kanban. NULL when the task_id was
+   * never paired with a name (e.g. historical rows whose source
+   * marcus.db entry is gone, or subtask IDs that couldn't be
+   * derived from a parent). Dashboard falls back to truncated task_id.
+   */
+  task_name?: string | null;
   events: number;
   tokens: number;
   cost_usd: number;

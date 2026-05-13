@@ -37,6 +37,17 @@ function shortId(id: string): string {
   return id;
 }
 
+/**
+ * Display label for a task row. Prefer the snapshotted kanban name
+ * (Marcus #530, populated by ``costs.db::task_names`` LEFT JOIN);
+ * fall back to the truncated task_id when the task_metadata entry
+ * doesn't exist for this id (historical data, orphaned subtask).
+ */
+function taskLabel(t: TaskSlice): string {
+  if (t.task_name) return t.task_name;
+  return shortId(t.task_id);
+}
+
 const TaskSpendPanel = ({ tasks }: Props) => {
   if (tasks.length === 0) {
     return null;
@@ -70,10 +81,10 @@ const TaskSpendPanel = ({ tasks }: Props) => {
               <tr key={t.task_id}>
                 <td>
                   <span
-                    className="cost-task-id"
+                    className={t.task_name ? 'cost-task-name' : 'cost-task-id'}
                     title={t.task_id}
                   >
-                    {shortId(t.task_id)}
+                    {taskLabel(t)}
                   </span>
                 </td>
                 <td>{t.events}</td>

@@ -565,3 +565,11 @@
   background: rgba(239, 68, 68, 0.08);
   color: rgb(153, 27, 27);
 }
+
+/* Task name in TaskSpendPanel (Marcus #530). Plain weight so it reads
+   as a real label, not a code identifier. cost-task-id (existing
+   class above) keeps its mono styling for the id-fallback case. */
+.cost-task-name {
+  font-weight: 500;
+  color: var(--text-primary, #0f172a);
+}
