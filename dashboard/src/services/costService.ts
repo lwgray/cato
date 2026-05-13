@@ -54,6 +54,15 @@ export interface AgentSlice {
 
 export interface TaskSlice {
   task_id: string;
+  /**
+   * Human-readable kanban task name (Marcus #530). Snapshotted from
+   * Marcus's task_metadata into costs.db::task_names at the moment
+   * the task is created on the kanban. NULL when the task_id was
+   * never paired with a name (e.g. historical rows whose source
+   * marcus.db entry is gone, or subtask IDs that couldn't be
+   * derived from a parent). Dashboard falls back to truncated task_id.
+   */
+  task_name?: string | null;
   events: number;
   tokens: number;
   cost_usd: number;
@@ -61,6 +70,14 @@ export interface TaskSlice {
 
 export interface OperationSlice {
   operation: string;
+  /**
+   * ``'planner'`` or ``'worker'``. Lets the dashboard split planner
+   * rows (where ``operation`` carries semantic meaning like
+   * ``parse_prd``) from worker rows (which are always ``'turn'`` and
+   * are better attributed via ``by_task`` / ``by_agent``). See
+   * Marcus issue #527.
+   */
+  role?: string;
   events: number;
   tokens: number;
   /**
@@ -77,6 +94,26 @@ export interface OperationSlice {
   cost_usd: number;
 }
 
+/**
+ * Token-attribution audit for a run or project (Marcus issue #527).
+ *
+ * Answers the question *"is every token recorded for this scope
+ * accounted for?"*. A healthy audit shows ``reconciles=true`` and
+ * zero ``worker_events_without_task_id``. The dashboard's
+ * ``AuditBanner`` renders this as a single line.
+ */
+export interface CostAudit {
+  total_events: number;
+  total_tokens: number;
+  by_role_total_tokens: number;
+  reconciles: boolean;
+  tokens_outside_known_roles: number;
+  planner_events: number;
+  worker_events: number;
+  worker_events_without_task_id: number;
+  worker_events_without_agent_id: number;
+}
+
 export interface ModelSlice {
   model: string;
   provider: string;
@@ -87,6 +124,27 @@ export interface ModelSlice {
   cache_read_tokens?: number;
   output_tokens?: number;
   cache_hit_rate?: number;
+  cost_usd: number;
+}
+
+/**
+ * Worker-only slice grouped by the Claude Code tool the agent invoked
+ * on each turn (Marcus issue #527 Phase 2). Populated by the JSONL
+ * parser; null on planner rows.
+ *
+ * Values for ``tool_intent``:
+ * - ``worker_marcus_call`` — talking to Marcus via MCP (coordination tax)
+ * - ``worker_mcp_call`` — non-Marcus MCP servers
+ * - ``worker_edit`` — Edit / Write / NotebookEdit
+ * - ``worker_bash`` — Bash (tests, builds, git)
+ * - ``worker_search`` — Grep / Glob / ToolSearch
+ * - ``worker_read`` — Read
+ * - ``worker_text`` — text-only response, no tool use
+ */
+export interface ToolSlice {
+  tool_intent: string;
+  events: number;
+  tokens: number;
   cost_usd: number;
 }
 
@@ -115,6 +173,10 @@ export interface RunSummary {
   by_task: TaskSlice[];
   by_operation: OperationSlice[];
   by_model: ModelSlice[];
+  /** Marcus #527 Phase 2: per-tool worker spend breakdown. */
+  by_tool?: ToolSlice[];
+  /** Marcus #527: token-attribution audit inline on the summary. */
+  audit?: CostAudit;
 }
 
 export interface TurnPoint {
@@ -260,6 +322,10 @@ export interface ProjectFullSummary {
   by_task: TaskSlice[];
   by_operation: OperationSlice[];
   by_model: ModelSlice[];
+  /** Marcus #527 Phase 2: per-tool worker spend breakdown. */
+  by_tool?: ToolSlice[];
+  /** Marcus #527: token-attribution audit inline on the summary. */
+  audit?: CostAudit;
 }
 
 export async function fetchProjectFullSummary(

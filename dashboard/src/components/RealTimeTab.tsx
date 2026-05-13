@@ -19,6 +19,8 @@ import {
 } from '../services/costService';
 import AgentSpendBars from './AgentSpendBars';
 import OperationsPanel from './OperationsPanel';
+import TaskSpendPanel from './TaskSpendPanel';
+import ToolIntentPanel from './ToolIntentPanel';
 import './RealTimeTab.css';
 
 interface Props {
@@ -209,6 +211,10 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
           <AgentSpendBars agents={summary.by_agent} />
         </div>
       </section>
+
+      <TaskSpendPanel tasks={summary.by_task} />
+
+      <ToolIntentPanel tools={summary.by_tool} />
 
       <OperationsPanel
         operations={summary.by_operation}

@@ -443,3 +443,133 @@
   border: 1px dashed var(--border-color, #e2e8f0);
   border-radius: 6px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Audit banner (Marcus #527)
+ * Sits at the top of the tab. Green when every token reconciles to a
+ * known role; amber when the audit found a gap.
+ * ------------------------------------------------------------------------- */
+.cost-audit-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.cost-audit-healthy {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: rgb(21, 128, 61);
+}
+
+.cost-audit-unhealthy {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: rgb(180, 83, 9);
+}
+
+.cost-audit-icon {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.cost-audit-message {
+  flex: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * Worker total summary inside OperationsPanel (#527 Phase 1)
+ * Single line under the planner table reporting the aggregate worker
+ * spend, since per-tool breakdown isn't ready yet (Phase 2).
+ * ------------------------------------------------------------------------- */
+.cost-operation-worker-summary {
+  margin-top: 18px;
+  padding: 12px 14px;
+  background: rgba(99, 102, 241, 0.06);
+  border-left: 3px solid rgba(99, 102, 241, 0.4);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.cost-operation-worker-summary-label {
+  color: var(--text-muted, #64748b);
+}
+
+.cost-operation-worker-summary .cost-panel-hint {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Task spend panel (#527 Phase 1)
+ * Truncated task_id with full id available on hover via title attribute.
+ * ------------------------------------------------------------------------- */
+.cost-task-id {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  cursor: help;
+}
+
+/* ---------------------------------------------------------------------------
+ * Tool intent badges (Marcus #527 Phase 2)
+ * One badge color per worker tool_intent. The Marcus MCP bucket is the
+ * one we most want to highlight — it's the coordination tax.
+ * ------------------------------------------------------------------------- */
+.cost-tool-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cost-tool-worker-marcus-call {
+  background: rgba(99, 102, 241, 0.12);
+  color: rgb(67, 56, 202);
+  font-weight: 600;
+}
+
+.cost-tool-worker-mcp-call {
+  background: rgba(168, 85, 247, 0.10);
+  color: rgb(126, 34, 206);
+}
+
+.cost-tool-worker-edit {
+  background: rgba(34, 197, 94, 0.10);
+  color: rgb(21, 128, 61);
+}
+
+.cost-tool-worker-bash {
+  background: rgba(245, 158, 11, 0.10);
+  color: rgb(180, 83, 9);
+}
+
+.cost-tool-worker-search,
+.cost-tool-worker-read {
+  background: rgba(100, 116, 139, 0.10);
+  color: rgb(71, 85, 105);
+}
+
+.cost-tool-worker-text {
+  background: rgba(148, 163, 184, 0.10);
+  color: rgb(100, 116, 139);
+  font-style: italic;
+}
+
+.cost-tool-unknown {
+  background: rgba(239, 68, 68, 0.08);
+  color: rgb(153, 27, 27);
+}
+
+/* Task name in TaskSpendPanel (Marcus #530). Plain weight so it reads
+   as a real label, not a code identifier. cost-task-id (existing
+   class above) keeps its mono styling for the id-fallback case. */
+.cost-task-name {
+  font-weight: 500;
+  color: var(--text-primary, #0f172a);
+}

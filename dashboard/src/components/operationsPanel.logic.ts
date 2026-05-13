@@ -133,3 +133,47 @@ export function bucketByCategory(
     };
   }).filter((g) => g.ops.length > 0);
 }
+
+/**
+ * Split a list of operation slices into planner rows and a single
+ * aggregated worker summary (Marcus issue #527).
+ *
+ * The dashboard's per-operation chart only makes sense for planner
+ * rows — for those, ``operation`` carries semantic meaning
+ * (parse_prd, decompose_prd, ...). Worker rows always have
+ * ``operation='turn'``; they would dominate the chart with one
+ * useless bucket while drowning out the planner ops that are
+ * actually informative. We split here so the panel can render
+ * planner ops as the main view and surface the worker aggregate
+ * separately.
+ *
+ * Slices without a ``role`` field are treated as planner so legacy
+ * databases (pre-#527, before the GROUP BY agent_role) keep
+ * rendering exactly as before.
+ *
+ * @param operations The full ``by_operation`` slice array.
+ * @returns ``{plannerOps, workerSummary}`` where ``workerSummary``
+ *          collapses all worker rows into one totals object.
+ */
+export function splitByRole(operations: OperationSlice[]): {
+  plannerOps: OperationSlice[];
+  workerSummary: { events: number; tokens: number; cost: number };
+} {
+  const planner: OperationSlice[] = [];
+  let wEvents = 0;
+  let wTokens = 0;
+  let wCost = 0;
+  for (const op of operations) {
+    if (op.role === 'worker') {
+      wEvents += op.events;
+      wTokens += op.tokens;
+      wCost += op.cost_usd;
+    } else {
+      planner.push(op);
+    }
+  }
+  return {
+    plannerOps: planner,
+    workerSummary: { events: wEvents, tokens: wTokens, cost: wCost },
+  };
+}
