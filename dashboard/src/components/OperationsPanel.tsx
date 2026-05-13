@@ -12,6 +12,14 @@
  *   (1 - cache_hit_rate)``) — that's the prompt-tightening
  *   target Kaia called out in her review.
  *
+ * Marcus #527: worker rows are filtered OUT of this panel. The
+ * ``operation`` column only carries semantic meaning for planner
+ * rows; for workers it's always ``'turn'``, and the right
+ * attribution axes are task_id / agent_id / session_id — surfaced
+ * by ``TaskSpendPanel`` and ``AgentSpendBars``. Worker totals are
+ * still shown as a one-line summary at the bottom of this panel
+ * so spending isn't invisible.
+ *
  * The component is purely presentational: it owns its filter /
  * collapse UI state, but the data comes from a parent prop and the
  * catalog from a separate prop so it can be tested in isolation.
@@ -27,6 +35,7 @@ import {
   CATEGORY_LABELS,
   bucketByCategory,
   pickColdOffender,
+  splitByRole,
   type CategoryKey,
 } from './operationsPanel.logic';
 
@@ -63,13 +72,24 @@ const OperationsPanel = ({ operations, catalog }: Props) => {
   // Default: all categories expanded. Headers toggle collapse.
   const [collapsed, setCollapsed] = useState<Set<CategoryKey>>(new Set());
 
+  // Marcus #527: separate planner from worker rows. The chart only
+  // makes sense for planner ops (operation column is semantic there);
+  // worker rows are surfaced as a one-line summary at the bottom so
+  // total spend stays visible without polluting the breakdown. Pure
+  // logic lives in operationsPanel.logic so it can be unit-tested
+  // without DOM/React.
+  const { plannerOps, workerSummary } = useMemo(
+    () => splitByRole(operations),
+    [operations],
+  );
+
   // Map operations into category groups. Pure logic in
   // ``operationsPanel.logic.ts`` — see that file's docstring for the
   // ``'other'`` fallback semantics and the rationale for empty-bucket
   // filtering.
   const groups = useMemo(
-    () => bucketByCategory(operations, catalog),
-    [operations, catalog],
+    () => bucketByCategory(plannerOps, catalog),
+    [plannerOps, catalog],
   );
 
   // Find the worst cold-cache offender across all operations.
@@ -78,10 +98,11 @@ const OperationsPanel = ({ operations, catalog }: Props) => {
   // off (avoids the chip jumping around as filters change). The
   // pure logic is in ``operationsPanel.logic.ts``; it skips
   // unregistered/typo operations and applies the 1000-token
-  // threshold.
+  // threshold. Scoped to plannerOps for the same reason this whole
+  // panel is — see #527.
   const coldOffenderKey = useMemo(
-    () => pickColdOffender(operations, catalog),
-    [operations, catalog],
+    () => pickColdOffender(plannerOps, catalog),
+    [plannerOps, catalog],
   );
 
   // ID prefix for table elements so aria-controls on each group
@@ -114,9 +135,10 @@ const OperationsPanel = ({ operations, catalog }: Props) => {
       <h3>
         Tokens by operation{' '}
         <small className="cost-panel-hint">
-          Grouped by category. Click a pill to filter, a header to collapse.
-          🔥 marks the biggest cold-cache opportunity — the row where
-          tightening the prompt would save the most tokens.
+          <strong>Planner only.</strong> Worker turns are aggregated below —
+          see <em>Tokens by task</em> and <em>Cost by agent</em> for worker
+          attribution. Grouped by category. Click a pill to filter, a header
+          to collapse. 🔥 marks the biggest cold-cache opportunity.
         </small>
       </h3>
 
@@ -157,6 +179,12 @@ const OperationsPanel = ({ operations, catalog }: Props) => {
               pill above to bring its rows back.
             </p>
           );
+        }
+        if (plannerOps.length === 0) {
+          // Edge case: the run made worker calls but zero planner
+          // calls. Don't show an empty planner chart — surface the
+          // worker total directly so the user knows where to look.
+          return null;
         }
         return visibleGroups.map((g) => {
           const isCollapsed = collapsed.has(g.category);
@@ -257,6 +285,21 @@ const OperationsPanel = ({ operations, catalog }: Props) => {
           );
         });
       })()}
+
+      {workerSummary.events > 0 && (
+        <div className="cost-operation-worker-summary">
+          <span className="cost-operation-worker-summary-label">
+            Worker turns (one bucket, all agents):
+          </span>{' '}
+          <strong>{workerSummary.events.toLocaleString()}</strong> events ·{' '}
+          <strong>{formatTokens(workerSummary.tokens)}</strong> tokens ·{' '}
+          <strong>{formatUsd(workerSummary.cost, 4)}</strong>
+          <p className="cost-panel-hint">
+            For per-task and per-agent breakdown of worker spend, see the
+            panels above. Per-tool breakdown is planned (#527 Phase 2).
+          </p>
+        </div>
+      )}
     </section>
   );
 };

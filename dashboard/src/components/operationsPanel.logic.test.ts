@@ -17,6 +17,7 @@ import {
   bucketByCategory,
   coldCacheScore,
   pickColdOffender,
+  splitByRole,
 } from './operationsPanel.logic';
 
 // -----------------------------------------------------------------
@@ -254,5 +255,69 @@ describe('bucketByCategory', () => {
     const observed = groups.map((g) => g.category);
     const expected = ALL_CATEGORIES.filter((c) => observed.includes(c));
     expect(observed).toEqual(expected);
+  });
+});
+
+
+// ---------------------------------------------------------------------
+// splitByRole — Marcus #527 Phase 1
+// ---------------------------------------------------------------------
+
+describe('splitByRole', () => {
+  it('puts planner rows into plannerOps and aggregates worker rows', () => {
+    const ops: OperationSlice[] = [
+      makeOp({ operation: 'parse_prd', role: 'planner', events: 1, tokens: 1500, cost_usd: 0.01 }),
+      makeOp({ operation: 'decompose_prd', role: 'planner', events: 1, tokens: 2000, cost_usd: 0.02 }),
+      makeOp({ operation: 'turn', role: 'worker', events: 67000, tokens: 7_000_000_000, cost_usd: 25.0 }),
+    ];
+    const { plannerOps, workerSummary } = splitByRole(ops);
+    expect(plannerOps.map((o) => o.operation)).toEqual(['parse_prd', 'decompose_prd']);
+    expect(workerSummary).toEqual({
+      events: 67000,
+      tokens: 7_000_000_000,
+      cost: 25.0,
+    });
+  });
+
+  it('aggregates multiple worker rows into one summary', () => {
+    // Even if backend ever emits multiple worker buckets (e.g. by
+    // tool_intent in #527 Phase 2), splitByRole collapses them so the
+    // current panel keeps showing a single worker total.
+    const ops: OperationSlice[] = [
+      makeOp({ operation: 'turn', role: 'worker', events: 100, tokens: 1_000_000, cost_usd: 5.0 }),
+      makeOp({ operation: 'turn', role: 'worker', events: 50, tokens: 500_000, cost_usd: 2.5 }),
+    ];
+    const { plannerOps, workerSummary } = splitByRole(ops);
+    expect(plannerOps).toEqual([]);
+    expect(workerSummary.events).toBe(150);
+    expect(workerSummary.tokens).toBe(1_500_000);
+    expect(workerSummary.cost).toBe(7.5);
+  });
+
+  it('treats role-less slices as planner for legacy compatibility', () => {
+    // Pre-#527 backends emit by_operation without a ``role`` field.
+    // The dashboard must keep working against an old Marcus until
+    // both sides upgrade — treating missing role as planner means
+    // the chart looks the same as before the split.
+    const ops: OperationSlice[] = [
+      makeOp({ operation: 'parse_prd', events: 1, tokens: 1500, cost_usd: 0.01 }),
+    ];
+    const { plannerOps, workerSummary } = splitByRole(ops);
+    expect(plannerOps).toHaveLength(1);
+    expect(workerSummary.events).toBe(0);
+  });
+
+  it('returns zero workerSummary when there are no worker rows', () => {
+    const ops: OperationSlice[] = [
+      makeOp({ operation: 'parse_prd', role: 'planner', events: 1, tokens: 1500, cost_usd: 0.01 }),
+    ];
+    const { workerSummary } = splitByRole(ops);
+    expect(workerSummary).toEqual({ events: 0, tokens: 0, cost: 0 });
+  });
+
+  it('handles empty input', () => {
+    const { plannerOps, workerSummary } = splitByRole([]);
+    expect(plannerOps).toEqual([]);
+    expect(workerSummary).toEqual({ events: 0, tokens: 0, cost: 0 });
   });
 });

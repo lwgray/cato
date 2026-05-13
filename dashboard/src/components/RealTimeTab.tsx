@@ -18,7 +18,9 @@ import {
   type ProjectFullSummary,
 } from '../services/costService';
 import AgentSpendBars from './AgentSpendBars';
+import AuditBanner from './AuditBanner';
 import OperationsPanel from './OperationsPanel';
+import TaskSpendPanel from './TaskSpendPanel';
 import './RealTimeTab.css';
 
 interface Props {
@@ -136,6 +138,7 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
 
   return (
     <div className="cost-realtime">
+      <AuditBanner audit={summary.audit} />
       <header className="cost-headline">
         <div className="cost-headline-title">
           <span className="cost-experiment-name">
@@ -209,6 +212,8 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
           <AgentSpendBars agents={summary.by_agent} />
         </div>
       </section>
+
+      <TaskSpendPanel tasks={summary.by_task} />
 
       <OperationsPanel
         operations={summary.by_operation}

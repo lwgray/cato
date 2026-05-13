@@ -61,6 +61,14 @@ export interface TaskSlice {
 
 export interface OperationSlice {
   operation: string;
+  /**
+   * ``'planner'`` or ``'worker'``. Lets the dashboard split planner
+   * rows (where ``operation`` carries semantic meaning like
+   * ``parse_prd``) from worker rows (which are always ``'turn'`` and
+   * are better attributed via ``by_task`` / ``by_agent``). See
+   * Marcus issue #527.
+   */
+  role?: string;
   events: number;
   tokens: number;
   /**
@@ -75,6 +83,26 @@ export interface OperationSlice {
   output_tokens?: number;
   cache_hit_rate?: number;
   cost_usd: number;
+}
+
+/**
+ * Token-attribution audit for a run or project (Marcus issue #527).
+ *
+ * Answers the question *"is every token recorded for this scope
+ * accounted for?"*. A healthy audit shows ``reconciles=true`` and
+ * zero ``worker_events_without_task_id``. The dashboard's
+ * ``AuditBanner`` renders this as a single line.
+ */
+export interface CostAudit {
+  total_events: number;
+  total_tokens: number;
+  by_role_total_tokens: number;
+  reconciles: boolean;
+  tokens_outside_known_roles: number;
+  planner_events: number;
+  worker_events: number;
+  worker_events_without_task_id: number;
+  worker_events_without_agent_id: number;
 }
 
 export interface ModelSlice {
@@ -115,6 +143,8 @@ export interface RunSummary {
   by_task: TaskSlice[];
   by_operation: OperationSlice[];
   by_model: ModelSlice[];
+  /** Marcus #527: token-attribution audit inline on the summary. */
+  audit?: CostAudit;
 }
 
 export interface TurnPoint {
@@ -260,6 +290,8 @@ export interface ProjectFullSummary {
   by_task: TaskSlice[];
   by_operation: OperationSlice[];
   by_model: ModelSlice[];
+  /** Marcus #527: token-attribution audit inline on the summary. */
+  audit?: CostAudit;
 }
 
 export async function fetchProjectFullSummary(
