@@ -118,6 +118,27 @@ export interface ModelSlice {
   cost_usd: number;
 }
 
+/**
+ * Worker-only slice grouped by the Claude Code tool the agent invoked
+ * on each turn (Marcus issue #527 Phase 2). Populated by the JSONL
+ * parser; null on planner rows.
+ *
+ * Values for ``tool_intent``:
+ * - ``worker_marcus_call`` — talking to Marcus via MCP (coordination tax)
+ * - ``worker_mcp_call`` — non-Marcus MCP servers
+ * - ``worker_edit`` — Edit / Write / NotebookEdit
+ * - ``worker_bash`` — Bash (tests, builds, git)
+ * - ``worker_search`` — Grep / Glob / ToolSearch
+ * - ``worker_read`` — Read
+ * - ``worker_text`` — text-only response, no tool use
+ */
+export interface ToolSlice {
+  tool_intent: string;
+  events: number;
+  tokens: number;
+  cost_usd: number;
+}
+
 export interface RunSummary {
   run_id: string;
   project_id: string;
@@ -143,6 +164,8 @@ export interface RunSummary {
   by_task: TaskSlice[];
   by_operation: OperationSlice[];
   by_model: ModelSlice[];
+  /** Marcus #527 Phase 2: per-tool worker spend breakdown. */
+  by_tool?: ToolSlice[];
   /** Marcus #527: token-attribution audit inline on the summary. */
   audit?: CostAudit;
 }
@@ -290,6 +313,8 @@ export interface ProjectFullSummary {
   by_task: TaskSlice[];
   by_operation: OperationSlice[];
   by_model: ModelSlice[];
+  /** Marcus #527 Phase 2: per-tool worker spend breakdown. */
+  by_tool?: ToolSlice[];
   /** Marcus #527: token-attribution audit inline on the summary. */
   audit?: CostAudit;
 }

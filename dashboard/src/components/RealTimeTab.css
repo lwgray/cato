@@ -514,3 +514,54 @@
   color: var(--text-muted, #64748b);
   cursor: help;
 }
+
+/* ---------------------------------------------------------------------------
+ * Tool intent badges (Marcus #527 Phase 2)
+ * One badge color per worker tool_intent. The Marcus MCP bucket is the
+ * one we most want to highlight — it's the coordination tax.
+ * ------------------------------------------------------------------------- */
+.cost-tool-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cost-tool-worker-marcus-call {
+  background: rgba(99, 102, 241, 0.12);
+  color: rgb(67, 56, 202);
+  font-weight: 600;
+}
+
+.cost-tool-worker-mcp-call {
+  background: rgba(168, 85, 247, 0.10);
+  color: rgb(126, 34, 206);
+}
+
+.cost-tool-worker-edit {
+  background: rgba(34, 197, 94, 0.10);
+  color: rgb(21, 128, 61);
+}
+
+.cost-tool-worker-bash {
+  background: rgba(245, 158, 11, 0.10);
+  color: rgb(180, 83, 9);
+}
+
+.cost-tool-worker-search,
+.cost-tool-worker-read {
+  background: rgba(100, 116, 139, 0.10);
+  color: rgb(71, 85, 105);
+}
+
+.cost-tool-worker-text {
+  background: rgba(148, 163, 184, 0.10);
+  color: rgb(100, 116, 139);
+  font-style: italic;
+}
+
+.cost-tool-unknown {
+  background: rgba(239, 68, 68, 0.08);
+  color: rgb(153, 27, 27);
+}

@@ -21,6 +21,7 @@ import AgentSpendBars from './AgentSpendBars';
 import AuditBanner from './AuditBanner';
 import OperationsPanel from './OperationsPanel';
 import TaskSpendPanel from './TaskSpendPanel';
+import ToolIntentPanel from './ToolIntentPanel';
 import './RealTimeTab.css';
 
 interface Props {
@@ -214,6 +215,8 @@ const RealTimeTab = ({ projectId, pollIntervalMs = 5000 }: Props) => {
       </section>
 
       <TaskSpendPanel tasks={summary.by_task} />
+
+      <ToolIntentPanel tools={summary.by_tool} />
 
       <OperationsPanel
         operations={summary.by_operation}
