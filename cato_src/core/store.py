@@ -182,6 +182,14 @@ class Task:
     # Latest blocker AI suggestions (only populated for blocked tasks)
     blocker_ai_suggestions: Optional[Dict[str, Any]] = None
 
+    # True when the parent task was auto-completed via its subtasks (Marcus's
+    # check_and_complete_parent_task path). The aggregator rolls up subtask
+    # timing/agent/hours so DAG/Board render correctly, but SwimLane should
+    # skip these — subtasks interleave on the same agent, so a single bar
+    # would falsely imply contiguous work. Use Subtasks view for real
+    # timing on these parents.
+    work_via_subtasks: bool = False
+
     def __post_init__(self) -> None:
         """Validate timezone-aware timestamps."""
         if self.created_at.tzinfo is None:

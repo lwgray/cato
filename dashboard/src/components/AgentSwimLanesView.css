@@ -13,6 +13,21 @@
   position: relative;
 }
 
+.swimlane-hint {
+  margin: 0.75rem 1rem 1.25rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  background-color: rgba(30, 41, 59, 0.5);
+  border-left: 3px solid #64748b;
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+
+.swimlane-hint strong {
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
 .swimlanes-content {
   position: relative;
   min-height: 100%;
