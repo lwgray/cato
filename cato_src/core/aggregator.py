@@ -2437,13 +2437,26 @@ class Aggregator:
         def _start(c: Dict[str, Any]) -> Optional[str]:
             return c.get("started_at") or c.get("created_at")
 
+        def _is_done(c: Dict[str, Any]) -> bool:
+            if c.get("completed_at"):
+                return True
+            return (c.get("status") or "").lower() in ("done", "completed")
+
         def _end(c: Dict[str, Any]) -> Optional[str]:
+            # updated_at is a placeholder on incomplete subtasks — only treat
+            # it as an end time once the child has actually completed,
+            # otherwise an active parent gets marked completed.
+            if not _is_done(c):
+                return None
             return c.get("completed_at") or c.get("updated_at")
 
         rollup: Dict[str, Dict[str, Any]] = {}
         for pid, children in subtasks_by_parent.items():
             starts = [s for c in children if (s := _start(c))]
-            ends = [e for c in children if (e := _end(c))]
+            # completed_at only rolls up when every child is done — a partial
+            # rollup would mark a still-active parent completed.
+            all_done = all(_is_done(c) for c in children)
+            ends = [e for c in children if (e := _end(c))] if all_done else []
             hours = [
                 c["actual_hours"]
                 for c in children
