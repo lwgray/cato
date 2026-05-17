@@ -8,7 +8,7 @@ exclude = ["tests*", "dashboard*"]
 
 [project]
 name = "cato"
-version = "0.3.3"
+version = "0.3.4"
 description = "Multi-agent parallelization visualization dashboard for Marcus"
 readme = "README.md"
 requires-python = ">=3.11"
