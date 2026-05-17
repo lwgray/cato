@@ -10,11 +10,10 @@ minimum compatible Marcus version.
 
 ## [Unreleased]
 
-## [0.3.2] - 2026-05-17
+## [0.3.3] - 2026-05-17
 
 Adds the cost dashboard — a full per-project / per-task / per-tool view of
-Marcus token spend — alongside three regression fixes from the v0.3.1
-project-scoped fast path.
+Marcus token spend.
 
 ### Added
 - **Cost dashboard.** New `/api/cost/*` endpoints backed by Marcus, with a
@@ -32,6 +31,12 @@ project-scoped fast path.
 - Aggregator mirrors Marcus's runs/path rename.
 - Worker JSONL ingestion wired through; pricing UX cleanup.
 - Dashboard dev server moved to port 5847 with auto-bump.
+
+## [0.3.2] - 2026-05-07
+
+Three regressions from the v0.3.1 project-scoped fast path. All showed up as
+DAG/Board nodes being absent at project start and only "appearing" once an
+agent worked on them.
 
 ### Fixed
 - **Hex-Planka projects load all parents from creation time.**
