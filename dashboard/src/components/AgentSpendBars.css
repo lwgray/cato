@@ -1,0 +1,25 @@
+.agent-spend-bars {
+  font-family: var(--font-mono, ui-monospace, 'SF Mono', monospace);
+}
+
+.agent-spend-bars .agent-label {
+  font-size: 12px;
+  fill: var(--text-color, #1e293b);
+}
+
+.agent-spend-bars .agent-cost {
+  font-size: 11px;
+  fill: var(--text-muted, #475569);
+}
+
+.agent-spend-bars .agent-spend-row:hover rect {
+  opacity: 1;
+}
+
+.agent-spend-empty {
+  padding: 24px;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
+}

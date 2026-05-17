@@ -10,6 +10,28 @@ minimum compatible Marcus version.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-05-17
+
+Adds the cost dashboard — a full per-project / per-task / per-tool view of
+Marcus token spend.
+
+### Added
+- **Cost dashboard.** New `/api/cost/*` endpoints backed by Marcus, with a
+  real-time cost tab and Historical / Budget / Pricing tabs.
+- Project-first dashboard layout with project as the primary axis across the
+  API and UI; unified project picker; Historical and Pricing surfaced in
+  Settings.
+- Per-task and per-tool cost audit views; operation-taxonomy drill-down in the
+  Real-time tab.
+- Subtask timing rolls up onto auto-completed parent tasks.
+- Show Subtasks / Parents / All toggle on graph views.
+- Persistent project names and global CSS theme tokens.
+
+### Changed
+- Aggregator mirrors Marcus's runs/path rename.
+- Worker JSONL ingestion wired through; pricing UX cleanup.
+- Dashboard dev server moved to port 5847 with auto-bump.
+
 ## [0.3.2] - 2026-05-07
 
 Three regressions from the v0.3.1 project-scoped fast path. All showed up as

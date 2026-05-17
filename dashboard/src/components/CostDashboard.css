@@ -1,0 +1,231 @@
+.cost-dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+  background: var(--bg-canvas, #f8fafc);
+}
+
+.cost-dashboard-error {
+  padding: 48px;
+  text-align: center;
+  color: var(--text-muted, #64748b);
+}
+
+.cost-dashboard-error h2 {
+  font-size: 18px;
+  margin: 0 0 8px;
+  color: var(--text-color, #1e293b);
+}
+
+.cost-dashboard-error .hint {
+  font-size: 12px;
+  margin-top: 12px;
+  font-style: italic;
+}
+
+.cost-dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-elevated, #ffffff);
+}
+
+.cost-dashboard-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.cost-experiment-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.cost-experiment-picker label {
+  color: var(--text-muted, #64748b);
+}
+
+.cost-experiment-picker select {
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 6px;
+  background: var(--bg-elevated, #ffffff);
+  min-width: 240px;
+}
+
+.cost-tab-strip {
+  display: flex;
+  gap: 4px;
+  padding: 8px 24px 0;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-elevated, #ffffff);
+}
+
+.cost-tab-strip button {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  color: var(--text-muted, #64748b);
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.cost-tab-strip button:hover:not(:disabled) {
+  color: var(--text-color, #1e293b);
+}
+
+.cost-tab-strip button.active {
+  color: var(--accent-color, #0ea5e9);
+  border-bottom-color: var(--accent-color, #0ea5e9);
+}
+
+.cost-tab-strip button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cost-tab-content {
+  flex: 1;
+  overflow: auto;
+}
+
+.cost-empty {
+  padding: 48px;
+  text-align: center;
+  color: var(--text-muted, #64748b);
+  font-size: 14px;
+}
+
+/* Phase-9 project-axis additions */
+
+.cost-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+}
+
+.cost-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.cost-picker label {
+  /* On dark backgrounds the prior #64748b was almost invisible. Lift
+     to a brighter slate so the picker label reads cleanly. */
+  color: var(--text-primary, #e2e8f0);
+  font-weight: 500;
+}
+
+.cost-picker select {
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid var(--border-color, #475569);
+  border-radius: 6px;
+  background: var(--bg-elevated, #1e293b);
+  color: var(--text-primary, #f1f5f9);
+  min-width: 320px;
+  max-width: 520px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-picker select option {
+  /* Some browsers don't inherit colors well on <option>s when the
+     parent <select> is dark — force the pairing explicitly. */
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+/* Compact caution icon — replaces the wide inline 'Unassigned: …'
+   banner that previously pushed the picker off-screen. Click to
+   toggle the popover with details. */
+.cost-unassigned-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  color: #fbbf24;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.cost-unassigned-icon:hover {
+  background: rgba(245, 158, 11, 0.32);
+}
+
+.cost-unassigned-popover {
+  margin-top: 10px;
+  padding: 12px 16px;
+  background: var(--bg-elevated, #1e293b);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 8px;
+  color: var(--text-primary, #f1f5f9);
+  max-width: 520px;
+}
+
+.cost-unassigned-popover h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: #fbbf24;
+}
+
+.cost-unassigned-popover .hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-muted, #cbd5e1);
+}
+
+.cost-unassigned-stats {
+  display: flex;
+  gap: 18px;
+  margin: 0 0 8px;
+}
+
+.cost-unassigned-stats > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.cost-unassigned-stats dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #94a3b8);
+}
+
+.cost-unassigned-stats dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-unassigned-close {
+  font-size: 12px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--text-muted, #cbd5e1);
+  border: 1px solid var(--border-color, #475569);
+  border-radius: 4px;
+  cursor: pointer;
+}

@@ -1,0 +1,163 @@
+.cost-pricing {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 24px;
+}
+
+.cost-pricing .empty {
+  padding: 16px;
+  color: var(--text-muted, #64748b);
+  font-style: italic;
+}
+
+.cost-pricing .hint {
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+  margin: 0 0 12px;
+}
+
+.cost-pricing .cost-error.inline {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 6px;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+/* Cost table rows previously inherited the muted color so the prices
+   were invisible against the dark theme (user feedback on PR #33).
+   Explicit color anchors all cells to the readable foreground. */
+.cost-pricing .cost-table td {
+  color: var(--text-color, #1e293b);
+}
+
+.cost-pricing .model-cell {
+  font-family: var(--font-mono, ui-monospace, 'SF Mono', monospace);
+  font-size: 12px;
+}
+
+.cost-pricing .price-cell {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cost-pricing .override-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  background: var(--bg-elevated, #ffffff);
+  color: var(--text-color, #1e293b);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cost-pricing .override-btn:hover {
+  border-color: #0ea5e9;
+  color: #0ea5e9;
+}
+
+.source-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.source-default {
+  background: rgba(100, 116, 139, 0.15);
+  color: #475569;
+}
+
+.source-cato_user {
+  background: rgba(14, 165, 233, 0.15);
+  color: #0369a1;
+}
+
+.source-contract {
+  background: rgba(124, 58, 237, 0.15);
+  color: #6d28d9;
+}
+
+/* Form */
+
+.price-form {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.price-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.price-form label > span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #64748b);
+}
+
+.price-form input,
+.price-form select {
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 4px;
+  background: var(--bg-elevated, #ffffff);
+  font-family: inherit;
+}
+
+.price-form input:focus,
+.price-form select:focus {
+  outline: 2px solid rgba(14, 165, 233, 0.4);
+  outline-offset: 0;
+  border-color: #0ea5e9;
+}
+
+.form-footer {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+  margin-top: 8px;
+}
+
+.form-footer button {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  background: #0ea5e9;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.form-footer button:hover:not(:disabled) {
+  background: #0284c7;
+}
+
+.form-footer button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.form-msg {
+  font-size: 13px;
+}
+
+.form-error {
+  color: #b91c1c;
+}
+
+.form-success {
+  color: #15803d;
+}

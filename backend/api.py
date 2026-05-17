@@ -147,6 +147,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Cost-tracking router (Marcus issue #409). Imports Marcus's CostStore /
+# CostAggregator directly via cost_routes; available iff Marcus is on
+# sys.path with src/cost_tracking present.
+from backend.cost_routes import router as cost_router  # noqa: E402
+
+app.include_router(cost_router)
+
 # Initialize aggregator for snapshot API — multi-root if configured
 aggregator = (
     Aggregator(

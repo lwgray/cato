@@ -1,3 +1,26 @@
+/* Theme tokens. Cato historically used hardcoded hex everywhere; the
+   cost dashboard CSS introduced ``var()`` references with light-theme
+   fallbacks that always applied because nothing defined the vars,
+   producing low-contrast text on Cato's dark background. Defining the
+   tokens here makes every ``var(--…)`` resolve to the dark palette
+   that matches the rest of the app. */
+:root {
+  --bg-canvas: #0f172a;
+  --bg-elevated: #1e293b;
+  --bg-hover: #334155;
+
+  --text-primary: #f1f5f9;
+  --text-color: #f1f5f9;
+  --text-muted: #cbd5e1;
+
+  --border-color: #475569;
+
+  --primary: #3b82f6;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+}
+
 * {
   margin: 0;
   padding: 0;
