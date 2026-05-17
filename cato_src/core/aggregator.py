@@ -784,6 +784,12 @@ class Aggregator:
         # (must happen before parent tasks are filtered out)
         raw_tasks = self._inherit_parent_dependencies_to_first_subtask(raw_tasks)
 
+        # Step 2.5: Stash a parent→subtask-rollup snapshot BEFORE the filter
+        # removes subtasks. Applied AFTER message-enrichment below so the
+        # rollup wins over message-derived started_at (which is the late
+        # auto_complete event timestamp, not the real work span).
+        subtask_rollup = self._build_subtask_rollup(raw_tasks)
+
         # Step 3: Filter tasks by view mode
         filtered_tasks = self._filter_tasks_by_view(raw_tasks, view_mode)
 
@@ -791,10 +797,29 @@ class Aggregator:
         # Create task_ids set early for message filtering
         task_ids_set = {t["id"] for t in filtered_tasks}
 
+        # In parents view, agents do work on subtasks — their status_update
+        # messages reference subtask IDs. Rewrite those to the parent ID so
+        # they surface in the parent's conversation pane.
+        subtask_to_parent: Dict[str, str] = {}
+        if view_mode == "parents":
+            for t in raw_tasks:
+                tid = t.get("id")
+                pid = t.get("parent_task_id")
+                if tid and pid and str(pid) in task_ids_set:
+                    subtask_to_parent[str(tid)] = str(pid)
+
+        def _resolve_task_id(msg: Dict[str, Any]) -> Optional[str]:
+            tid = msg.get("task_id") or msg.get("metadata", {}).get("task_id")
+            if tid and tid in subtask_to_parent:
+                rewritten = subtask_to_parent[tid]
+                msg["task_id"] = rewritten
+                return rewritten
+            return str(tid) if tid else None
+
         # PASS 1: Filter messages directly related to project tasks
         task_related_messages = []
         for msg in raw_messages:
-            task_id = msg.get("task_id") or msg.get("metadata", {}).get("task_id")
+            task_id = _resolve_task_id(msg)
             if task_id and task_id in task_ids_set:
                 task_related_messages.append(msg)
 
@@ -852,7 +877,7 @@ class Aggregator:
         # PASS 2: Include all messages involving project agents
         filtered_messages = []
         for msg in raw_messages:
-            task_id = msg.get("task_id") or msg.get("metadata", {}).get("task_id")
+            task_id = _resolve_task_id(msg)
             from_agent = msg.get("from_agent_id")
             to_agent = msg.get("to_agent_id")
 
@@ -899,6 +924,14 @@ class Aggregator:
         # Step 5.5: Calculate synthetic start times based on dependencies
         # (for tasks without started_at but with dependencies)
         self._calculate_synthetic_start_times(filtered_tasks)
+
+        # Step 5.6: Apply parent timing rollup LAST. Overrides both message-
+        # derived started_at (auto_complete event timestamp) and the
+        # dep-completion clamp from synthesize_start_times — the rollup
+        # spans the real work window (first subtask start → last subtask
+        # end), and a parent's subtasks legitimately start before sibling
+        # parents finish.
+        self._apply_subtask_rollup(filtered_tasks, subtask_rollup)
 
         # Step 6: Calculate timeline boundaries
         timeline_start, timeline_end, duration_minutes = self._calculate_timeline(
@@ -1539,6 +1572,9 @@ class Aggregator:
             )
 
             # Step 5: Apply enrichment in-place (subset of enrich_tasks_with_timing)
+            # Populate started_at/completed_at AND created_at/updated_at — the
+            # former so getTaskStateAtTime + synth see the real per-task start
+            # (without it, every same-dep sibling collapses onto latest_dep_end).
             for task in project_tasks:
                 task_id = str(task.get("id") or task.get("task_id") or "")
                 outcome = outcomes_by_task.get(task_id)
@@ -1546,14 +1582,18 @@ class Aggregator:
                     task["actual_hours"] = outcome["actual_hours"]
                     if outcome.get("started_at"):
                         task["created_at"] = outcome["started_at"]
+                        task["started_at"] = outcome["started_at"]
                     if outcome.get("completed_at"):
                         task["updated_at"] = outcome["completed_at"]
+                        task["completed_at"] = outcome["completed_at"]
                 timing = timings_by_task.get(task_id)
                 if timing:
                     if "start_time" in timing:
                         task["created_at"] = timing["start_time"]
+                        task["started_at"] = timing["start_time"]
                     if "end_time" in timing:
                         task["updated_at"] = timing["end_time"]
+                        task["completed_at"] = timing["end_time"]
                     if "duration_hours" in timing:
                         task["actual_hours"] = timing["duration_hours"]
 
@@ -2378,6 +2418,116 @@ class Aggregator:
 
         return "work"
 
+    def _build_subtask_rollup(
+        self, tasks: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Aggregate subtask timing per parent.
+
+        Run before parents-view filtering removes subtasks. The returned
+        map is applied by ``_apply_subtask_rollup`` after enrichment.
+        """
+        subtasks_by_parent: Dict[str, List[Dict[str, Any]]] = {}
+        for t in tasks:
+            pid = t.get("parent_task_id")
+            if pid:
+                subtasks_by_parent.setdefault(str(pid), []).append(t)
+
+        # Fast path stores outcome timestamps in created_at/updated_at, not
+        # started_at/completed_at — so accept either source per subtask.
+        def _start(c: Dict[str, Any]) -> Optional[str]:
+            return c.get("started_at") or c.get("created_at")
+
+        def _is_done(c: Dict[str, Any]) -> bool:
+            if c.get("completed_at"):
+                return True
+            return (c.get("status") or "").lower() in ("done", "completed")
+
+        def _end(c: Dict[str, Any]) -> Optional[str]:
+            # updated_at is a placeholder on incomplete subtasks — only treat
+            # it as an end time once the child has actually completed,
+            # otherwise an active parent gets marked completed.
+            if not _is_done(c):
+                return None
+            return c.get("completed_at") or c.get("updated_at")
+
+        rollup: Dict[str, Dict[str, Any]] = {}
+        for pid, children in subtasks_by_parent.items():
+            starts = [s for c in children if (s := _start(c))]
+            # completed_at only rolls up when every child is done — a partial
+            # rollup would mark a still-active parent completed.
+            all_done = all(_is_done(c) for c in children)
+            ends = [e for c in children if (e := _end(c))] if all_done else []
+            hours = [
+                c["actual_hours"]
+                for c in children
+                if isinstance(c.get("actual_hours"), (int, float))
+            ]
+            agent_counts: Dict[str, int] = {}
+            for c in children:
+                aid = c.get("assigned_agent_id")
+                if aid:
+                    agent_counts[aid] = agent_counts.get(aid, 0) + 1
+
+            rollup[pid] = {
+                "started_at": min(starts) if starts else None,
+                "completed_at": max(ends) if ends else None,
+                "actual_hours": sum(hours) if hours else None,
+                "assigned_agent_id": (
+                    max(agent_counts, key=lambda k: agent_counts[k])
+                    if agent_counts
+                    else None
+                ),
+            }
+        return rollup
+
+    def _apply_subtask_rollup(
+        self,
+        tasks: List[Dict[str, Any]],
+        rollup: Dict[str, Dict[str, Any]],
+    ) -> None:
+        """Apply pre-computed subtask rollup to parents.
+
+        Marcus intentionally writes NO ``task_outcomes`` row for parents that
+        auto-complete via ``check_and_complete_parent_task`` — the work data
+        lives on the subtask outcomes, attributed to the real worker who did
+        each subtask. Writing a synthetic parent outcome upstream would
+        corrupt agent learning (double-counted hours, inflated total_tasks,
+        skewed skill_success_rates EMA). See the contract comment in
+        ``marcus/src/marcus_mcp/coordinator/subtask_assignment.py``.
+
+        Cato is a denormalized read-side view, so aggregation happens here:
+        we synthesize parent display fields by rolling up subtask data, and
+        flag the parent with ``work_via_subtasks=True`` so per-view rendering
+        decisions stay honest. Overrides message-derived started_at because
+        the auto_complete event timestamp is roughly the last-subtask end,
+        not the real work span.
+        """
+        applied = 0
+        for parent in tasks:
+            pid = str(parent.get("id") or parent.get("task_id") or "")
+            r = rollup.get(pid)
+            if not r:
+                continue
+            applied += 1
+            if r["started_at"]:
+                parent["started_at"] = r["started_at"]
+            if r["completed_at"]:
+                parent["completed_at"] = r["completed_at"]
+                if (
+                    not parent.get("updated_at")
+                    or parent["updated_at"] < r["completed_at"]
+                ):
+                    parent["updated_at"] = r["completed_at"]
+            if r["actual_hours"] is not None and not parent.get("actual_hours"):
+                parent["actual_hours"] = r["actual_hours"]
+            if r["assigned_agent_id"] and not parent.get("assigned_agent_id"):
+                parent["assigned_agent_id"] = r["assigned_agent_id"]
+            # Flag so SwimLane can skip this parent — the rolled-up
+            # min→max span isn't a contiguous work bar (subtasks interleave).
+            parent["work_via_subtasks"] = True
+        if applied:
+            logger.info(f"Applied subtask rollup to {applied} parents")
+
     def _filter_tasks_by_view(
         self, tasks: List[Dict[str, Any]], view_mode: str
     ) -> List[Dict[str, Any]]:
@@ -3090,9 +3240,12 @@ class Aggregator:
         logger.info(f"Calculating timeline from {len(tasks)} tasks")
 
         for task in tasks:
-            # Only use created_at and updated_at for timeline calculation
-            # (started_at/completed_at from messages may have timezone issues)
-            for field in ["created_at", "updated_at"]:
+            # Include started_at/completed_at so message-derived timestamps
+            # (set by _enrich_tasks_with_message_timestamps) extend the
+            # timeline. Without this, tasks whose assignment messages
+            # arrive after the last completed task's updated_at render
+            # as todo 0% because currentAbsTime never reaches their start.
+            for field in ["created_at", "updated_at", "started_at", "completed_at"]:
                 if task.get(field):
                     try:
                         ts_str = task[field]
@@ -3189,6 +3342,17 @@ class Aggregator:
                 # Use earliest assignment
                 earliest = min(assignment_msgs, key=lambda m: m.get("timestamp", ""))
                 task["started_at"] = earliest.get("timestamp")
+                # Backfill assigned_agent_id from the assignment recipient
+                # when neither outcome nor kanban supplied one. Without this
+                # the SwimLane drops the task (its filter requires the agent
+                # match), so e.g. auto_complete assignments to unicorn_N
+                # never surface.
+                if not task.get("assigned_agent_id"):
+                    to_agent = earliest.get("to_agent_id") or earliest.get(
+                        "to_agent_name"
+                    )
+                    if to_agent:
+                        task["assigned_agent_id"] = to_agent
 
             # Find completed_at from worker progress messages
             progress_msgs = [
@@ -3392,6 +3556,7 @@ class Aggregator:
                 metadata=task_data.get("metadata", {}),
                 display_role=self._classify_display_role(task_data),
                 blocker_ai_suggestions=task_data.get("blocker_ai_suggestions"),
+                work_via_subtasks=bool(task_data.get("work_via_subtasks")),
             )
             tasks.append(task)
 

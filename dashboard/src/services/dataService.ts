@@ -108,6 +108,10 @@ export interface Task {
     required_resources?: string[];
     prevention_measures?: string[];
   } | null;
+
+  // Parent auto-completed via subtasks. SwimLane skips these — their
+  // rolled-up span isn't a contiguous work bar (subtasks interleave).
+  work_via_subtasks?: boolean;
 }
 
 /**

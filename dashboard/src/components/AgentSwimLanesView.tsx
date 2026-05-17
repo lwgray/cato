@@ -34,10 +34,18 @@ const AgentSwimLanesView = () => {
     (t) => t.display_role === 'structural'
   );
 
+  // Skip parents whose work happened on interleaved subtasks — their
+  // rolled-up min→max span would overlap with sibling parents on the
+  // same agent. Subtasks view shows real timing for those.
+  const hiddenViaSubtaskRollup = snapshot.tasks.filter((t) => t.work_via_subtasks).length;
+
   const agentTasks = snapshot.agents
     .map((agent) => {
       const tasks = snapshot.tasks.filter(
-        (t) => t.assigned_agent_id === agent.id && (t.display_role || 'work') === 'work'
+        (t) =>
+          t.assigned_agent_id === agent.id &&
+          (t.display_role || 'work') === 'work' &&
+          !t.work_via_subtasks
       );
       return { agent, tasks };
     })
@@ -330,6 +338,13 @@ const AgentSwimLanesView = () => {
             </div>
           ))}
         </div>
+        {hiddenViaSubtaskRollup > 0 && (
+          <div className="swimlane-hint">
+            {hiddenViaSubtaskRollup} auto-completed parent
+            {hiddenViaSubtaskRollup === 1 ? '' : 's'} hidden — switch to
+            <strong> Subtasks</strong> view for real timing.
+          </div>
+        )}
       </div>
 
     </div>
