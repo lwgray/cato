@@ -1465,15 +1465,15 @@ class Aggregator:
             # Determine whether the slow path would take the Planka prefix
             # match or its no-prefix project_id fallback. This gate matches
             # aggregator.py:1656 — non-numeric Planka IDs fall back.
-            has_numeric_planka = False
-            for pid in (planka_board_id, planka_project_id):
-                if pid and len(pid) >= 8:
-                    try:
-                        int(pid[:8])
-                        has_numeric_planka = True
-                        break
-                    except ValueError:
-                        pass
+            # A genuine Planka ID is a fully-numeric string. A SQLite project
+            # ID is a 32-char hex UUID. Testing only ``pid[:8]`` misclassified
+            # hex UUIDs whose first 8 chars happen to be all decimal digits
+            # (e.g. "10519982...") as numeric Planka IDs, routing them down the
+            # prefix-match path that silently drops every hex task ID. Require
+            # the whole string to be numeric.
+            has_numeric_planka = any(
+                pid and pid.isdigit() for pid in (planka_board_id, planka_project_id)
+            )
 
             if has_numeric_planka:
                 # Source B: Planka prefix fuzzy match (numeric IDs only)

@@ -10,6 +10,21 @@ minimum compatible Marcus version.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-05-17
+
+Bugfix release.
+
+### Fixed
+- **Hex project IDs with all-digit prefixes loaded only a few tasks.** Marcus
+  projects use 32-character hexadecimal IDs. The fast task-loading path checked
+  whether a project was a numeric Planka project by inspecting only the first
+  8 characters of its ID. A hex ID whose first 8 characters were coincidentally
+  all decimal digits (e.g. `10519982...`) was misclassified as a Planka
+  project, routing it down a prefix-matching path that silently dropped every
+  hex task ID. Affected projects showed only the 2-4 tasks recovered from
+  conversation logs in the DAG, Swim Lane, and Board views instead of the full
+  task list. The check now requires the entire ID to be numeric.
+
 ## [0.3.3] - 2026-05-17
 
 Adds the cost dashboard — a full per-project / per-task / per-tool view of
