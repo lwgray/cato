@@ -10,6 +10,15 @@ minimum compatible Marcus version.
 
 ## [Unreleased]
 
+### Changed
+- **The Marcus install path is now configurable per machine.** Cato previously
+  hardcoded `/Users/lwgray/dev/marcus` in several places, making it unusable by
+  anyone else. The Marcus location is now resolved dynamically: the `MARCUS_ROOT`
+  environment variable, then `config.local.json` / `config.json`, then
+  auto-detection (Marcus as a sibling of Cato, or `~/dev/marcus`). On first
+  `./cato start`, the CLI prompts for the Marcus root and saves it to
+  `config.local.json` (gitignored); subsequent starts reuse it silently.
+
 ## [0.3.4] - 2026-05-17
 
 Bugfix release.
