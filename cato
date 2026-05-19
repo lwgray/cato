@@ -32,10 +32,10 @@ FRONTEND_PORT=$(python3 -c "import json; print(json.load(open('config.json'))['f
 ensure_marcus_config() {
     # MARCUS_ROOT env var overrides everything — no prompt.
     if [ -n "$MARCUS_ROOT" ]; then
-        if [ -d "$MARCUS_ROOT/data" ]; then
+        if [ -d "$MARCUS_ROOT/data" ] && [ -d "$MARCUS_ROOT/src" ]; then
             return 0
         fi
-        echo -e "${YELLOW}Warning: MARCUS_ROOT set but '$MARCUS_ROOT/data' not found${NC}"
+        echo -e "${YELLOW}Warning: MARCUS_ROOT set but '$MARCUS_ROOT' is missing 'data/' or 'src/'${NC}"
     fi
 
     # Already configured locally and still valid?
@@ -71,7 +71,7 @@ PY
             echo -e "${RED}No path entered. Aborting.${NC}"
             exit 1
         fi
-        if [ -d "$marcus_root/data" ]; then
+        if [ -d "$marcus_root/data" ] && [ -d "$marcus_root/src" ]; then
             python3 - "$marcus_root" <<'PY'
 import json, sys
 from pathlib import Path
@@ -83,8 +83,8 @@ PY
             echo -e "${GREEN}✓ Saved Marcus path to config.local.json${NC}"
             return 0
         fi
-        echo -e "${RED}No 'data/' directory inside: $marcus_root${NC}"
-        echo "Enter the Marcus root — the folder containing 'data/' and 'src/'."
+        echo -e "${RED}'$marcus_root' is missing a 'data/' or 'src/' directory.${NC}"
+        echo "Enter the Marcus root — the folder containing both 'data/' and 'src/'."
     done
 }
 

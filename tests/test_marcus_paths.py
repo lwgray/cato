@@ -172,3 +172,33 @@ def test_discover_returns_none_when_nothing_found(
     """
     monkeypatch.delenv("MARCUS_ROOT", raising=False)
     assert marcus_paths.discover_marcus_root("src/analysis") is None
+
+
+# ---------------------------------------------------------------------------
+# Aggregator auto-detection (no-arg construction)
+# ---------------------------------------------------------------------------
+
+
+def test_aggregator_auto_detect_uses_resolver(
+    isolated_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A no-arg Aggregator() resolves its root via the shared resolver."""
+    from cato_src.core.aggregator import Aggregator
+
+    root = _make_marcus_root(isolated_config, "marcus")
+    monkeypatch.setenv("MARCUS_ROOT", str(root))
+    assert Aggregator().marcus_root == root
+
+
+def test_aggregator_raises_when_marcus_not_found(
+    isolated_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A no-arg Aggregator() fails loudly when Marcus cannot be located.
+
+    Replaces the old silent fallback that pointed at the Cato root.
+    """
+    from cato_src.core.aggregator import Aggregator
+
+    monkeypatch.delenv("MARCUS_ROOT", raising=False)
+    with pytest.raises(RuntimeError, match="Marcus"):
+        Aggregator()

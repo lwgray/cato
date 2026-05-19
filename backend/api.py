@@ -158,14 +158,30 @@ from backend.cost_routes import router as cost_router  # noqa: E402
 
 app.include_router(cost_router)
 
-# Initialize aggregator for snapshot API — multi-root if configured
-aggregator = (
-    Aggregator(
+# Initialize aggregator for snapshot API — multi-root if configured.
+# Resolve a concrete Marcus root up front so a missing/misconfigured
+# install fails loudly at startup instead of silently serving an empty
+# dashboard (the worst failure mode for an observability tool).
+if _extra_marcus_roots:
+    aggregator = Aggregator(
         marcus_roots=_extra_marcus_roots, history_cutoff_date=_history_cutoff_date
     )
-    if _extra_marcus_roots
-    else Aggregator(marcus_root=marcus_root, history_cutoff_date=_history_cutoff_date)
-)
+else:
+    from cato_src.core.marcus_paths import (  # noqa: E402
+        discover_marcus_root as _discover,
+    )
+
+    _live_root = marcus_root or marcus_data_path_root or _discover("data")
+    if _live_root is None:
+        raise RuntimeError(
+            "Cato could not locate the Marcus installation. Set the "
+            "MARCUS_ROOT environment variable, or run `./cato` to configure "
+            "it (this writes config.local.json)."
+        )
+    logger.info(f"Live-mode aggregator using Marcus root: {_live_root}")
+    aggregator = Aggregator(
+        marcus_root=_live_root, history_cutoff_date=_history_cutoff_date
+    )
 
 # Simple in-memory cache for snapshots (60s TTL for better performance)
 snapshot_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}
