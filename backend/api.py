@@ -160,8 +160,17 @@ app.include_router(cost_router)
 
 # Initialize aggregator for snapshot API — multi-root if configured.
 # Resolve a concrete Marcus root up front so a missing/misconfigured
-# install fails loudly at startup instead of silently serving an empty
-# dashboard (the worst failure mode for an observability tool).
+# install fails loudly *at server startup* (see the startup event) rather
+# than silently serving an empty dashboard.
+#
+# Import must not raise: the test suite imports this module without Marcus
+# present. When resolution fails we record the reason in _aggregator_error
+# and bind `aggregator` to a placeholder pointed at a non-existent root —
+# the startup event refuses to serve before any request can use it, so the
+# placeholder is never read. This keeps `aggregator` a plain Aggregator for
+# every endpoint instead of an Optional that each would have to None-check.
+_aggregator_error: Optional[str] = None
+
 if _extra_marcus_roots:
     aggregator = Aggregator(
         marcus_roots=_extra_marcus_roots, history_cutoff_date=_history_cutoff_date
@@ -173,15 +182,18 @@ else:
 
     _live_root = marcus_root or marcus_data_path_root or _discover("data")
     if _live_root is None:
-        raise RuntimeError(
+        _aggregator_error = (
             "Cato could not locate the Marcus installation. Set the "
             "MARCUS_ROOT environment variable, or run `./cato` to configure "
             "it (this writes config.local.json)."
         )
-    logger.info(f"Live-mode aggregator using Marcus root: {_live_root}")
-    aggregator = Aggregator(
-        marcus_root=_live_root, history_cutoff_date=_history_cutoff_date
-    )
+        logger.error(_aggregator_error)
+        aggregator = Aggregator(marcus_root=Path("/nonexistent/marcus-not-configured"))
+    else:
+        logger.info(f"Live-mode aggregator using Marcus root: {_live_root}")
+        aggregator = Aggregator(
+            marcus_root=_live_root, history_cutoff_date=_history_cutoff_date
+        )
 
 # Simple in-memory cache for snapshots (60s TTL for better performance)
 snapshot_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}
@@ -297,7 +309,16 @@ def background_cache_refresh() -> None:
 
 @app.on_event("startup")  # type: ignore[misc]
 async def startup_event() -> None:
-    """Run background tasks on startup."""
+    """Run background tasks on startup.
+
+    Fails loudly if the Marcus installation could not be located: an
+    observability dashboard with no data source should refuse to start,
+    not serve an empty UI. Import-time resolution stays non-fatal so the
+    test suite can import this module without Marcus present.
+    """
+    if _aggregator_error is not None:
+        raise RuntimeError(_aggregator_error)
+
     import threading
 
     # DISABLED: Pre-warming was causing slow startup with many projects
@@ -519,13 +540,20 @@ async def update_settings(body: Dict[str, Any]) -> Dict[str, Any]:
         with open(config_path, "w") as f:
             json.dump(cfg, f, indent=2)
 
-        # Reinitialize aggregator with new cutoff
+        # Reinitialize aggregator with new cutoff, reusing the Marcus
+        # root(s) already resolved at startup so we don't re-run discovery.
+        if _aggregator_error is not None:
+            raise HTTPException(status_code=503, detail=_aggregator_error)
+
         new_cutoff: Optional[str] = cfg.get("history_cutoff_date")
-        aggregator = (
-            Aggregator(marcus_roots=_extra_marcus_roots, history_cutoff_date=new_cutoff)
-            if _extra_marcus_roots
-            else Aggregator(marcus_root=marcus_root, history_cutoff_date=new_cutoff)
-        )
+        if _extra_marcus_roots:
+            aggregator = Aggregator(
+                marcus_roots=_extra_marcus_roots, history_cutoff_date=new_cutoff
+            )
+        else:
+            aggregator = Aggregator(
+                marcus_root=aggregator.marcus_root, history_cutoff_date=new_cutoff
+            )
 
         # Invalidate snapshot cache so next request re-reads with new cutoff
         snapshot_cache.clear()
@@ -533,6 +561,8 @@ async def update_settings(body: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"Settings updated: history_cutoff_date={new_cutoff}")
         return {"history_cutoff_date": new_cutoff}
 
+    except HTTPException:
+        raise  # propagate 503 (Marcus missing) without masking it as 500
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
