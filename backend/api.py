@@ -43,18 +43,10 @@ ProjectHistoryQuery = None
 PostProjectAnalyzer = None
 
 try:
-    # Find Marcus root directory
-    possible_marcus_roots = [
-        Path(__file__).parent.parent.parent / "marcus",  # Sibling to cato
-        Path.home() / "dev" / "marcus",  # Common dev location
-        Path("/Users/lwgray/dev/marcus"),  # Absolute path
-    ]
+    # Find Marcus root directory (MARCUS_ROOT / config / auto-detect)
+    from cato_src.core.marcus_paths import discover_marcus_root  # noqa: E402
 
-    for possible_root in possible_marcus_roots:
-        if (possible_root / "src" / "analysis").exists():
-            marcus_root = possible_root
-            break
-
+    marcus_root = discover_marcus_root("src/analysis")
     if not marcus_root:
         raise ImportError("Marcus root directory not found")
 
@@ -99,37 +91,49 @@ if HISTORICAL_MODE_AVAILABLE and ProjectHistoryAggregator and ProjectHistoryQuer
         logger.error(f"Failed to initialize historical analysis components: {e}")
         HISTORICAL_MODE_AVAILABLE = False
 
-# Load Marcus data path(s) and settings from config (for live mode aggregator)
+# Load Marcus data path(s) and settings from config (for live mode aggregator).
+# config.local.json (gitignored, written by the `cato` CLI) overrides config.json.
+# config_path points at the shared config.json — the /api/settings endpoints
+# read and write history_cutoff_date there.
 config_path = Path(__file__).parent.parent / "config.json"
 marcus_data_path_root = None
 _extra_marcus_roots: list[Path] = []
 _history_cutoff_date: Optional[str] = None
 try:
-    with open(config_path, "r") as f:
-        config = json.load(f)
-        # Multi-path support: marcus_data_paths overrides marcus_data_path
-        multi_paths = config.get("marcus_data_paths")
-        if multi_paths:
-            _extra_marcus_roots = [Path(p).parent for p in multi_paths]
-            marcus_data_path_root = _extra_marcus_roots[0]
-            logger.info(
-                f"Using {len(_extra_marcus_roots)} Marcus data paths from config"
-            )
+    from cato_src.core.marcus_paths import load_merged_config  # noqa: E402
+
+    config = load_merged_config()
+    # Multi-path support: marcus_data_paths overrides marcus_data_path
+    multi_paths = config.get("marcus_data_paths")
+    if multi_paths:
+        _extra_marcus_roots = [Path(p).expanduser().parent for p in multi_paths]
+        marcus_data_path_root = _extra_marcus_roots[0]
+        logger.info(f"Using {len(_extra_marcus_roots)} Marcus data paths from config")
+    else:
+        marcus_data_path = config.get("marcus_data_path")
+        if marcus_data_path:
+            marcus_data_path_root = Path(marcus_data_path).expanduser().parent
+            _extra_marcus_roots = [marcus_data_path_root]
+            logger.info(f"Using Marcus data path from config: {marcus_data_path_root}")
         else:
-            marcus_data_path = config.get("marcus_data_path")
-            if marcus_data_path:
-                marcus_data_path_root = Path(marcus_data_path).parent
-                _extra_marcus_roots = [marcus_data_path_root]
-                logger.info(
-                    f"Using Marcus data path from config: {marcus_data_path_root}"
-                )
-            else:
-                logger.info("No Marcus data path in config, using auto-detection")
-        _history_cutoff_date = config.get("history_cutoff_date")
-        if _history_cutoff_date:
-            logger.info(f"History cutoff date: {_history_cutoff_date}")
+            logger.info("No Marcus data path in config, using auto-detection")
+    _history_cutoff_date = config.get("history_cutoff_date")
+    if _history_cutoff_date:
+        logger.info(f"History cutoff date: {_history_cutoff_date}")
 except Exception as e:
-    logger.warning(f"Could not load config.json: {e}, using auto-detection")
+    logger.warning(f"Could not load config: {e}, using auto-detection")
+
+
+def _project_history_dir() -> Optional[Path]:
+    """Resolve Marcus's ``data/project_history`` directory.
+
+    Uses the discovered Marcus root, falling back to the config-derived
+    data path root. Returns None when Marcus's location is unknown — no
+    machine-specific path is assumed.
+    """
+    root = marcus_root or marcus_data_path_root
+    return (root / "data" / "project_history") if root else None
+
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -1197,13 +1201,10 @@ async def list_historical_projects() -> Any:
                 )
 
         # Find all project IDs from persistence layer
-        if marcus_root:
-            history_dir = marcus_root / "data" / "project_history"
-        else:
-            history_dir = Path.home() / "dev" / "marcus" / "data" / "project_history"
+        history_dir = _project_history_dir()
 
         active_projects_data = []
-        if history_dir.exists():
+        if history_dir and history_dir.exists():
             logger.info(f"Scanning for historical projects in {history_dir}")
 
             # OPTIMIZATION: Only load summaries for active projects
@@ -1320,13 +1321,10 @@ async def list_all_historical_projects(
                 logger.warning(f"Could not load project registry: {e}")
 
         # Find all historical projects
-        if marcus_root:
-            history_dir = marcus_root / "data" / "project_history"
-        else:
-            history_dir = Path.home() / "dev" / "marcus" / "data" / "project_history"
+        history_dir = _project_history_dir()
 
         all_projects = []
-        if history_dir.exists():
+        if history_dir and history_dir.exists():
             logger.info(f"Scanning for all historical projects in {history_dir}")
             for project_dir in history_dir.iterdir():
                 if project_dir.is_dir():
@@ -1399,14 +1397,9 @@ async def stream_historical_projects_list() -> StreamingResponse:
             yield f"data: {event_data}\n\n"
             await asyncio.sleep(0.1)
 
-            if marcus_root:
-                history_dir = marcus_root / "data" / "project_history"
-            else:
-                history_dir = (
-                    Path.home() / "dev" / "marcus" / "data" / "project_history"
-                )
+            history_dir = _project_history_dir()
 
-            if not history_dir.exists():
+            if not history_dir or not history_dir.exists():
                 event_data = json.dumps(
                     {
                         "type": "error",
