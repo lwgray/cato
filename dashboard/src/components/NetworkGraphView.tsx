@@ -271,18 +271,19 @@ const NetworkGraphView = () => {
       byDepth.get(d)!.push(n);
     });
 
+    // Initialize positions for force simulation
+    // Y-position is locked by depth, X-position will be computed by forces
     byDepth.forEach((layerNodes, depth) => {
       const grouped = layerNodes.filter(n => nodePrimaryGhost.has(n.id));
       const ungrouped = layerNodes.filter(n => !nodePrimaryGhost.has(n.id));
 
-      // Ungrouped nodes (roots, shared parents, convergence): center across full width
+      // Ungrouped nodes (roots, shared parents, convergence): spread across full width
       if (ungrouped.length > 0) {
         const hSpacing = (width - padding * 2) / (ungrouped.length + 1);
         ungrouped.forEach((node, i) => {
           node.x = padding + hSpacing * (i + 1);
           node.y = padding + depth * verticalSpacing;
-          node.fx = node.x;
-          node.fy = node.y;
+          node.fy = node.y; // Lock Y position by depth
         });
       }
 
@@ -293,12 +294,17 @@ const NetworkGraphView = () => {
           const groupNodes = grouped.filter(n => nodePrimaryGhost.get(n.id) === ghostId);
           if (groupNodes.length === 0) return;
           const colLeft = padding + gIdx * groupWidth;
+          const colCenter = colLeft + groupWidth / 2;
+
+          // Spread nodes within their column segment
           const hSpacing = groupWidth / (groupNodes.length + 1);
           groupNodes.forEach((node, i) => {
             node.x = colLeft + hSpacing * (i + 1);
             node.y = padding + depth * verticalSpacing;
-            node.fx = node.x;
-            node.fy = node.y;
+            node.fy = node.y; // Lock Y position by depth
+            // Store column center for forces to pull towards
+            (node as any).columnCenter = colCenter;
+            (node as any).columnWidth = groupWidth;
           });
         });
       }
@@ -339,8 +345,15 @@ const NetworkGraphView = () => {
       }
     });
 
-    // No need for force simulation - we have explicit positions
-    const simulation = d3.forceSimulation(visibleNodes);
+    // Set up force simulation with locked Y positions and repulsion for X spacing
+    // Collision radius accounts for circle + text label width (~150px for 25 chars)
+    const simulation = d3.forceSimulation(visibleNodes)
+      .force('collide', d3.forceCollide(85).strength(0.8)) // Large radius for text width + increased strength
+      .force('centerX', d3.forceX((d: any) => d.columnCenter ?? width / 2).strength(0.1)) // Lighter pull to column center
+      .force('centerY', d3.forceY(d => d.y!).strength(0.8)) // Strong lock on Y position
+      .alphaDecay(0.008) // Much slower cooling for better settling
+      .velocityDecay(0.4); // Slightly less friction to allow more movement
+
     simulationRef.current = simulation;
 
 
@@ -511,18 +524,16 @@ const NetworkGraphView = () => {
       .attr('font-style', d => d.isGhost ? 'italic' : 'normal')
       .style('pointer-events', 'none');
 
-    // Positions are already set explicitly in hierarchical layout
-    // No simulation needed - just position the elements
-    simulation.stop();
+    // Update positions as simulation runs
+    simulation.on('tick', () => {
+      link
+        .attr('x1', d => (d.source as GraphNode).x!)
+        .attr('y1', d => (d.source as GraphNode).y!)
+        .attr('x2', d => (d.target as GraphNode).x!)
+        .attr('y2', d => (d.target as GraphNode).y!);
 
-    // Position nodes and links based on hierarchical layout
-    link
-      .attr('x1', d => (d.source as GraphNode).x!)
-      .attr('y1', d => (d.source as GraphNode).y!)
-      .attr('x2', d => (d.target as GraphNode).x!)
-      .attr('y2', d => (d.target as GraphNode).y!);
-
-    node.attr('transform', d => `translate(${d.x},${d.y})`);
+      node.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
 
     // Zoom behavior
     const zoom = d3.zoom<SVGSVGElement, unknown>()
